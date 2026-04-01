@@ -483,6 +483,17 @@ body {
   margin-top: 4px;
 }
 
+.hint-link {
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.hint-link:hover {
+  text-decoration: underline;
+}
+
 .npm-install-form {
   display: flex;
   gap: 8px;

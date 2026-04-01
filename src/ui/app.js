@@ -185,32 +185,7 @@
             : 'Active'
           : 'Inactive';
 
-        // Approval badge
-        var approval = s.approval_status || 'experimental';
-        var approvalDropdown = '';
-        if (openApprovalDropdown === s.id) {
-          approvalDropdown =
-            '<div class="approval-dropdown">' +
-            '<button class="approval-dropdown-item" onclick="window.__setApproval(' +
-            s.id +
-            ", 'experimental')\">experimental</button>" +
-            '<button class="approval-dropdown-item" onclick="window.__setApproval(' +
-            s.id +
-            ", 'approved')\">approved</button>" +
-            '<button class="approval-dropdown-item" onclick="window.__setApproval(' +
-            s.id +
-            ", 'production')\">production</button>" +
-            '</div>';
-        }
-        var approvalBadge =
-          '<span class="approval-badge approval-' +
-          esc(approval) +
-          '" style="position:relative" onclick="window.__toggleApprovalDropdown(' +
-          s.id +
-          ')">' +
-          esc(approval) +
-          approvalDropdown +
-          '</span>';
+        // Approval badge removed — not useful without automatic classification
 
         // Combined status: active+healthy=green, active+unhealthy=red, inactive=gray
         var healthStatus = s.health_status || 'unknown';
@@ -285,7 +260,6 @@
           '<span class="server-name">' +
           esc(s.name) +
           '</span>' +
-          approvalBadge +
           '</div>' +
           '<div style="display:flex;align-items:center;gap:8px">' +
           errorCount +
@@ -496,9 +470,9 @@
       } else {
         el.innerHTML =
           '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results in MCP registry</p>' +
-          '<p class="hint">Install from npm directly:</p>' +
-          '<div class="npm-install-form">' +
-          '<input type="text" id="npm-package-input" placeholder="npm package (e.g. @modelcontextprotocol/server-everything)" />' +
+          "<a class=\"hint-link\" onclick=\"this.nextElementSibling.style.display='flex';this.style.display='none'\">Can't find it? Install from npm</a>" +
+          '<div class="npm-install-form" style="display:none">' +
+          '<input type="text" id="npm-package-input" placeholder="npm package name (e.g. @modelcontextprotocol/server-everything)" />' +
           '<button class="btn-install" onclick="window.__installFromNpm()"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
           '</div></div>';
       }
@@ -617,12 +591,20 @@
       '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span>Installing...';
 
     var safeName = (server.name || '').replace(/\//g, '-');
+    var npmPkg = safeName;
+    // Try to derive npm package name from registry name (e.g. "io.github.user/pkg" -> "@user/pkg")
+    var parts = (server.name || '').split('/');
+    if (parts.length >= 2) {
+      npmPkg = parts[parts.length - 1];
+    }
     fetch('/api/servers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: safeName,
         description: server.description || '',
+        command: 'npx',
+        args: ['-y', server.name || npmPkg],
         source: 'registry',
         tags: ['marketplace'],
       }),
