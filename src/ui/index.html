@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>agent-discover</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='2' y='2' width='12' height='12' rx='2' fill='%235d8da8'/><rect x='18' y='2' width='12' height='12' rx='2' fill='%235d8da8' opacity='0.7'/><rect x='2' y='18' width='12' height='12' rx='2' fill='%235d8da8' opacity='0.7'/><rect x='18' y='18' width='12' height='12' rx='2' fill='%235d8da8' opacity='0.5'/></svg>"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="theme-dark">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span class="material-symbols-outlined sidebar-icon">widgets</span>
+          <div>
+            <div class="sidebar-title">agent-discover</div>
+            <div class="sidebar-version" id="version">v0.0.0</div>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-tab="installed">
+            <span class="material-symbols-outlined">dns</span>
+            <span>Servers</span>
+            <span class="badge" id="installed-count">0</span>
+          </button>
+          <button class="nav-item" data-tab="browse">
+            <span class="material-symbols-outlined">explore</span>
+            <span>Browse</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="connection-status" id="conn-status">
+            <span class="conn-dot"></span>
+            Connecting...
+          </span>
+          <button class="theme-toggle" id="theme-toggle" title="Toggle theme">
+            <span class="material-symbols-outlined">dark_mode</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="content">
+        <section class="tab-panel active" id="tab-installed">
+          <div class="panel-header">
+            <h2 class="section-title">Servers</h2>
+          </div>
+          <div id="installed-list" class="server-grid">
+            <div class="empty-state">
+              <span class="material-symbols-outlined empty-icon">dns</span>
+              <p>No servers registered</p>
+              <p class="hint">Use registry_install or browse the marketplace</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="tab-browse">
+          <div class="panel-header">
+            <h2 class="section-title">Browse MCP Registry</h2>
+            <div class="search-bar">
+              <span class="material-symbols-outlined">search</span>
+              <input
+                type="text"
+                id="browse-search"
+                placeholder="Search MCP servers..."
+                autocomplete="off"
+              />
+            </div>
+          </div>
+          <div id="browse-list" class="server-grid">
+            <div class="empty-state">
+              <span class="material-symbols-outlined empty-icon">explore</span>
+              <p>Search the official MCP registry</p>
+              <p class="hint">Type a query above to discover servers</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="morphdom.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,93 +1,94 @@
-# agent-registry
+# agent-discover
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-2-purple)]()
+[![REST Endpoints](https://img.shields.io/badge/REST-16%20endpoints-orange)]()
 
+**MCP server registry and marketplace.** Discover, install, activate, and manage MCP tools on demand. Acts as a dynamic proxy -- activated servers have their tools merged into the registry's own tool list, so agents can use them without restarting.
 
-## Getting started
+## Why
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Static MCP configs mean every server is always running, even when unused. Adding a new server requires editing config files and restarting. There's no way to browse what's available or install new tools at runtime.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+**agent-discover** solves this:
 
-## Add your files
+- **Register** MCP servers in a local SQLite database
+- **Browse** the official MCP registry (registry.modelcontextprotocol.io) and install with one tool call
+- **Activate/deactivate** servers on demand -- their tools appear and disappear dynamically
+- **Proxy** tool calls transparently -- activated server tools are namespaced as `serverName__toolName`
+- **Secrets management** -- store API keys and tokens per server, automatically injected as env vars on activation
+- **Health monitoring** -- check server health via connect/disconnect probes, track health status and error counts
+- **Metrics** -- per-tool call counts, error counts, and average latency, recorded automatically by the proxy
+- **Approval workflow** -- tag servers as `experimental`, `approved`, or `production`
+- **Config editing** -- update server description, command, args, env, and approval status via REST API or dashboard
+- **Dashboard** shows everything in real time at http://localhost:3424
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Quick Start
 
+```bash
+npm install
+npm run build
+node dist/index.js          # MCP stdio server
+node dist/server.js          # HTTP dashboard only
 ```
-cd existing_repo
-git remote add origin https://gitlab.mukit.at/development/agent-registry.git
-git branch -M main
-git push -uf origin main
+
+Add to Claude Code MCP config:
+
+```json
+{
+  "mcpServers": {
+    "agent-discover": {
+      "command": "node",
+      "args": ["/path/to/agent-discover/dist/index.js"]
+    }
+  }
+}
 ```
 
-## Integrate with your tools
+## MCP Tools
 
-- [ ] [Set up project integrations](https://gitlab.mukit.at/development/agent-registry/-/settings/integrations)
+| Tool              | Actions                                            | Description                                                   |
+| ----------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| `registry`        | `list`, `install`, `uninstall`, `browse`, `status` | Registry management — search, install, remove, browse, status |
+| `registry_server` | `activate`, `deactivate`                           | Server lifecycle — start/stop MCP servers on demand           |
 
-## Collaborate with your team
+## REST API
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+| Method | Path                            | Description                                                                   |
+| ------ | ------------------------------- | ----------------------------------------------------------------------------- |
+| GET    | `/health`                       | Version, uptime                                                               |
+| GET    | `/api/servers`                  | List servers (`?query=`, `?source=`, `?installed=`)                           |
+| GET    | `/api/servers/:id`              | Server details + tools                                                        |
+| POST   | `/api/servers`                  | Register new server                                                           |
+| PUT    | `/api/servers/:id`              | Update server config (description, command, args, env, tags, approval_status) |
+| DELETE | `/api/servers/:id`              | Unregister                                                                    |
+| POST   | `/api/servers/:id/activate`     | Activate                                                                      |
+| POST   | `/api/servers/:id/deactivate`   | Deactivate                                                                    |
+| GET    | `/api/servers/:id/secrets`      | List secrets (masked values)                                                  |
+| PUT    | `/api/servers/:id/secrets/:key` | Set a secret                                                                  |
+| DELETE | `/api/servers/:id/secrets/:key` | Delete a secret                                                               |
+| POST   | `/api/servers/:id/health`       | Run health check                                                              |
+| GET    | `/api/servers/:id/metrics`      | Per-tool metrics for a server                                                 |
+| GET    | `/api/metrics`                  | Metrics overview across all servers                                           |
+| GET    | `/api/browse`                   | Proxy to official MCP registry                                                |
+| GET    | `/api/status`                   | Active servers summary                                                        |
 
-## Test and Deploy
+## Configuration
 
-Use the built-in continuous integration in GitLab.
+| Env Variable          | Default                       | Description          |
+| --------------------- | ----------------------------- | -------------------- |
+| `AGENT_DISCOVER_PORT` | `3424`                        | Dashboard HTTP port  |
+| `AGENT_DISCOVER_DB`   | `~/.claude/agent-discover.db` | SQLite database path |
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## Development
 
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+npm run build          # Compile TypeScript + copy UI
+npm test               # Run tests
+npm run check          # Full check (typecheck + lint + format + test)
+```
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT
