@@ -26,24 +26,42 @@ Static MCP configs mean every server is always running, even when unused. Adding
 
 ## Quick Start
 
+### Install from npm
+
 ```bash
-npm install
-npm run build
-node dist/index.js          # MCP stdio server
-node dist/server.js          # HTTP dashboard only
+npm install -g agent-discover
 ```
 
-Add to Claude Code MCP config:
+### Or clone from source
+
+```bash
+git clone https://github.com/keshrath/agent-discover.git
+cd agent-discover
+npm install
+npm run build
+```
+
+### Option 1: MCP server (for AI agents)
+
+Add to your MCP client config (Claude Code, Cline, etc.):
 
 ```json
 {
   "mcpServers": {
     "agent-discover": {
-      "command": "node",
-      "args": ["/path/to/agent-discover/dist/index.js"]
+      "command": "npx",
+      "args": ["agent-discover"]
     }
   }
 }
+```
+
+The dashboard auto-starts at http://localhost:3424 on the first MCP connection.
+
+### Option 2: Standalone server (for REST/WebSocket clients)
+
+```bash
+node dist/server.js --port 3424
 ```
 
 ## MCP Tools
