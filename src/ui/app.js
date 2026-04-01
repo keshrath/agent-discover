@@ -496,8 +496,11 @@
       } else {
         el.innerHTML =
           '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results in MCP registry</p>' +
-          '<p class="hint">Know the npm package? Install via MCP tool:</p>' +
-          '<code class="hint-code">registry({ action: "install", name: "my-server", command: "npx", args: ["-y", "@scope/package"] })</code></div>';
+          '<p class="hint">Install from npm directly:</p>' +
+          '<div class="npm-install-form">' +
+          '<input type="text" id="npm-package-input" placeholder="npm package (e.g. @modelcontextprotocol/server-everything)" />' +
+          '<button class="btn-install" onclick="window.__installFromNpm()"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
+          '</div></div>';
       }
       return;
     }
@@ -642,6 +645,38 @@
           btn.innerHTML =
             '<span class="material-symbols-outlined" style="font-size:14px">download</span>Install';
         }, 2000);
+      });
+  };
+
+  window.__installFromNpm = function () {
+    var input = document.getElementById('npm-package-input');
+    var pkg = (input ? input.value : '').trim();
+    if (!pkg) return;
+
+    var safeName = pkg.replace(/@/g, '').replace(/\//g, '-');
+    fetch('/api/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: safeName,
+        command: 'npx',
+        args: ['-y', pkg],
+        description: 'Installed from npm: ' + pkg,
+        source: 'registry',
+        tags: ['npm'],
+      }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Install failed');
+        return r.json();
+      })
+      .then(function () {
+        showToast('Installed ' + pkg, 'success');
+        if (input) input.value = '';
+      })
+      .catch(function (err) {
+        console.error('npm install failed:', err);
+        showToast('Install failed: ' + err.message, 'error');
       });
   };
 

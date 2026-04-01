@@ -483,16 +483,31 @@ body {
   margin-top: 4px;
 }
 
-.hint-code {
-  display: block;
-  margin-top: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: var(--bg-elevated);
-  padding: 8px 12px;
+.npm-install-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 500px;
+}
+
+.npm-install-form input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--accent);
-  word-break: break-all;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.npm-install-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.npm-install-form .btn-install {
+  flex-shrink: 0;
 }
 
 /* ---------------------------------------------------------------------------
