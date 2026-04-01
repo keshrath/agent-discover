@@ -364,6 +364,10 @@ body {
   background: var(--status-inactive);
 }
 
+.status-dot.unhealthy {
+  background: #f44336;
+}
+
 .server-description {
   font-size: 13px;
   color: var(--text-secondary);
@@ -477,6 +481,18 @@ body {
 .empty-state .hint {
   font-size: 12px;
   margin-top: 4px;
+}
+
+.hint-code {
+  display: block;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-elevated);
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--accent);
+  word-break: break-all;
 }
 
 /* ---------------------------------------------------------------------------

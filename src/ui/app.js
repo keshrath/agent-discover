@@ -174,8 +174,16 @@
 
     var html = state.servers
       .map(function (s) {
-        var statusClass = s.active ? 'active' : 'inactive';
-        var statusLabel = s.active ? 'Active' : 'Inactive';
+        var statusClass = s.active
+          ? s.health_status === 'unhealthy'
+            ? 'unhealthy'
+            : 'active'
+          : 'inactive';
+        var statusLabel = s.active
+          ? s.health_status === 'unhealthy'
+            ? 'Unhealthy'
+            : 'Active'
+          : 'Inactive';
 
         // Approval badge
         var approval = s.approval_status || 'experimental';
@@ -204,14 +212,8 @@
           approvalDropdown +
           '</span>';
 
-        // Health dot
+        // Combined status: active+healthy=green, active+unhealthy=red, inactive=gray
         var healthStatus = s.health_status || 'unknown';
-        var healthDot =
-          '<span class="health-dot health-' +
-          esc(healthStatus) +
-          '" title="Health: ' +
-          esc(healthStatus) +
-          '"></span>';
 
         // Error count
         var errorCount =
@@ -287,7 +289,6 @@
           '</div>' +
           '<div style="display:flex;align-items:center;gap:8px">' +
           errorCount +
-          healthDot +
           '<span class="server-status"><span class="status-dot ' +
           statusClass +
           '"></span>' +
@@ -494,7 +495,9 @@
           '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry</p><p class="hint">Type a query above to discover servers</p></div>';
       } else {
         el.innerHTML =
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results found</p></div>';
+          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results in MCP registry</p>' +
+          '<p class="hint">Know the npm package? Install via MCP tool:</p>' +
+          '<code class="hint-code">registry({ action: "install", name: "my-server", command: "npx", args: ["-y", "@scope/package"] })</code></div>';
       }
       return;
     }
