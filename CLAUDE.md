@@ -26,7 +26,7 @@ src/
 - **Accent color**: `#5d8da8`
 - **Port**: 3424 (configurable via `AGENT_DISCOVER_PORT`)
 - **Tabs**: 2 tabs -- Servers (merged installed+active) and Browse
-- **Server cards**: approval badges, health dots, error counts, expandable Secrets/Metrics/Config sections
+- **Server cards**: health dots, error counts, expandable Secrets/Metrics/Config sections
 - **Theme sync**: Supports agent-desk postMessage theme injection + reverse sync
 
 ## Code Style
@@ -57,13 +57,14 @@ npm run check      # typecheck + lint + format + test
 ## DB
 
 - SQLite at `~/.claude/agent-discover.db` (configurable via `AGENT_DISCOVER_DB`)
-- Schema version: **V2**
+- Schema version: **V3**
 - Tables: `servers`, `server_tools`, `server_secrets`, `server_metrics`, `servers_fts` (FTS5 virtual table)
-- V2 additions: `approval_status`, `latest_version`, `last_health_check`, `health_status`, `error_count` columns on `servers`; `server_secrets` and `server_metrics` tables
+- V2 additions: `latest_version`, `last_health_check`, `health_status`, `error_count` columns on `servers`; `server_secrets` and `server_metrics` tables
+- V3: dropped `approval_status` column from `servers`
 
 ## Domain Services
 
-- **RegistryService** -- Server CRUD, FTS search, approval status, tool metadata storage
+- **RegistryService** -- Server CRUD, FTS search, tool metadata storage
 - **McpProxy** -- Child MCP server lifecycle, tool proxying with namespace, secrets merge on activation, metrics recording on tool calls
 - **MarketplaceClient** -- Official MCP registry API client (search, browse)
 - **InstallerService** -- Install method detection (npm/npx, Python/uvx, Docker) with package name validation

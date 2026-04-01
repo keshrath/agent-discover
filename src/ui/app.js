@@ -12,7 +12,6 @@
   let currentTab = 'installed';
   let searchTimeout = null;
   let openSections = {}; // track open sections per server: { "serverId-sectionName": true }
-  let openApprovalDropdown = null; // server id with open dropdown
 
   // -------------------------------------------------------------------------
   // WebSocket
@@ -185,9 +184,6 @@
             : 'Active'
           : 'Inactive';
 
-        // Approval badge removed — not useful without automatic classification
-
-        // Combined status: active+healthy=green, active+unhealthy=red, inactive=gray
         var healthStatus = s.health_status || 'unknown';
 
         // Error count
@@ -279,8 +275,16 @@
           esc(s.source || 'local') +
           '</span>' +
           '<span>' +
-          esc(s.transport || 'stdio') +
+          (function () {
+            var t = s.transport || 'stdio';
+            if (t === 'sse') return 'remote sse';
+            if (t === 'streamable-http') return 'remote http';
+            return 'local stdio';
+          })() +
           '</span>' +
+          (s.transport && s.transport !== 'stdio' && s.homepage
+            ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(s.homepage) + '</span>'
+            : '') +
           '</div>' +
           toolSection +
           actionsSection +
@@ -487,20 +491,49 @@
       .map(function (s, idx) {
         var pkgs = (s.packages || [])
           .map(function (p) {
-            return '<span class="tag">' + esc(p.runtime) + ': ' + esc(p.name) + '</span>';
+            var rt = p.runtime || 'stdio';
+            var color =
+              rt === 'streamable-http'
+                ? 'var(--accent, #5d8da8)'
+                : rt === 'sse'
+                  ? 'var(--orange, #e67e22)'
+                  : 'var(--green, #27ae60)';
+            return (
+              '<span class="tag" style="border-color:' +
+              color +
+              ';color:' +
+              color +
+              '">' +
+              esc(rt) +
+              ': ' +
+              esc(p.name) +
+              '</span>'
+            );
           })
           .join('');
 
         var safeName = (s.name || '').replace(/\//g, '-');
         var isInstalled =
           installedNames.indexOf(safeName) !== -1 || installedNames.indexOf(s.name) !== -1;
-        var installBtn = isInstalled
-          ? '<button class="btn-install btn-installed" disabled><span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed</button>'
-          : '<button class="btn-install" data-browse-idx="' +
+
+        // All transport types are supported (stdio, sse, streamable-http)
+        var isRemoteOnly = false;
+
+        var installBtn;
+        if (isInstalled) {
+          installBtn =
+            '<button class="btn-install btn-installed" disabled><span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed</button>';
+        } else if (isRemoteOnly) {
+          installBtn =
+            '<button class="btn-install" disabled title="Remote server — not supported for local activation"><span class="material-symbols-outlined" style="font-size:14px">cloud_off</span>Remote only</button>';
+        } else {
+          installBtn =
+            '<button class="btn-install" data-browse-idx="' +
             idx +
             '" onclick="window.__installFromBrowse(' +
             idx +
             ', this)"><span class="material-symbols-outlined" style="font-size:14px">download</span>Install</button>';
+        }
 
         return (
           '<div class="server-card">' +
@@ -545,13 +578,16 @@
   window.__activateServer = function (id) {
     fetch('/api/servers/' + id + '/activate', { method: 'POST' })
       .then(function (r) {
-        return r.json();
-      })
-      .then(function () {
-        // State will refresh via WebSocket
+        return r.json().then(function (data) {
+          if (data.error) {
+            showToast('Activation failed: ' + data.error, 'error');
+          } else if (data.status === 'activated') {
+            showToast('Activated with ' + (data.tool_count || 0) + ' tools', 'success');
+          }
+        });
       })
       .catch(function (err) {
-        console.error('Activate failed:', err);
+        showToast('Activation failed: ' + err.message, 'error');
       });
   };
 
@@ -591,29 +627,54 @@
       '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span>Installing...';
 
     var safeName = (server.name || '').replace(/\//g, '-');
-    var npmPkg = safeName;
-    // Try to derive npm package name from registry name (e.g. "io.github.user/pkg" -> "@user/pkg")
-    var parts = (server.name || '').split('/');
-    if (parts.length >= 2) {
-      npmPkg = parts[parts.length - 1];
+    // Detect transport and build config
+    var pkg = (server.packages || [])[0];
+    var transport = (pkg && (pkg.transport || pkg.runtime)) || 'stdio';
+    var remoteUrl = pkg && pkg.url ? pkg.url : null;
+
+    var serverData = {
+      name: safeName,
+      description: server.description || '',
+      source: 'registry',
+      transport: transport,
+      tags: ['marketplace'],
+    };
+
+    if (transport === 'streamable-http' || transport === 'sse') {
+      serverData.homepage = remoteUrl || server.repository || '';
+    } else {
+      // stdio / node / python — default to npx
+      serverData.transport = 'stdio';
+      serverData.command = 'npx';
+      serverData.args = ['-y', pkg ? pkg.name || server.name : server.name || safeName];
     }
+
     fetch('/api/servers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: safeName,
-        description: server.description || '',
-        command: 'npx',
-        args: ['-y', server.name || npmPkg],
-        source: 'registry',
-        tags: ['marketplace'],
-      }),
+      body: JSON.stringify(serverData),
     })
       .then(function (r) {
         if (!r.ok) throw new Error('Install failed');
         return r.json();
       })
-      .then(function () {
+      .then(function (data) {
+        if (serverData.command === 'npx' && data && data.id) {
+          btn.innerHTML =
+            '<span class="material-symbols-outlined" style="font-size:14px">downloading</span>Downloading...';
+          return fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
+            .then(function () {
+              btn.innerHTML =
+                '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Ready';
+              btn.classList.add('btn-installed');
+            })
+            .catch(function () {
+              // Download failed but install succeeded
+              btn.innerHTML =
+                '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
+              btn.classList.add('btn-installed');
+            });
+        }
         btn.innerHTML =
           '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
         btn.classList.add('btn-installed');
@@ -635,30 +696,80 @@
     var pkg = (input ? input.value : '').trim();
     if (!pkg) return;
 
-    var safeName = pkg.replace(/@/g, '').replace(/\//g, '-');
-    fetch('/api/servers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: safeName,
-        command: 'npx',
-        args: ['-y', pkg],
-        description: 'Installed from npm: ' + pkg,
-        source: 'registry',
-        tags: ['npm'],
-      }),
-    })
+    // Find the install button and show spinner
+    var btn = input ? input.parentElement.querySelector('.btn-install') : null;
+    var origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML =
+        '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Checking...';
+    }
+
+    fetch('/api/npm-check?package=' + encodeURIComponent(pkg))
       .then(function (r) {
-        if (!r.ok) throw new Error('Install failed');
         return r.json();
       })
-      .then(function () {
-        showToast('Installed ' + pkg, 'success');
-        if (input) input.value = '';
+      .then(function (data) {
+        if (!data.exists) {
+          showToast('Package not found on npm', 'error');
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+          }
+          return;
+        }
+
+        var safeName = pkg.replace(/@/g, '').replace(/\//g, '-');
+        return fetch('/api/servers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: safeName,
+            command: 'npx',
+            args: ['-y', pkg],
+            description: 'Installed from npm: ' + pkg,
+            source: 'registry',
+            tags: ['npm'],
+          }),
+        })
+          .then(function (r) {
+            if (!r.ok) throw new Error('Install failed');
+            return r.json();
+          })
+          .then(function (data) {
+            if (data && data.id) {
+              if (btn) {
+                btn.innerHTML =
+                  '<span class="material-symbols-outlined" style="font-size:14px">downloading</span> Downloading...';
+              }
+              return fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
+                .then(function () {
+                  showToast('Installed and downloaded ' + pkg, 'success');
+                })
+                .catch(function () {
+                  showToast(
+                    'Installed ' + pkg + ' (download will happen on first activate)',
+                    'success',
+                  );
+                });
+            }
+            showToast('Installed ' + pkg, 'success');
+          })
+          .then(function () {
+            if (input) input.value = '';
+            if (btn) {
+              btn.disabled = false;
+              btn.innerHTML = origHtml;
+            }
+          });
       })
       .catch(function (err) {
         console.error('npm install failed:', err);
         showToast('Install failed: ' + err.message, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
       });
   };
 
@@ -700,29 +811,6 @@
       }
     }
     render();
-  };
-
-  window.__toggleApprovalDropdown = function (serverId) {
-    openApprovalDropdown = openApprovalDropdown === serverId ? null : serverId;
-    render();
-  };
-
-  window.__setApproval = function (serverId, status) {
-    openApprovalDropdown = null;
-    fetch('/api/servers/' + serverId, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approval_status: status }),
-    })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function () {
-        showToast('Approval status set to ' + status, 'success');
-      })
-      .catch(function () {
-        showToast('Failed to update approval status', 'error');
-      });
   };
 
   window.__checkHealth = function (serverId) {
@@ -854,17 +942,6 @@
       if (toast.parentNode) toast.remove();
     }, 3000);
   }
-
-  // -------------------------------------------------------------------------
-  // Close approval dropdown on outside click
-  // -------------------------------------------------------------------------
-
-  document.addEventListener('click', function (e) {
-    if (openApprovalDropdown !== null && !e.target.closest('.approval-badge')) {
-      openApprovalDropdown = null;
-      render();
-    }
-  });
 
   // -------------------------------------------------------------------------
   // Init

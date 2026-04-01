@@ -56,7 +56,7 @@ agent-discover/
     types.ts              Shared types (ServerEntry, errors, JSON-RPC)
     version.ts            Runtime version reader from package.json
     domain/
-      registry.ts         Server CRUD, FTS search, tool management, approval status
+      registry.ts         Server CRUD, FTS search, tool management
       proxy.ts            MCP child server lifecycle + tool proxying + secrets merge + metrics recording
       marketplace.ts      Official MCP registry API client
       installer.ts        Install method detection (npm, python, docker)
@@ -125,11 +125,11 @@ Schema changes go in `src/storage/database.ts`. Follow this pattern:
 3. Migrations **must be idempotent** — use `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN` with existence checks
 4. All tables use foreign keys with `ON DELETE CASCADE`
 
-Current schema version: **V2**
+Current schema version: **V3**
 
 ### Tables
 
-- `servers` -- registered MCP servers (name, command, args, env, tags, source, transport, approval_status, health_status, error_count, last_health_check, latest_version)
+- `servers` -- registered MCP servers (name, command, args, env, tags, source, transport, health_status, error_count, last_health_check, latest_version)
 - `server_tools` -- tools discovered from active servers (FK to servers)
 - `server_secrets` -- per-server secrets for env var injection on activation (FK to servers, unique on server_id+key)
 - `server_metrics` -- per-tool call counts, error counts, and latency (FK to servers, unique on server_id+tool_name)

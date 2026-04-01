@@ -8,11 +8,13 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { SecretsService } from './secrets.js';
 import type { MetricsService } from './metrics.js';
 import { version } from '../version.js';
 
-const ACTIVATE_TIMEOUT_MS = 30_000;
+const ACTIVATE_TIMEOUT_MS = 60_000;
 const CALL_TIMEOUT_MS = 60_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -24,9 +26,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
+type AnyTransport = StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
+
 interface ActiveServer {
   client: Client;
-  transport: StdioClientTransport;
+  transport: AnyTransport;
   tools: Array<{
     name: string;
     description?: string;
@@ -37,9 +41,12 @@ interface ActiveServer {
 
 export interface ServerConfig {
   name: string;
-  command: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  transport?: 'stdio' | 'sse' | 'streamable-http';
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface ProxiedTool {
@@ -82,22 +89,7 @@ export class McpProxy {
       throw new Error(`Server "${config.name}" is already active`);
     }
 
-    let mergedEnv = { ...process.env, ...(config.env ?? {}) } as Record<string, string>;
-
-    if (this.secretsService && this.serverIdResolver) {
-      const serverId = this.serverIdResolver(config.name);
-      if (serverId !== null) {
-        const secretsEnv = this.secretsService.getEnvForServer(serverId);
-        mergedEnv = { ...mergedEnv, ...secretsEnv };
-      }
-    }
-
-    const transport = new StdioClientTransport({
-      command: config.command,
-      args: config.args ?? [],
-      env: mergedEnv,
-    });
-
+    const transport = this.createTransport(config);
     const client = new Client({ name: 'agent-discover', version }, { capabilities: {} });
 
     try {
@@ -230,6 +222,58 @@ export class McpProxy {
 
   isActive(name: string): boolean {
     return this.activeServers.has(name);
+  }
+
+  private createTransport(config: ServerConfig): AnyTransport {
+    const transportType = config.transport ?? 'stdio';
+
+    if ((transportType === 'streamable-http' || transportType === 'sse') && config.url) {
+      // Build headers from config + secrets (secrets used as HTTP headers for remote servers)
+      const headers: Record<string, string> = { ...(config.headers ?? {}) };
+      if (this.secretsService && this.serverIdResolver) {
+        const serverId = this.serverIdResolver(config.name);
+        if (serverId !== null) {
+          const secretsEnv = this.secretsService.getEnvForServer(serverId);
+          // Map common secret keys to HTTP headers
+          if (secretsEnv.AUTHORIZATION) headers['Authorization'] = secretsEnv.AUTHORIZATION;
+          if (secretsEnv.API_KEY) headers['Authorization'] = 'Bearer ' + secretsEnv.API_KEY;
+          // Pass all other secrets as headers too
+          Object.entries(secretsEnv).forEach(([k, v]) => {
+            if (!headers[k] && k !== 'AUTHORIZATION' && k !== 'API_KEY') {
+              headers[k] = v;
+            }
+          });
+        }
+      }
+
+      const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
+
+      if (transportType === 'streamable-http') {
+        return new StreamableHTTPClientTransport(new URL(config.url), { requestInit });
+      }
+      return new SSEClientTransport(new URL(config.url), { requestInit });
+    }
+
+    // Default: stdio
+    if (!config.command) {
+      throw new Error(`Server "${config.name}" has no command configured for stdio transport`);
+    }
+
+    let mergedEnv = { ...process.env, ...(config.env ?? {}) } as Record<string, string>;
+
+    if (this.secretsService && this.serverIdResolver) {
+      const serverId = this.serverIdResolver(config.name);
+      if (serverId !== null) {
+        const secretsEnv = this.secretsService.getEnvForServer(serverId);
+        mergedEnv = { ...mergedEnv, ...secretsEnv };
+      }
+    }
+
+    return new StdioClientTransport({
+      command: config.command,
+      args: config.args ?? [],
+      env: mergedEnv,
+    });
   }
 
   async deactivateAll(): Promise<void> {

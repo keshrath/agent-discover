@@ -30,7 +30,6 @@ export type { HealthCheckResult, HealthInfo } from './domain/health.js';
 export type {
   ServerSource,
   ServerTransport,
-  ApprovalStatus,
   HealthStatus,
   ServerEntry,
   ServerCreateInput,

@@ -8,7 +8,6 @@
 
 export type ServerSource = 'local' | 'registry' | 'smithery' | 'manual';
 export type ServerTransport = 'stdio' | 'sse' | 'streamable-http';
-export type ApprovalStatus = 'experimental' | 'approved' | 'production';
 export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
 export interface ServerEntry {
@@ -27,7 +26,6 @@ export interface ServerEntry {
   readonly homepage: string | null;
   readonly installed: boolean;
   readonly active: boolean;
-  readonly approval_status: ApprovalStatus;
   readonly latest_version: string | null;
   readonly last_health_check: string | null;
   readonly health_status: HealthStatus;
@@ -65,8 +63,8 @@ export interface ServerUpdateInput {
   args?: string[];
   env?: Record<string, string>;
   tags?: string[];
-  approval_status?: ApprovalStatus;
   transport?: ServerTransport;
+  homepage?: string;
 }
 
 export interface SecretEntry {
@@ -101,6 +99,7 @@ export interface MarketplacePackage {
   readonly version: string;
   readonly runtime: string;
   readonly license: string | null;
+  readonly url: string | null;
 }
 
 export interface MarketplaceResult {

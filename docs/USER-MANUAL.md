@@ -29,7 +29,6 @@ agent-discover is an MCP (Model Context Protocol) server that functions as a dyn
 - **Manage secrets** -- store API keys and tokens per server, automatically injected into the environment on activation.
 - **Monitor health** -- run health checks on servers, track health status and error counts.
 - **Track metrics** -- per-tool call counts, error counts, and latency recorded automatically.
-- **Control approval status** -- tag servers as experimental, approved, or production.
 - **Monitor** everything via a real-time web dashboard.
 
 ### Architecture
@@ -204,7 +203,7 @@ The default view. Shows all servers registered in the local database as cards. T
 
 Each card displays:
 
-- **Server name** with a clickable **approval badge** (`experimental`, `approved`, or `production`). Clicking the badge opens a dropdown to change the status.
+- **Server name**.
 - **Health dot** next to the status indicator -- green (healthy), red (unhealthy), or gray (unknown).
 - **Error count** badge (visible only when errors > 0).
 - **Active/Inactive status** indicator (green dot = active, gray dot = inactive).
@@ -283,7 +282,6 @@ Use registry_list with source "registry" to show servers installed from the mark
     "installed": true,
     "active": false,
     "transport": "stdio",
-    "approval_status": "experimental",
     "health_status": "unknown",
     "last_health_check": null,
     "error_count": 0,
@@ -304,16 +302,15 @@ Install (register) an MCP server in the local database. Can auto-fetch metadata 
 
 **Parameters:**
 
-| Name              | Type     | Required | Description                                                                                    |
-| ----------------- | -------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `name`            | string   | Yes      | Server name or npm package name                                                                |
-| `source`          | string   | No       | `"registry"` to auto-fetch from the official MCP registry, `"manual"` for manual registration  |
-| `command`         | string   | No       | Command to start the server (required for manual install)                                      |
-| `args`            | string[] | No       | Command-line arguments                                                                         |
-| `env`             | object   | No       | Environment variables for the server process                                                   |
-| `approval_status` | string   | No       | Initial approval status: `experimental`, `approved`, or `production` (default: `experimental`) |
-| `tags`            | string[] | No       | Tags for search and filtering                                                                  |
-| `description`     | string   | No       | Server description                                                                             |
+| Name          | Type     | Required | Description                                                                                   |
+| ------------- | -------- | -------- | --------------------------------------------------------------------------------------------- |
+| `name`        | string   | Yes      | Server name or npm package name                                                               |
+| `source`      | string   | No       | `"registry"` to auto-fetch from the official MCP registry, `"manual"` for manual registration |
+| `command`     | string   | No       | Command to start the server (required for manual install)                                     |
+| `args`        | string[] | No       | Command-line arguments                                                                        |
+| `env`         | object   | No       | Environment variables for the server process                                                  |
+| `tags`        | string[] | No       | Tags for search and filtering                                                                 |
+| `description` | string   | No       | Server description                                                                            |
 
 **Example usage in Claude Code:**
 
@@ -327,8 +324,6 @@ Manual registration:
 With environment variables:
   registry_install with name "db-server", command "node", args ["server.js"], env {"DB_URL": "postgres://..."}
 
-With approval status:
-  registry_install with name "prod-server", source "registry", approval_status "production"
 ```
 
 **Example response (registry install):**
@@ -600,7 +595,7 @@ List all registered servers. Supports filtering.
 | `source`    | string | Filter by source                               |
 | `installed` | string | Set to `"true"` to show only installed servers |
 
-**Response:** Array of server objects, each with an `active` boolean indicating current runtime status. Each server also includes `approval_status`, `health_status`, `last_health_check`, and `error_count`.
+**Response:** Array of server objects, each with an `active` boolean indicating current runtime status. Each server also includes `health_status`, `last_health_check`, and `error_count`.
 
 **Examples:**
 
@@ -639,7 +634,6 @@ Get a single server by its numeric ID, including its tools.
   "transport": "stdio",
   "installed": true,
   "active": true,
-  "approval_status": "approved",
   "health_status": "healthy",
   "error_count": 0,
   "tools": [
@@ -710,12 +704,11 @@ Update an existing server's configuration.
   "command": "node",
   "args": ["server.js", "--verbose"],
   "env": { "API_KEY": "new-key" },
-  "tags": ["updated"],
-  "approval_status": "approved"
+  "tags": ["updated"]
 }
 ```
 
-**Accepted fields:** `description`, `command`, `args`, `env`, `tags`, `approval_status`.
+**Accepted fields:** `description`, `command`, `args`, `env`, `tags`.
 
 **Response:** The updated server object.
 
@@ -724,13 +717,12 @@ Update an existing server's configuration.
 ```bash
 curl -X PUT http://localhost:3424/api/servers/1 \
   -H "Content-Type: application/json" \
-  -d '{"approval_status":"production"}'
+  -d '{"description":"Updated description"}'
 ```
 
 **Errors:**
 
 - `404` if the server ID does not exist.
-- `422` if `approval_status` is not one of `experimental`, `approved`, `production`.
 
 ---
 
@@ -1294,22 +1286,6 @@ curl http://localhost:3424/api/metrics
 
 Or expand the Metrics section on a server card in the dashboard.
 
-### Approval Workflow
-
-Servers have an `approval_status` field that tracks their readiness level:
-
-| Status         | Meaning                                            |
-| -------------- | -------------------------------------------------- |
-| `experimental` | Default status for new servers. Not yet validated. |
-| `approved`     | Reviewed and approved for general use.             |
-| `production`   | Validated for production workloads.                |
-
-**Setting approval status:**
-
-- Via MCP: Use `registry_install` with `approval_status` parameter.
-- Via REST: `PUT /api/servers/:id` with `{ "approval_status": "approved" }`.
-- Via dashboard: Click the approval badge on a server card and select the desired status from the dropdown.
-
 ### Config Editing
 
 Server configuration can be updated after registration via the `PUT /api/servers/:id` endpoint or the Config section in the dashboard.
@@ -1321,9 +1297,7 @@ Server configuration can be updated after registration via the `PUT /api/servers
 - `args`: Command-line arguments (array of strings).
 - `env`: Environment variables (key-value object).
 - `tags`: Tags for search and filtering (array of strings).
-- `approval_status`: Approval level.
-
-**Via the dashboard:** Expand the Config section on a server card. Edit the fields and click "Save Config". Args are entered as comma-separated values. Env vars are entered as `KEY=VALUE` per line.
+  **Via the dashboard:** Expand the Config section on a server card. Edit the fields and click "Save Config". Args are entered as comma-separated values. Env vars are entered as `KEY=VALUE` per line.
 
 ---
 

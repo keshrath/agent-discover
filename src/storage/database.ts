@@ -26,7 +26,7 @@ export interface Db {
   close(): void;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export function createDb(options: DbOptions = {}): Db {
   const dbPath = resolveDbPath(options.path);
@@ -149,6 +149,10 @@ function applySchema(raw: Database.Database): void {
       migrateV2(raw);
     }
 
+    if (currentVersion < 3) {
+      migrateV3(raw);
+    }
+
     raw.pragma(`user_version = ${SCHEMA_VERSION}`);
   })();
 }
@@ -190,4 +194,8 @@ function migrateV2(raw: Database.Database): void {
       UNIQUE(server_id, tool_name)
     );
   `);
+}
+
+function migrateV3(raw: Database.Database): void {
+  raw.exec(`ALTER TABLE servers DROP COLUMN approval_status;`);
 }

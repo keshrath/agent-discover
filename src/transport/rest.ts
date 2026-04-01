@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { readFileSync } from 'fs';
 import { join, extname, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { execFile } from 'child_process';
 import type { AppContext } from '../context.js';
 import { RegistryError, ValidationError } from '../types.js';
 import { version } from '../version.js';
@@ -143,6 +144,8 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
 
   route('POST', '/api/servers', async (req, res) => {
     const body = await readBody(req);
+    const transport = typeof body.transport === 'string' ? body.transport : undefined;
+    const homepage = typeof body.homepage === 'string' ? body.homepage : undefined;
     const server = ctx.registry.register({
       name: String(body.name ?? ''),
       description: body.description ? String(body.description) : undefined,
@@ -150,8 +153,55 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       args: Array.isArray(body.args) ? (body.args as string[]) : undefined,
       env: typeof body.env === 'object' ? (body.env as Record<string, string>) : undefined,
       tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+      source:
+        typeof body.source === 'string'
+          ? (body.source as 'local' | 'registry' | 'smithery' | 'manual')
+          : undefined,
+      transport: transport as 'stdio' | 'sse' | 'streamable-http' | undefined,
+      homepage,
     });
+
+    // Async pre-download for npx-based servers
+    if (server.command === 'npx' && server.args && server.args.length > 0) {
+      const pkgName = server.args.find((a: string) => a !== '-y') ?? server.args[0];
+      if (pkgName) {
+        execFile('npm', ['cache', 'add', pkgName], { timeout: 120_000 }, () => {
+          /* fire and forget */
+        });
+      }
+    }
+
     json(res, server, 201);
+  });
+
+  route('POST', '/api/servers/:id/preinstall', async (_req, res, params) => {
+    const id = parseInt(params.id, 10);
+    const server = ctx.registry.getById(id);
+    if (!server) {
+      json(res, { error: 'Not found' }, 404);
+      return;
+    }
+    if (server.command !== 'npx' || !server.args || server.args.length === 0) {
+      json(res, { status: 'skipped', reason: 'not an npx server' });
+      return;
+    }
+    const pkgName = server.args.find((a) => a !== '-y') ?? server.args[0];
+    if (!pkgName) {
+      json(res, { status: 'skipped', reason: 'no package name found' });
+      return;
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile('npm', ['cache', 'add', pkgName], { timeout: 120_000 }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      json(res, { status: 'downloaded', package: pkgName });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      json(res, { status: 'failed', error: message }, 500);
+    }
   });
 
   route('DELETE', '/api/servers/:id', async (_req, res, params) => {
@@ -176,7 +226,8 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       json(res, { error: 'Not found' }, 404);
       return;
     }
-    if (!server.command) {
+    const isRemote = server.transport === 'sse' || server.transport === 'streamable-http';
+    if (!isRemote && !server.command) {
       json(res, { error: 'No command configured' }, 400);
       return;
     }
@@ -185,12 +236,22 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       return;
     }
 
-    const tools = await ctx.proxy.activate({
-      name: server.name,
-      command: server.command,
-      args: server.args,
-      env: server.env,
-    });
+    let tools;
+    try {
+      tools = await ctx.proxy.activate({
+        name: server.name,
+        command: server.command ?? undefined,
+        args: server.args,
+        env: server.env,
+        transport: server.transport,
+        url: server.homepage ?? undefined,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.registry.incrementErrorCount(server.id);
+      json(res, { error: message }, 500);
+      return;
+    }
 
     ctx.registry.setActive(server.name, true);
     ctx.registry.saveTools(
@@ -255,10 +316,6 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       args: Array.isArray(body.args) ? (body.args as string[]) : undefined,
       env: typeof body.env === 'object' ? (body.env as Record<string, string>) : undefined,
       tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
-      approval_status:
-        typeof body.approval_status === 'string'
-          ? (body.approval_status as 'experimental' | 'approved' | 'production')
-          : undefined,
     });
     json(res, updated);
   });
@@ -327,6 +384,24 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
   route('GET', '/api/metrics', (_req, res) => {
     const overview = ctx.metrics.getOverview();
     json(res, overview);
+  });
+
+  route('GET', '/api/npm-check', async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const pkg = url.searchParams.get('package') ?? '';
+    if (!pkg) {
+      json(res, { error: 'package query parameter is required' }, 400);
+      return;
+    }
+    try {
+      const npmUrl = pkg.startsWith('@')
+        ? `https://registry.npmjs.org/${pkg.replace('/', '%2F')}`
+        : `https://registry.npmjs.org/${encodeURIComponent(pkg)}`;
+      const response = await fetch(npmUrl);
+      json(res, { exists: response.ok });
+    } catch {
+      json(res, { exists: false });
+    }
   });
 
   route('GET', '/api/status', (_req, res) => {

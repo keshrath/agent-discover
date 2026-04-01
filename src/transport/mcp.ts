@@ -46,11 +46,6 @@ export const tools: ToolDefinition[] = [
           items: { type: 'string' },
           description: '[install] Tags',
         },
-        approval_status: {
-          type: 'string',
-          enum: ['experimental', 'approved', 'production'],
-          description: '[install] Approval status',
-        },
         // browse params
         limit: { type: 'number', description: '[browse] Max results (default 20)' },
         cursor: { type: 'string', description: '[browse] Pagination cursor' },

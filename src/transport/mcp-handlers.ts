@@ -6,7 +6,6 @@
 // =============================================================================
 
 import type { AppContext } from '../context.js';
-import type { ApprovalStatus } from '../types.js';
 import { ValidationError } from '../types.js';
 
 type HandlerFn = (ctx: AppContext, args: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -91,7 +90,6 @@ const registryList: HandlerFn = (ctx, args) => {
     installed: s.installed,
     active: ctx.proxy.isActive(s.name),
     transport: s.transport,
-    approval_status: s.approval_status,
     health_status: s.health_status,
     last_health_check: s.last_health_check,
     error_count: s.error_count,
@@ -134,10 +132,6 @@ const registryInstall: HandlerFn = async (ctx, args) => {
           });
 
           const server = ctx.registry.register(input);
-          const approvalStatus = optStr(args.approval_status);
-          if (approvalStatus) {
-            ctx.registry.setApprovalStatus(server.id, approvalStatus as ApprovalStatus);
-          }
           ctx.events.emit('server:installed', { server });
           return {
             status: 'installed',
@@ -175,11 +169,6 @@ const registryInstall: HandlerFn = async (ctx, args) => {
     env,
     tags,
   });
-
-  const approvalStatus = optStr(args.approval_status);
-  if (approvalStatus) {
-    ctx.registry.setApprovalStatus(server.id, approvalStatus as ApprovalStatus);
-  }
 
   ctx.events.emit('server:installed', { server });
   return {
@@ -228,13 +217,22 @@ const registryActivate: HandlerFn = async (ctx, args) => {
 
   const server = ctx.registry.getByName(name);
   if (!server) throw new ValidationError(`Server "${name}" not found in registry`);
-  if (!server.command) throw new ValidationError(`Server "${name}" has no command configured`);
+
+  const isRemote = server.transport === 'sse' || server.transport === 'streamable-http';
+  if (!isRemote && !server.command) {
+    throw new ValidationError(`Server "${name}" has no command configured`);
+  }
+  if (isRemote && !server.homepage && !server.repository) {
+    throw new ValidationError(`Server "${name}" has no URL configured for remote transport`);
+  }
 
   const tools = await ctx.proxy.activate({
     name: server.name,
-    command: server.command,
+    command: server.command ?? undefined,
     args: server.args,
     env: server.env,
+    transport: server.transport,
+    url: server.homepage ?? undefined,
   });
 
   ctx.registry.setActive(name, true);

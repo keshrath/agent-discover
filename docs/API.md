@@ -10,21 +10,20 @@ Registry management tool with multiple actions: `list`, `install`, `uninstall`, 
 
 **Parameters:**
 
-| Name              | Type     | Required | Description                                                                            |
-| ----------------- | -------- | -------- | -------------------------------------------------------------------------------------- |
-| `action`          | string   | **yes**  | Action: `list`, `install`, `uninstall`, `browse`, `status`                             |
-| `query`           | string   | no       | [list/browse] FTS search query                                                         |
-| `source`          | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`) |
-| `installed_only`  | boolean  | no       | [list] Only show installed servers                                                     |
-| `name`            | string   | no       | [install/uninstall] Server name                                                        |
-| `command`         | string   | no       | [install] Command to start server (required for manual install)                        |
-| `args`            | string[] | no       | [install] Command arguments                                                            |
-| `env`             | object   | no       | [install] Environment variables                                                        |
-| `description`     | string   | no       | [install] Server description                                                           |
-| `tags`            | string[] | no       | [install] Tags for search/filtering                                                    |
-| `approval_status` | string   | no       | [install] Initial approval status: `experimental`, `approved`, or `production`         |
-| `limit`           | number   | no       | [browse] Max results (default: 20, max: 100)                                           |
-| `cursor`          | string   | no       | [browse] Pagination cursor from previous response                                      |
+| Name             | Type     | Required | Description                                                                            |
+| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------- |
+| `action`         | string   | **yes**  | Action: `list`, `install`, `uninstall`, `browse`, `status`                             |
+| `query`          | string   | no       | [list/browse] FTS search query                                                         |
+| `source`         | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`) |
+| `installed_only` | boolean  | no       | [list] Only show installed servers                                                     |
+| `name`           | string   | no       | [install/uninstall] Server name                                                        |
+| `command`        | string   | no       | [install] Command to start server (required for manual install)                        |
+| `args`           | string[] | no       | [install] Command arguments                                                            |
+| `env`            | object   | no       | [install] Environment variables                                                        |
+| `description`    | string   | no       | [install] Server description                                                           |
+| `tags`           | string[] | no       | [install] Tags for search/filtering                                                    |
+| `limit`          | number   | no       | [browse] Max results (default: 20, max: 100)                                           |
+| `cursor`         | string   | no       | [browse] Pagination cursor from previous response                                      |
 
 **Example (list):**
 
@@ -165,7 +164,7 @@ List registered servers. Supports query parameters for filtering.
 | `source`    | Filter by source type              |
 | `installed` | Set to `"true"` for installed only |
 
-**Response:** Array of server objects with `active` status merged from proxy. Each server includes `approval_status`, `health_status`, `last_health_check`, and `error_count` fields.
+**Response:** Array of server objects with `active` status merged from proxy. Each server includes `health_status`, `last_health_check`, and `error_count` fields.
 
 ---
 
@@ -181,7 +180,6 @@ Get a single server by ID, including its discovered tools.
   "name": "filesystem",
   "description": "...",
   "active": true,
-  "approval_status": "approved",
   "health_status": "healthy",
   "error_count": 0,
   "tools": [
@@ -226,19 +224,17 @@ Update an existing server's configuration.
   "command": "node",
   "args": ["server.js", "--verbose"],
   "env": { "API_KEY": "..." },
-  "tags": ["updated"],
-  "approval_status": "approved"
+  "tags": ["updated"]
 }
 ```
 
-**Accepted fields:** `description`, `command`, `args`, `env`, `tags`, `approval_status`.
+**Accepted fields:** `description`, `command`, `args`, `env`, `tags`.
 
 **Response:** The updated server object.
 
 **Errors:**
 
 - `404` if the server ID does not exist.
-- `422` if `approval_status` is not one of `experimental`, `approved`, `production`.
 
 ---
 
@@ -466,7 +462,6 @@ On connect, the server sends a full state snapshot:
       "id": 1,
       "name": "filesystem",
       "active": true,
-      "approval_status": "approved",
       "health_status": "healthy",
       "error_count": 0,
       "tools": [{ "id": 1, "name": "read_file", "description": "..." }]

@@ -93,6 +93,7 @@ export class MarketplaceClient {
               version: String(server.version ?? ''),
               runtime: String(remote.type ?? ''),
               license: null,
+              url: remote.url ? String(remote.url) : null,
             };
           }),
         };

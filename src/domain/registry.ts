@@ -7,13 +7,7 @@
 
 import type { Db } from '../storage/database.js';
 import type { EventBus } from './events.js';
-import type {
-  ServerEntry,
-  ServerCreateInput,
-  ServerUpdateInput,
-  ServerTool,
-  ApprovalStatus,
-} from '../types.js';
+import type { ServerEntry, ServerCreateInput, ServerUpdateInput, ServerTool } from '../types.js';
 import { NotFoundError, ValidationError, ConflictError } from '../types.js';
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -34,7 +28,6 @@ interface ServerRow {
   homepage: string | null;
   installed: number;
   active: number;
-  approval_status: string;
   latest_version: string | null;
   last_health_check: string | null;
   health_status: string;
@@ -68,7 +61,6 @@ function rowToServer(row: ServerRow): ServerEntry {
     homepage: row.homepage,
     installed: row.installed === 1,
     active: row.active === 1,
-    approval_status: (row.approval_status ?? 'experimental') as ServerEntry['approval_status'],
     latest_version: row.latest_version ?? null,
     last_health_check: row.last_health_check ?? null,
     health_status: (row.health_status ?? 'unknown') as ServerEntry['health_status'],
@@ -125,7 +117,7 @@ export class RegistryService {
         input.transport ?? 'stdio',
         input.repository ?? null,
         input.homepage ?? null,
-        input.command ? 1 : 0,
+        input.command || input.transport === 'sse' || input.transport === 'streamable-http' ? 1 : 0,
       ],
     );
 
@@ -165,17 +157,6 @@ export class RegistryService {
       fields.push('transport = ?');
       values.push(updates.transport);
     }
-    if (updates.approval_status !== undefined) {
-      const valid: ApprovalStatus[] = ['experimental', 'approved', 'production'];
-      if (!valid.includes(updates.approval_status)) {
-        throw new ValidationError(
-          `Invalid approval_status "${updates.approval_status}" — must be one of: ${valid.join(', ')}`,
-        );
-      }
-      fields.push('approval_status = ?');
-      values.push(updates.approval_status);
-    }
-
     if (fields.length === 0) return existing;
 
     fields.push("updated_at = datetime('now')");
@@ -192,26 +173,6 @@ export class RegistryService {
     const existing = this.getById(id);
     if (!existing) throw new NotFoundError('Server', String(id));
     return this.update(existing.name, updates);
-  }
-
-  setApprovalStatus(id: number, status: ApprovalStatus): ServerEntry {
-    const valid: ApprovalStatus[] = ['experimental', 'approved', 'production'];
-    if (!valid.includes(status)) {
-      throw new ValidationError(
-        `Invalid approval_status "${status}" — must be one of: ${valid.join(', ')}`,
-      );
-    }
-    const existing = this.getById(id);
-    if (!existing) throw new NotFoundError('Server', String(id));
-
-    this.db.run(
-      "UPDATE servers SET approval_status = ?, updated_at = datetime('now') WHERE id = ?",
-      [status, id],
-    );
-
-    const server = this.getById(id)!;
-    this.events.emit('server:updated', { server });
-    return server;
   }
 
   unregister(name: string): void {
@@ -313,6 +274,13 @@ export class RegistryService {
       active ? 1 : 0,
       name,
     ]);
+  }
+
+  incrementErrorCount(id: number): void {
+    this.db.run(
+      "UPDATE servers SET error_count = error_count + 1, updated_at = datetime('now') WHERE id = ?",
+      [id],
+    );
   }
 
   setInstalled(name: string, installed: boolean): void {

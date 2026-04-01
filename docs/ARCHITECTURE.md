@@ -39,7 +39,7 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 
 ### Domain Layer
 
-- **RegistryService** (`src/domain/registry.ts`): CRUD operations for the local server registry. Handles registration, listing, FTS search (via SQLite FTS5), tool metadata storage, and approval status management. Supports `update` and `updateById` for modifying server config.
+- **RegistryService** (`src/domain/registry.ts`): CRUD operations for the local server registry. Handles registration, listing, FTS search (via SQLite FTS5), and tool metadata storage. Supports `update` and `updateById` for modifying server config.
 - **McpProxy** (`src/domain/proxy.ts`): Manages child MCP server processes. Connects via `StdioClientTransport` from `@modelcontextprotocol/sdk`, discovers tools, and proxies tool calls. Tools are namespaced as `serverName__toolName`. On activation, merges secrets into the server environment. On each tool call, records metrics (latency, success/failure).
 - **MarketplaceClient** (`src/domain/marketplace.ts`): HTTP client for the official MCP registry API at `registry.modelcontextprotocol.io`. Supports search, browse, and individual server lookup.
 - **InstallerService** (`src/domain/installer.ts`): Detects the install method for a package (npm/npx, Python/uvx, Docker) and builds the appropriate command configuration. Validates package names against a safe regex pattern.
@@ -50,7 +50,7 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 
 ### Storage Layer
 
-- **Database** (`src/storage/database.ts`): Thin wrapper around `better-sqlite3`. WAL mode, foreign keys, busy timeout. Schema is versioned via SQLite's `user_version` pragma (current version: **V2**). Provides a simplified query interface (`run`, `queryAll`, `queryOne`, `transaction`).
+- **Database** (`src/storage/database.ts`): Thin wrapper around `better-sqlite3`. WAL mode, foreign keys, busy timeout. Schema is versioned via SQLite's `user_version` pragma (current version: **V3**). Provides a simplified query interface (`run`, `queryAll`, `queryOne`, `transaction`).
 
 ### Dependency Injection
 
@@ -75,34 +75,33 @@ The proxy receives references to `SecretsService` and `MetricsService` via sette
 
 Every layer receives its dependencies explicitly. No global state, no singletons.
 
-## Database Schema (V2)
+## Database Schema (V3)
 
 ### servers
 
-| Column            | Type    | Description                                                        |
-| ----------------- | ------- | ------------------------------------------------------------------ |
-| id                | INTEGER | Primary key (autoincrement)                                        |
-| name              | TEXT    | Unique server name                                                 |
-| description       | TEXT    | Human-readable description                                         |
-| source            | TEXT    | `local`, `registry`, `smithery`, `manual`                          |
-| command           | TEXT    | Executable command (nullable)                                      |
-| args              | TEXT    | JSON array of command arguments                                    |
-| env               | TEXT    | JSON object of environment variables                               |
-| tags              | TEXT    | JSON array of tags                                                 |
-| package_name      | TEXT    | npm/pip package name (nullable)                                    |
-| package_version   | TEXT    | Package version (nullable)                                         |
-| transport         | TEXT    | `stdio`, `sse`, `streamable-http`                                  |
-| repository        | TEXT    | Source repository URL (nullable)                                   |
-| homepage          | TEXT    | Homepage URL (nullable)                                            |
-| installed         | BOOLEAN | Whether the server is installed                                    |
-| active            | BOOLEAN | Whether the server is currently active                             |
-| approval_status   | TEXT    | `experimental`, `approved`, `production` (default: `experimental`) |
-| latest_version    | TEXT    | Latest known version (nullable)                                    |
-| last_health_check | TEXT    | ISO timestamp of last health check (nullable)                      |
-| health_status     | TEXT    | `healthy`, `unhealthy`, `unknown` (default: `unknown`)             |
-| error_count       | INTEGER | Cumulative error count (default: 0)                                |
-| created_at        | TEXT    | ISO timestamp                                                      |
-| updated_at        | TEXT    | ISO timestamp                                                      |
+| Column            | Type    | Description                                            |
+| ----------------- | ------- | ------------------------------------------------------ |
+| id                | INTEGER | Primary key (autoincrement)                            |
+| name              | TEXT    | Unique server name                                     |
+| description       | TEXT    | Human-readable description                             |
+| source            | TEXT    | `local`, `registry`, `smithery`, `manual`              |
+| command           | TEXT    | Executable command (nullable)                          |
+| args              | TEXT    | JSON array of command arguments                        |
+| env               | TEXT    | JSON object of environment variables                   |
+| tags              | TEXT    | JSON array of tags                                     |
+| package_name      | TEXT    | npm/pip package name (nullable)                        |
+| package_version   | TEXT    | Package version (nullable)                             |
+| transport         | TEXT    | `stdio`, `sse`, `streamable-http`                      |
+| repository        | TEXT    | Source repository URL (nullable)                       |
+| homepage          | TEXT    | Homepage URL (nullable)                                |
+| installed         | BOOLEAN | Whether the server is installed                        |
+| active            | BOOLEAN | Whether the server is currently active                 |
+| latest_version    | TEXT    | Latest known version (nullable)                        |
+| last_health_check | TEXT    | ISO timestamp of last health check (nullable)          |
+| health_status     | TEXT    | `healthy`, `unhealthy`, `unknown` (default: `unknown`) |
+| error_count       | INTEGER | Cumulative error count (default: 0)                    |
+| created_at        | TEXT    | ISO timestamp                                          |
+| updated_at        | TEXT    | ISO timestamp                                          |
 
 ### server_tools
 

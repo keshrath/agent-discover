@@ -14,7 +14,7 @@ The default view. Shows all MCP servers registered in the local database as card
 
 Each server card displays:
 
-- **Server name** with an **approval badge** (`experimental`, `approved`, or `production`). Clicking the badge opens a dropdown to change the approval status.
+- **Server name**.
 - **Health dot** indicating the server's health status (green for healthy, red for unhealthy, gray for unknown).
 - **Error count** (if greater than 0), shown as a badge.
 - **Active/Inactive status indicator** (green/gray dot with label).
