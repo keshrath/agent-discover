@@ -11,14 +11,9 @@ Built for AI coding agents (Claude Code, Codex CLI, Gemini CLI, Aider) but works
 
 ---
 
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshots/dark.png" alt="Dashboard (Dark)" width="800" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/light.png" alt="Dashboard (Light)" width="800" />
-</p>
+| Light Theme                                | Dark Theme                               |
+| ------------------------------------------ | ---------------------------------------- |
+| ![Light Theme](docs/screenshots/light.png) | ![Dark Theme](docs/screenshots/dark.png) |
 
 ---
 
