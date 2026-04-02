@@ -12,6 +12,7 @@
     return fetch(AD._baseUrl + url, opts);
   };
   AD._wsUrl = null;
+  AD._root = document;
 
   let state = { servers: [], active: [], version: '0.0.0' };
   let ws = null;
@@ -59,7 +60,7 @@
   }
 
   function setConnectionStatus(cls, text) {
-    var el = document.getElementById('conn-status');
+    var el = AD._root.getElementById('conn-status');
     if (!el) return;
     el.className = 'connection-status ' + cls;
     el.innerHTML = '<span class="conn-dot"></span>' + text;
@@ -70,7 +71,7 @@
   // -------------------------------------------------------------------------
 
   function initTabs() {
-    var navItems = document.querySelectorAll('.nav-item');
+    var navItems = AD._root.querySelectorAll('.nav-item');
     navItems.forEach(function (item) {
       item.addEventListener('click', function () {
         var tab = this.dataset.tab;
@@ -81,10 +82,10 @@
         });
         this.classList.add('active');
 
-        document.querySelectorAll('.tab-panel').forEach(function (p) {
+        AD._root.querySelectorAll('.tab-panel').forEach(function (p) {
           p.classList.remove('active');
         });
-        document.getElementById('tab-' + tab).classList.add('active');
+        AD._root.getElementById('tab-' + tab).classList.add('active');
       });
     });
   }
@@ -94,7 +95,7 @@
   // -------------------------------------------------------------------------
 
   function initTheme() {
-    var toggle = document.getElementById('theme-toggle');
+    var toggle = AD._root.getElementById('theme-toggle');
     var saved = localStorage.getItem('agent-discover-theme');
     if (saved === 'light') {
       document.body.className = 'theme-light';
@@ -115,7 +116,7 @@
   }
 
   function updateThemeIcon(theme) {
-    var toggle = document.getElementById('theme-toggle');
+    var toggle = AD._root.getElementById('theme-toggle');
     if (!toggle) return;
     var icon = toggle.querySelector('.material-symbols-outlined');
     if (icon) icon.textContent = theme === 'dark' ? 'dark_mode' : 'light_mode';
@@ -126,7 +127,7 @@
   // -------------------------------------------------------------------------
 
   function initSearch() {
-    var input = document.getElementById('browse-search');
+    var input = AD._root.getElementById('browse-search');
     input.addEventListener('input', function () {
       clearTimeout(searchTimeout);
       var q = this.value.trim();
@@ -142,7 +143,7 @@
   }
 
   function fetchBrowse(query) {
-    var el = document.getElementById('browse-list');
+    var el = AD._root.getElementById('browse-list');
     el.innerHTML = '<div class="loading">Searching...</div>';
 
     AD._fetch('/api/browse?query=' + encodeURIComponent(query) + '&limit=20')
@@ -164,14 +165,14 @@
   // -------------------------------------------------------------------------
 
   function render() {
-    document.getElementById('version').textContent = 'v' + state.version;
-    document.getElementById('installed-count').textContent = String(state.servers.length);
+    AD._root.getElementById('version').textContent = 'v' + state.version;
+    AD._root.getElementById('installed-count').textContent = String(state.servers.length);
 
     renderInstalled();
   }
 
   function renderInstalled() {
-    var el = document.getElementById('installed-list');
+    var el = AD._root.getElementById('installed-list');
     if (!state.servers.length) {
       el.innerHTML =
         '<div class="empty-state"><span class="material-symbols-outlined empty-icon">dns</span><p>No servers registered</p><p class="hint">Use registry_install or browse the marketplace</p></div>';
@@ -472,9 +473,9 @@
   }
 
   function renderBrowse() {
-    var el = document.getElementById('browse-list');
+    var el = AD._root.getElementById('browse-list');
     if (!browseResults.length) {
-      var q = document.getElementById('browse-search').value.trim();
+      var q = AD._root.getElementById('browse-search').value.trim();
       if (!q) {
         el.innerHTML =
           '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry</p><p class="hint">Type a query above to discover servers</p></div>';
@@ -699,7 +700,7 @@
   };
 
   window.__installFromNpm = function () {
-    var input = document.getElementById('npm-package-input');
+    var input = AD._root.getElementById('npm-package-input');
     var pkg = (input ? input.value : '').trim();
     if (!pkg) return;
 
@@ -835,8 +836,8 @@
   };
 
   window.__addSecret = function (serverId) {
-    var keyEl = document.getElementById('secret-key-' + serverId);
-    var valEl = document.getElementById('secret-val-' + serverId);
+    var keyEl = AD._root.getElementById('secret-key-' + serverId);
+    var valEl = AD._root.getElementById('secret-val-' + serverId);
     if (!keyEl || !valEl) return;
     var key = keyEl.value.trim();
     var value = valEl.value;
@@ -890,10 +891,10 @@
   };
 
   window.__saveConfig = function (serverId) {
-    var desc = document.getElementById('cfg-desc-' + serverId);
-    var cmd = document.getElementById('cfg-cmd-' + serverId);
-    var argsEl = document.getElementById('cfg-args-' + serverId);
-    var envEl = document.getElementById('cfg-env-' + serverId);
+    var desc = AD._root.getElementById('cfg-desc-' + serverId);
+    var cmd = AD._root.getElementById('cfg-cmd-' + serverId);
+    var argsEl = AD._root.getElementById('cfg-args-' + serverId);
+    var envEl = AD._root.getElementById('cfg-env-' + serverId);
     if (!desc || !cmd || !argsEl || !envEl) return;
 
     var args = argsEl.value
@@ -937,7 +938,7 @@
   // -------------------------------------------------------------------------
 
   function showToast(message, type) {
-    var existing = document.querySelector('.toast');
+    var existing = AD._root.querySelector('.toast');
     if (existing) existing.remove();
 
     var toast = document.createElement('div');
@@ -962,7 +963,10 @@
     initThemeSync();
   }
 
-  // Auto-init for standalone
+  var _params = new URLSearchParams(location.search);
+  if (_params.get('baseUrl')) AD._baseUrl = _params.get('baseUrl');
+  if (_params.get('wsUrl')) AD._wsUrl = _params.get('wsUrl');
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _init);
   } else {
@@ -1085,7 +1089,7 @@
         updateThemeIcon(colors.isDark ? 'dark' : 'light');
       }
 
-      var themeToggle = document.getElementById('theme-toggle');
+      var themeToggle = AD._root.getElementById('theme-toggle');
       if (themeToggle) themeToggle.style.display = 'none';
     });
   }
@@ -1094,16 +1098,42 @@
     options = options || {};
     AD._baseUrl = options.baseUrl || '';
     AD._wsUrl = options.wsUrl || null;
-    if (options.cssUrl && !document.getElementById('ad-plugin-css')) {
+
+    var shadow = container.attachShadow({ mode: 'open' });
+
+    if (options.cssUrl) {
       var link = document.createElement('link');
-      link.id = 'ad-plugin-css';
       link.rel = 'stylesheet';
       link.href = options.cssUrl;
-      document.head.appendChild(link);
+      shadow.appendChild(link);
     }
+
+    var fonts = document.createElement('link');
+    fonts.rel = 'stylesheet';
+    fonts.href =
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap';
+    shadow.appendChild(fonts);
+    var icons = document.createElement('link');
+    icons.rel = 'stylesheet';
+    icons.href =
+      'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap';
+    shadow.appendChild(icons);
+
+    var pluginStyle = document.createElement('style');
+    pluginStyle.textContent =
+      ':host { display:block; width:100%; height:100%; overflow:hidden; }' +
+      '.ad-wrapper { font-family:var(--font-sans); font-size:14px; color:var(--text); background:var(--bg); line-height:1.5; width:100%; height:100%; overflow:hidden; }' +
+      '.ad-wrapper #app { height:100%; }';
+    shadow.appendChild(pluginStyle);
+
     if (typeof AD._template === 'function') {
-      container.innerHTML = AD._template();
+      var wrapper = document.createElement('div');
+      wrapper.className = 'theme-dark ad-wrapper';
+      wrapper.innerHTML = AD._template();
+      shadow.appendChild(wrapper);
     }
+
+    AD._root = shadow;
     _init();
   };
 
@@ -1113,5 +1143,6 @@
       ws.close();
       ws = null;
     }
+    AD._root = document;
   };
 })();
