@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "MCP server registry and marketplace — discover, install, activate, and manage MCP tools on demand",
   "type": "module",
@@ -83,6 +83,7 @@
   "files": [
     "dist/",
     "scripts/",
+    "agent-desk-plugin.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
