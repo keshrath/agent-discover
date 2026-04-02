@@ -6,6 +6,13 @@
 (function () {
   'use strict';
 
+  var AD = (window.AD = window.AD || {});
+  AD._baseUrl = '';
+  AD._fetch = function (url, opts) {
+    return fetch(AD._baseUrl + url, opts);
+  };
+  AD._wsUrl = null;
+
   let state = { servers: [], active: [], version: '0.0.0' };
   let ws = null;
   let browseResults = [];
@@ -19,7 +26,7 @@
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(proto + '//' + location.host);
+    ws = new WebSocket(proto + '//' + (AD._wsUrl || location.host));
 
     ws.onopen = function () {
       setConnectionStatus('connected', 'Connected');
@@ -138,7 +145,7 @@
     var el = document.getElementById('browse-list');
     el.innerHTML = '<div class="loading">Searching...</div>';
 
-    fetch('/api/browse?query=' + encodeURIComponent(query) + '&limit=20')
+    AD._fetch('/api/browse?query=' + encodeURIComponent(query) + '&limit=20')
       .then(function (r) {
         return r.json();
       })
@@ -576,7 +583,7 @@
   // -------------------------------------------------------------------------
 
   window.__activateServer = function (id) {
-    fetch('/api/servers/' + id + '/activate', { method: 'POST' })
+    AD._fetch('/api/servers/' + id + '/activate', { method: 'POST' })
       .then(function (r) {
         return r.json().then(function (data) {
           if (data.error) {
@@ -592,7 +599,7 @@
   };
 
   window.__deactivateServer = function (id) {
-    fetch('/api/servers/' + id + '/deactivate', { method: 'POST' })
+    AD._fetch('/api/servers/' + id + '/deactivate', { method: 'POST' })
       .then(function (r) {
         return r.json();
       })
@@ -606,7 +613,7 @@
 
   window.__deleteServer = function (id, name) {
     if (!confirm('Delete server "' + name + '"?')) return;
-    fetch('/api/servers/' + id, { method: 'DELETE' })
+    AD._fetch('/api/servers/' + id, { method: 'DELETE' })
       .then(function (r) {
         return r.json();
       })
@@ -649,7 +656,7 @@
       serverData.args = ['-y', pkg ? pkg.name || server.name : server.name || safeName];
     }
 
-    fetch('/api/servers', {
+    AD._fetch('/api/servers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serverData),
@@ -662,7 +669,7 @@
         if (serverData.command === 'npx' && data && data.id) {
           btn.innerHTML =
             '<span class="material-symbols-outlined" style="font-size:14px">downloading</span>Downloading...';
-          return fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
+          return AD._fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
             .then(function () {
               btn.innerHTML =
                 '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Ready';
@@ -705,7 +712,7 @@
         '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Checking...';
     }
 
-    fetch('/api/npm-check?package=' + encodeURIComponent(pkg))
+    AD._fetch('/api/npm-check?package=' + encodeURIComponent(pkg))
       .then(function (r) {
         return r.json();
       })
@@ -720,7 +727,7 @@
         }
 
         var safeName = pkg.replace(/@/g, '').replace(/\//g, '-');
-        return fetch('/api/servers', {
+        return AD._fetch('/api/servers', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -742,7 +749,7 @@
                 btn.innerHTML =
                   '<span class="material-symbols-outlined" style="font-size:14px">downloading</span> Downloading...';
               }
-              return fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
+              return AD._fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
                 .then(function () {
                   showToast('Installed and downloaded ' + pkg, 'success');
                 })
@@ -947,13 +954,20 @@
   // Init
   // -------------------------------------------------------------------------
 
-  document.addEventListener('DOMContentLoaded', function () {
+  function _init() {
     initTabs();
     initTheme();
     initSearch();
     connect();
     initThemeSync();
-  });
+  }
+
+  // Auto-init for standalone
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _init);
+  } else {
+    _init();
+  }
 
   // -------------------------------------------------------------------------
   // Theme sync from parent (agent-desk) via executeJavaScript
@@ -1075,4 +1089,29 @@
       if (themeToggle) themeToggle.style.display = 'none';
     });
   }
+
+  AD.mount = function (container, options) {
+    options = options || {};
+    AD._baseUrl = options.baseUrl || '';
+    AD._wsUrl = options.wsUrl || null;
+    if (options.cssUrl && !document.getElementById('ad-plugin-css')) {
+      var link = document.createElement('link');
+      link.id = 'ad-plugin-css';
+      link.rel = 'stylesheet';
+      link.href = options.cssUrl;
+      document.head.appendChild(link);
+    }
+    if (typeof AD._template === 'function') {
+      container.innerHTML = AD._template();
+    }
+    _init();
+  };
+
+  AD.unmount = function () {
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+  };
 })();

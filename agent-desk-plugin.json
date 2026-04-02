@@ -1,0 +1,11 @@
+{
+  "id": "agent-discover",
+  "name": "Discover",
+  "icon": "explore",
+  "version": "1.0.9",
+  "description": "MCP server registry — browse, install, configure, monitor",
+  "ui": "./dist/ui/app.js",
+  "css": "./dist/ui/styles.css",
+  "uiFiles": ["morphdom.min.js", "template.js", "app.js"],
+  "position": 4
+}
