@@ -310,7 +310,7 @@
       })
       .join('');
 
-    morphdom(el, '<div id="installed-list" class="server-grid">' + html + '</div>');
+    morph(el, html);
   }
 
   // -------------------------------------------------------------------------
@@ -445,19 +445,19 @@
       '<input type="text" id="cfg-desc-' +
       server.id +
       '" value="' +
-      esc(server.description || '').replace(/"/g, '&quot;') +
+      escAttr(server.description || '') +
       '" /></div>' +
       '<div class="config-field"><label>Command</label>' +
       '<input type="text" id="cfg-cmd-' +
       server.id +
       '" value="' +
-      esc(server.command || '').replace(/"/g, '&quot;') +
+      escAttr(server.command || '') +
       '" /></div>' +
       '<div class="config-field"><label>Args (comma-separated)</label>' +
       '<input type="text" id="cfg-args-' +
       server.id +
       '" value="' +
-      esc((server.args || []).join(', ')).replace(/"/g, '&quot;') +
+      escAttr((server.args || []).join(', ')) +
       '" /></div>' +
       '<div class="config-field"><label>Env vars (KEY=VALUE per line)</label>' +
       '<textarea id="cfg-env-' +
@@ -576,13 +576,24 @@
       })
       .join('');
 
-    morphdom(el, '<div id="browse-list" class="server-grid">' + html + '</div>');
+    morph(el, html);
   }
 
   function esc(str) {
+    if (str === null || str === undefined) return '';
     var div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
+    div.textContent = String(str);
     return div.innerHTML;
+  }
+
+  function escAttr(str) {
+    return esc(str).replace(/"/g, '&quot;');
+  }
+
+  function morph(el, newInnerHTML) {
+    var wrap = document.createElement(el.tagName);
+    wrap.innerHTML = newInnerHTML;
+    morphdom(el, wrap, { childrenOnly: true });
   }
 
   // -------------------------------------------------------------------------
