@@ -21,7 +21,7 @@ src/
 
 - **Icons**: Material Symbols Outlined (via Google Fonts CSS). No emojis.
 - **Fonts**: Inter (UI text), JetBrains Mono (code/data)
-- **Theme**: Light/dark toggle via `.theme-light` / `.theme-dark` class on `<body>`
+- **Theme**: Light/dark toggle via `[data-theme='dark']` attribute on `<html>` (light is default in `:root`)
 - **Design tokens**: CSS custom properties (`--bg`, `--accent`, `--border`, `--shadow-*`, etc.)
 - **Accent color**: `#5d8da8`
 - **Port**: 3424 (configurable via `AGENT_DISCOVER_PORT`)

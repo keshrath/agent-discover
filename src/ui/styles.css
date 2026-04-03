@@ -6,50 +6,45 @@
 :root {
   --accent: #5d8da8;
   --accent-hover: #4e7d96;
-  --accent-light: rgba(93, 141, 168, 0.12);
+  --accent-dim: rgba(93, 141, 168, 0.12);
 
-  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   --radius-sm: 8px;
-  --radius-md: 12px;
+  --radius: 12px;
   --radius-lg: 16px;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.12);
-}
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --shadow-3: 0 4px 16px rgba(0, 0, 0, 0.16);
 
-/* ---------------------------------------------------------------------------
-   Theme tokens
-   --------------------------------------------------------------------------- */
+  --focus-ring: rgba(93, 141, 168, 0.4);
 
-.theme-dark {
-  --bg: #121212;
-  --bg-surface: #1e1e1e;
-  --bg-elevated: #2a2a2a;
-  --bg-hover: #333;
-  --text: #e0e0e0;
-  --text-secondary: #999;
-  --text-tertiary: #666;
-  --border: #333;
-  --badge-bg: rgba(93, 141, 168, 0.2);
-  --badge-text: #7ab4d0;
-  --status-active: #4caf50;
-  --status-inactive: #666;
-  --tag-bg: rgba(255, 255, 255, 0.08);
-  --tag-text: #aaa;
-  --scrollbar-thumb: #444;
-}
+  /* Status colors */
+  --green: #4caf50;
+  --green-dim: rgba(76, 175, 80, 0.15);
+  --yellow: #ffb300;
+  --yellow-dim: rgba(255, 179, 0, 0.15);
+  --orange: #ff9800;
+  --orange-dim: rgba(255, 152, 0, 0.15);
+  --red: #f44336;
+  --red-dim: rgba(244, 67, 54, 0.15);
+  --purple: #ab47bc;
+  --purple-dim: rgba(171, 71, 188, 0.15);
+  --blue: #42a5f5;
+  --blue-dim: rgba(66, 165, 245, 0.15);
 
-.theme-light {
+  /* Light theme as default */
   --bg: #f5f5f5;
   --bg-surface: #fff;
   --bg-elevated: #f9f9f9;
   --bg-hover: #eee;
   --text: #1a1a1a;
-  --text-secondary: #666;
-  --text-tertiary: #999;
+  --text-muted: #666;
+  --text-dim: #999;
   --border: #e0e0e0;
+  --border-light: #f0f0f0;
   --badge-bg: rgba(93, 141, 168, 0.15);
   --badge-text: #3d6d88;
   --status-active: #2e7d32;
@@ -57,6 +52,29 @@
   --tag-bg: rgba(0, 0, 0, 0.06);
   --tag-text: #666;
   --scrollbar-thumb: #ccc;
+}
+
+/* ---------------------------------------------------------------------------
+   Theme tokens
+   --------------------------------------------------------------------------- */
+
+[data-theme='dark'] {
+  --bg: #121212;
+  --bg-surface: #1e1e1e;
+  --bg-elevated: #2a2a2a;
+  --bg-hover: #333;
+  --text: #e0e0e0;
+  --text-muted: #999;
+  --text-dim: #666;
+  --border: #333;
+  --border-light: #2a2a2a;
+  --badge-bg: rgba(93, 141, 168, 0.2);
+  --badge-text: #7ab4d0;
+  --status-active: #4caf50;
+  --status-inactive: #666;
+  --tag-bg: rgba(255, 255, 255, 0.08);
+  --tag-text: #aaa;
+  --scrollbar-thumb: #444;
 }
 
 /* ---------------------------------------------------------------------------
@@ -72,7 +90,7 @@
 }
 
 body {
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
@@ -118,7 +136,7 @@ body {
 
 .sidebar-version {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-family: var(--font-mono);
 }
 
@@ -137,8 +155,8 @@ body {
   padding: 10px 12px;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
-  font-family: var(--font-ui);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
   border-radius: var(--radius-sm);
@@ -152,7 +170,7 @@ body {
 }
 
 .nav-item.active {
-  background: var(--accent-light);
+  background: var(--accent-dim);
   color: var(--accent);
 }
 
@@ -182,7 +200,7 @@ body {
 .connection-status {
   font-size: 11px;
   font-family: var(--font-mono);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -192,7 +210,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--text-secondary);
+  background: var(--text-muted);
 }
 
 .connection-status.connected {
@@ -219,7 +237,7 @@ body {
   height: 36px;
   border: none;
   background: var(--bg-hover);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s;
@@ -269,7 +287,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 /* ---------------------------------------------------------------------------
@@ -290,7 +308,7 @@ body {
 
 .search-bar .material-symbols-outlined {
   font-size: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
 }
 
 .search-bar input {
@@ -299,12 +317,12 @@ body {
   border: none;
   outline: none;
   color: var(--text);
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-size: 14px;
 }
 
 .search-bar input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-dim);
 }
 
 /* ---------------------------------------------------------------------------
@@ -320,7 +338,7 @@ body {
 .server-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   padding: 16px;
   transition: border-color 0.15s;
 }
@@ -370,7 +388,7 @@ body {
 
 .server-description {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   margin-bottom: 10px;
   line-height: 1.4;
 }
@@ -396,7 +414,7 @@ body {
   align-items: center;
   gap: 12px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
 }
 
 .server-meta .material-symbols-outlined {
@@ -414,7 +432,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   margin-bottom: 6px;
 }
 
@@ -444,7 +462,7 @@ body {
 
 .tool-desc {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   line-height: 1.5;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
@@ -464,7 +482,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   grid-column: 1 / -1;
 }
 
@@ -532,7 +550,7 @@ body {
   padding: 6px 14px;
   border: none;
   border-radius: var(--radius-sm);
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -570,7 +588,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 40px;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   font-size: 14px;
   grid-column: 1 / -1;
 }
@@ -587,7 +605,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -612,13 +630,13 @@ body {
 }
 
 .btn-installed {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   border-color: var(--border);
 }
 
 .btn-installed:hover {
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 /* ---------------------------------------------------------------------------
@@ -641,7 +659,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -662,7 +680,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -677,13 +695,13 @@ body {
 
 .btn-delete {
   border: 1px solid var(--border);
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   background: transparent;
   padding: 4px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -736,13 +754,13 @@ body {
 
 .btn-health {
   border: 1px solid var(--border);
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   background: transparent;
   padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -771,14 +789,14 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 4px;
   background: none;
   border: none;
   padding: 0;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
 }
 
 .section-toggle .material-symbols-outlined {
@@ -817,14 +835,14 @@ body {
 }
 
 .secret-value {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-family: var(--font-mono);
 }
 
 .secret-delete {
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--text-dim);
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -860,7 +878,7 @@ body {
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
 }
 
 /* ---------------------------------------------------------------------------
@@ -875,7 +893,7 @@ body {
 
 .metrics-table th {
   text-align: left;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-weight: 500;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
@@ -905,7 +923,7 @@ body {
 .config-field label {
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -935,7 +953,7 @@ body {
   padding: 6px 14px;
   font-size: 12px;
   cursor: pointer;
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
 }
 
@@ -957,7 +975,7 @@ body {
   padding: 10px 16px;
   font-size: 13px;
   color: var(--text);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-2);
   z-index: 1000;
   animation: toast-in 0.2s ease-out;
 }

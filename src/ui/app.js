@@ -97,17 +97,23 @@
   function initTheme() {
     var toggle = AD._root.getElementById('theme-toggle');
     var saved = localStorage.getItem('agent-discover-theme');
-    if (saved === 'light') {
-      document.body.className = 'theme-light';
-    } else if (saved === 'dark') {
-      document.body.className = 'theme-dark';
+    if (saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else if (saved === 'light') {
+      document.documentElement.removeAttribute('data-theme');
     }
-    updateThemeIcon(document.body.classList.contains('theme-light') ? 'light' : 'dark');
+    var currentTheme =
+      document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    updateThemeIcon(currentTheme);
 
     toggle.addEventListener('click', function () {
-      var isDark = document.body.classList.contains('theme-dark');
+      var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
       var next = isDark ? 'light' : 'dark';
-      document.body.className = 'theme-' + next;
+      if (next === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
       localStorage.setItem('agent-discover-theme', next);
       updateThemeIcon(next);
       // Reverse sync — notify agent-desk shell
@@ -396,7 +402,7 @@
     if (!cached) return '<div class="loading">Loading...</div>';
 
     if (!cached.length)
-      return '<div style="font-size:12px;color:var(--text-tertiary)">No metrics data yet</div>';
+      return '<div style="font-size:12px;color:var(--text-dim)">No metrics data yet</div>';
 
     var rows = cached
       .map(function (m) {
@@ -963,33 +969,26 @@
     initThemeSync();
   }
 
-  var _params = new URLSearchParams(location.search);
-  if (_params.get('baseUrl')) AD._baseUrl = _params.get('baseUrl');
-  if (_params.get('wsUrl')) AD._wsUrl = _params.get('wsUrl');
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _init);
-  } else {
-    _init();
-  }
-
   // -------------------------------------------------------------------------
   // Theme sync from parent (agent-desk) via executeJavaScript
   // -------------------------------------------------------------------------
 
   function initThemeSync() {
-    // Detect external theme injection via MutationObserver on body class
+    // Detect external theme injection via MutationObserver on data-theme attribute
     var observer = new MutationObserver(function (mutations) {
       mutations.forEach(function (m) {
-        if (m.attributeName === 'class') {
-          var isDark = document.body.classList.contains('theme-dark');
+        if (m.attributeName === 'data-theme') {
+          var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
           var theme = isDark ? 'dark' : 'light';
           localStorage.setItem('agent-discover-theme', theme);
           updateThemeIcon(theme);
         }
       });
     });
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
 
     // Listen for postMessage theme sync (same pattern as agent-comm)
     window.addEventListener('message', function (event) {
@@ -1075,9 +1074,6 @@
             '0px 1px 3px 0px rgba(0,0,0,0.3), 0px 4px 8px 3px rgba(0,0,0,0.15)',
           );
         }
-        root.style.setProperty('--shadow-sm', 'var(--shadow-1)');
-        root.style.setProperty('--shadow-md', 'var(--shadow-2)');
-        root.style.setProperty('--shadow-hover', 'var(--shadow-3)');
       }
 
       if (colors.isDark !== undefined) {
@@ -1128,7 +1124,8 @@
 
     if (typeof AD._template === 'function') {
       var wrapper = document.createElement('div');
-      wrapper.className = 'theme-dark ad-wrapper';
+      wrapper.setAttribute('data-theme', 'dark');
+      wrapper.className = 'ad-wrapper';
       wrapper.innerHTML = AD._template();
       shadow.appendChild(wrapper);
     }
@@ -1145,4 +1142,18 @@
     }
     AD._root = document;
   };
+
+  var _params = new URLSearchParams(location.search);
+  if (_params.get('baseUrl')) AD._baseUrl = _params.get('baseUrl');
+  if (_params.get('wsUrl')) AD._wsUrl = _params.get('wsUrl');
+
+  try {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _init);
+    } else {
+      _init();
+    }
+  } catch (e) {
+    // standalone init may fail in file:// context (no WS host) — plugin mode uses mount()
+  }
 })();
