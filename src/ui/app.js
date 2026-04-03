@@ -236,24 +236,24 @@
             : '';
 
         var actionBtn = s.active
-          ? '<button class="btn-deactivate" onclick="window.__deactivateServer(' +
+          ? '<button class="btn-deactivate" data-action="deactivate" data-id="' +
             s.id +
-            ')"><span class="material-symbols-outlined" style="font-size:14px">stop_circle</span>Deactivate</button>'
-          : '<button class="btn-activate" onclick="window.__activateServer(' +
+            '"><span class="material-symbols-outlined" style="font-size:14px">stop_circle</span>Deactivate</button>'
+          : '<button class="btn-activate" data-action="activate" data-id="' +
             s.id +
-            ')"><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Activate</button>';
+            '"><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Activate</button>';
 
         var healthBtn =
-          '<button class="btn-health" onclick="window.__checkHealth(' +
+          '<button class="btn-health" data-action="health" data-id="' +
           s.id +
-          ')"><span class="material-symbols-outlined" style="font-size:14px">favorite</span>Check Health</button>';
+          '"><span class="material-symbols-outlined" style="font-size:14px">favorite</span>Check Health</button>';
 
         var deleteBtn =
-          '<button class="btn-delete" onclick="window.__deleteServer(' +
+          '<button class="btn-delete" data-action="delete" data-id="' +
           s.id +
-          ", '" +
-          esc(s.name).replace(/'/g, "\\'") +
-          '\')"><span class="material-symbols-outlined" style="font-size:14px">delete</span>Delete</button>';
+          '" data-name="' +
+          escAttr(s.name) +
+          '"><span class="material-symbols-outlined" style="font-size:14px">delete</span>Delete</button>';
 
         var actionsSection =
           '<div class="server-actions">' + actionBtn + healthBtn + deleteBtn + '</div>';
@@ -324,11 +324,11 @@
       '<div class="server-section">' +
       '<button class="section-toggle' +
       (isOpen ? ' open' : '') +
-      '" onclick="window.__toggleSection(' +
+      '" data-action="toggle-section" data-id="' +
       serverId +
-      ", '" +
+      '" data-section="' +
       name +
-      '\')">' +
+      '">' +
       '<span class="material-symbols-outlined">chevron_right</span>' +
       esc(label) +
       '</button>' +
@@ -362,11 +362,11 @@
           '<span class="secret-value">' +
           esc(s.masked_value || '********') +
           '</span>' +
-          '<button class="secret-delete" onclick="window.__deleteSecret(' +
+          '<button class="secret-delete" data-action="delete-secret" data-id="' +
           server.id +
-          ", '" +
-          esc(s.key).replace(/'/g, "\\'") +
-          '\')" title="Delete secret">' +
+          '" data-key="' +
+          escAttr(s.key) +
+          '" title="Delete secret">' +
           '<span class="material-symbols-outlined" style="font-size:14px">close</span>' +
           '</button>' +
           '</div>'
@@ -382,9 +382,9 @@
       '<input type="password" placeholder="Value" id="secret-val-' +
       server.id +
       '" />' +
-      '<button onclick="window.__addSecret(' +
+      '<button data-action="add-secret" data-id="' +
       server.id +
-      ')">Save</button>' +
+      '">Save</button>' +
       '</div>';
 
     return items + addForm;
@@ -471,9 +471,9 @@
           .join('\n'),
       ) +
       '</textarea></div>' +
-      '<button class="config-save" onclick="window.__saveConfig(' +
+      '<button class="config-save" data-action="save-config" data-id="' +
       server.id +
-      ')">Save Config</button>' +
+      '">Save Config</button>' +
       '</div>'
     );
   }
@@ -488,10 +488,10 @@
       } else {
         el.innerHTML =
           '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results in MCP registry</p>' +
-          "<a class=\"hint-link\" onclick=\"this.nextElementSibling.style.display='flex';this.style.display='none'\">Can't find it? Install from npm</a>" +
+          '<a class="hint-link" data-action="show-npm-form">Can\'t find it? Install from npm</a>' +
           '<div class="npm-install-form" style="display:none">' +
           '<input type="text" id="npm-package-input" placeholder="npm package name (e.g. @modelcontextprotocol/server-everything)" />' +
-          '<button class="btn-install" onclick="window.__installFromNpm()"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
+          '<button class="btn-install" data-action="install-npm"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
           '</div></div>';
       }
       return;
@@ -542,11 +542,9 @@
             '<button class="btn-install" disabled title="Remote server — not supported for local activation"><span class="material-symbols-outlined" style="font-size:14px">cloud_off</span>Remote only</button>';
         } else {
           installBtn =
-            '<button class="btn-install" data-browse-idx="' +
+            '<button class="btn-install" data-action="install-browse" data-browse-idx="' +
             idx +
-            '" onclick="window.__installFromBrowse(' +
-            idx +
-            ', this)"><span class="material-symbols-outlined" style="font-size:14px">download</span>Install</button>';
+            '"><span class="material-symbols-outlined" style="font-size:14px">download</span>Install</button>';
         }
 
         return (
@@ -972,10 +970,68 @@
   // Init
   // -------------------------------------------------------------------------
 
+  function _initDelegatedClicks() {
+    var root =
+      AD._root.getElementById('server-list') ||
+      AD._root.getElementById('tab-installed') ||
+      AD._root.body ||
+      AD._root;
+    // Use a broad container — the main content area
+    var container =
+      AD._root.querySelector('.main-content') || AD._root.querySelector('.ad-wrapper') || AD._root;
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      var action = btn.dataset.action;
+      var id = parseInt(btn.dataset.id, 10);
+
+      switch (action) {
+        case 'activate':
+          window.__activateServer(id);
+          break;
+        case 'deactivate':
+          window.__deactivateServer(id);
+          break;
+        case 'health':
+          window.__checkHealth(id);
+          break;
+        case 'delete':
+          window.__deleteServer(id, btn.dataset.name);
+          break;
+        case 'toggle-section':
+          window.__toggleSection(id, btn.dataset.section);
+          break;
+        case 'delete-secret':
+          window.__deleteSecret(id, btn.dataset.key);
+          break;
+        case 'add-secret':
+          window.__addSecret(id);
+          break;
+        case 'save-config':
+          window.__saveConfig(id);
+          break;
+        case 'install-npm':
+          window.__installFromNpm();
+          break;
+        case 'install-browse':
+          window.__installFromBrowse(parseInt(btn.dataset.browseIdx, 10), btn);
+          break;
+        case 'show-npm-form':
+          var form = btn.nextElementSibling;
+          if (form) {
+            form.style.display = 'flex';
+            btn.style.display = 'none';
+          }
+          break;
+      }
+    });
+  }
+
   function _init() {
     initTabs();
     initTheme();
     initSearch();
+    _initDelegatedClicks();
     connect();
     initThemeSync();
   }
@@ -1143,6 +1199,8 @@
 
     AD._root = shadow;
     _init();
+    var themeBtn = shadow.getElementById('theme-toggle');
+    if (themeBtn) themeBtn.style.display = 'none';
   };
 
   AD.unmount = function () {
