@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
+[![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-2-purple)]()
 [![REST Endpoints](https://img.shields.io/badge/REST-18%20endpoints-orange)]()
 
@@ -152,7 +153,7 @@ Real-time updates via WebSocket with 2-second database polling. Dark and light t
 ## Testing
 
 ```bash
-npm test              # Run tests
+npm test              # 152 tests across 8 files
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
 npm run check         # Full CI: typecheck + lint + format + test

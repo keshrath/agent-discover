@@ -1,19 +1,7 @@
 // =============================================================================
-// agent-discover — Version reader
+// agent-discover — Published package version (from package.json)
 // =============================================================================
 
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { readPackageMeta } from './package-meta.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let _version = '0.0.0';
-try {
-  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
-  _version = pkg.version ?? '0.0.0';
-} catch {
-  // Fallback if package.json not found
-}
-
-export const version = _version;
+export const version = readPackageMeta().version;

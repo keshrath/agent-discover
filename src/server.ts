@@ -20,6 +20,13 @@ export interface DashboardServer {
   close(): void;
 }
 
+/** Returns the argv element immediately after `flag`, or `undefined` if missing. */
+function getCliArgAfterFlag(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  if (i === -1 || i + 1 >= argv.length) return undefined;
+  return argv[i + 1];
+}
+
 export function startDashboard(ctx: AppContext, port = 3424): Promise<DashboardServer> {
   return new Promise((resolve, reject) => {
     const router = createRouter(ctx);
@@ -52,24 +59,22 @@ export function startDashboard(ctx: AppContext, port = 3424): Promise<DashboardS
 
 if (process.argv[1]?.endsWith('server.js') || process.argv[1]?.endsWith('server.ts')) {
   const port = parseInt(
-    process.argv.find((_a, i, arr) => arr[i - 1] === '--port') ??
-      process.env.AGENT_DISCOVER_PORT ??
-      '3424',
+    getCliArgAfterFlag(process.argv, '--port') ?? process.env.AGENT_DISCOVER_PORT ?? '3424',
     10,
   );
-  const dbPath = process.argv.find((_a, i, arr) => arr[i - 1] === '--db') ?? undefined;
+  const dbPath = getCliArgAfterFlag(process.argv, '--db');
   const dbOptions: DbOptions = dbPath ? { path: dbPath } : {};
 
   const ctx = createContext(dbOptions);
   startDashboard(ctx, port)
-    .then((dashboard) => {
+    .then((dashboardServer) => {
       process.on('SIGINT', () => {
-        dashboard.close();
+        dashboardServer.close();
         ctx.close();
         process.exit(0);
       });
       process.on('SIGTERM', () => {
-        dashboard.close();
+        dashboardServer.close();
         ctx.close();
         process.exit(0);
       });

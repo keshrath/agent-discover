@@ -33,7 +33,7 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 
 ### Transport Layer
 
-- **MCP (stdio)**: JSON-RPC over stdin/stdout. Entry point: `src/index.ts`. Handles `initialize`, `tools/list`, `tools/call`, `ping`. Sends `notifications/tools/list_changed` when servers are activated/deactivated.
+- **MCP (stdio)**: JSON-RPC over stdin/stdout. Entry point: `src/index.ts`. Handles `initialize`, `tools/list`, `tools/call`, `ping`. Sends `notifications/tools/list_changed` when servers are activated/deactivated. Package **name** and **version** for `initialize` (and related health payloads) come from **`src/package-meta.ts`** (cached read of `package.json`). **`src/version.ts`** re-exports the version string for REST, WebSocket, and MCP child `Client` identity.
 - **REST (HTTP)**: Lightweight HTTP API using `node:http` (no Express). Serves both JSON API endpoints and static UI files. Entry point: `src/transport/rest.ts`.
 - **WebSocket**: Real-time state streaming to dashboard clients. Sends full state snapshots, uses DB fingerprint polling for change detection. Entry point: `src/transport/ws.ts`.
 

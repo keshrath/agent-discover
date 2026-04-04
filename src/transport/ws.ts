@@ -42,8 +42,8 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
     sendFullState(ws, ctx, clients);
 
     ws.on('pong', () => {
-      const s = clients.get(ws);
-      if (s) s.alive = true;
+      const clientState = clients.get(ws);
+      if (clientState) clientState.alive = true;
     });
 
     ws.on('message', (raw: Buffer) => {
