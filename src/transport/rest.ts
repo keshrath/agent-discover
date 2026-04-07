@@ -6,25 +6,21 @@
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { readFileSync } from 'fs';
-import { join, extname, dirname, resolve } from 'path';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
+import {
+  json,
+  readBody as kitReadBody,
+  serveStatic,
+  KitError,
+  ValidationError as KitValidationError,
+} from 'agent-common';
 import type { AppContext } from '../context.js';
 import { RegistryError, ValidationError } from '../types.js';
 import { version } from '../version.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-};
 
 type RouteHandler = (
   req: IncomingMessage,
@@ -57,40 +53,15 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
     });
   }
 
-  function json(res: ServerResponse, data: unknown, status = 200): void {
-    res.writeHead(status, {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'X-Content-Type-Options': 'nosniff',
-    });
-    res.end(JSON.stringify(data));
-  }
-
-  const MAX_BODY_SIZE = 131_072; // 128KB
-
   async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let totalSize = 0;
-      req.on('data', (chunk: Buffer) => {
-        totalSize += chunk.length;
-        if (totalSize > MAX_BODY_SIZE) {
-          req.destroy();
-          reject(new ValidationError('Request body too large'));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      req.on('end', () => {
-        try {
-          const body = Buffer.concat(chunks).toString();
-          resolve(body ? JSON.parse(body) : {});
-        } catch {
-          reject(new ValidationError('Invalid JSON body'));
-        }
-      });
-      req.on('error', reject);
-    });
+    try {
+      return await kitReadBody(req, 131_072);
+    } catch (err) {
+      if (err instanceof KitValidationError) {
+        throw new ValidationError(err.message);
+      }
+      throw err;
+    }
   }
 
   const startTime = Date.now();
@@ -448,7 +419,9 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       Promise.resolve()
         .then(() => r.handler(req, res, params))
         .catch((err) => {
-          const status = err instanceof RegistryError ? err.statusCode : 500;
+          let status = 500;
+          if (err instanceof RegistryError) status = err.statusCode;
+          else if (err instanceof KitError) status = err.statusCode;
           const message = err instanceof Error ? err.message : String(err);
           json(res, { error: message }, status);
         });
@@ -456,25 +429,10 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
     }
 
     if (req.method === 'GET') {
-      const filePath = pathname === '/' ? '/index.html' : pathname;
-      const ext = extname(filePath);
-      const mime = MIME_TYPES[ext];
-
-      if (mime) {
-        try {
-          const resolved = resolve(join(uiDir, filePath));
-          if (!resolved.startsWith(resolve(uiDir))) {
-            json(res, { error: 'Forbidden' }, 403);
-            return;
-          }
-          const content = readFileSync(resolved);
-          res.writeHead(200, { 'Content-Type': mime });
-          res.end(content);
-          return;
-        } catch {
-          // Fall through to 404
-        }
-      }
+      serveStatic(res, uiDir, pathname === '/' ? '/index.html' : pathname, {
+        spaFallback: false,
+      });
+      return;
     }
 
     json(res, { error: 'Not found' }, 404);
