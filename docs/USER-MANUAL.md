@@ -148,7 +148,7 @@ To allow Claude Code to call agent-discover tools and any proxied tools without 
 }
 ```
 
-This covers both the 2 built-in registry tools (`registry` and `registry_server`) and all dynamically proxied tools from activated servers (since proxied tools are also exposed through agent-discover).
+This covers the single built-in `registry` tool and all dynamically proxied tools from activated servers (since proxied tools are also exposed through agent-discover).
 
 ### Other MCP Clients
 
@@ -245,9 +245,9 @@ The WebSocket auto-reconnects after a 2-second delay if the connection drops. A 
 
 ## 5. MCP Tools Reference
 
-agent-discover exposes 2 action-based MCP tools, plus any number of proxied tools from activated servers. The `registry` tool handles actions: `list`, `install`, `uninstall`, `browse`, `status`. The `registry_server` tool handles actions: `activate`, `deactivate`.
+agent-discover exposes a single action-based MCP tool — `registry` — plus any number of proxied tools from activated servers. The `registry` tool handles actions: `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
 
-> **Note:** The examples below use the shorthand `registry_list`, `registry_install`, etc. for readability. In practice, these are called as the `registry` tool with `action: "list"`, `action: "install"`, etc. Similarly, `registry_activate` and `registry_deactivate` are called as the `registry_server` tool with `action: "activate"` or `action: "deactivate"`.
+> **Note:** The examples below use the shorthand `registry_list`, `registry_install`, etc. for readability. In practice, these are called as the `registry` tool with `action: "list"`, `action: "install"`, etc. The same applies to `registry_activate` / `registry_deactivate` — both are now `registry` actions, not a separate tool.
 
 ### registry_list
 

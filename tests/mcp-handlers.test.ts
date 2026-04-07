@@ -100,25 +100,25 @@ describe('MCP Handlers', () => {
     });
   });
 
-  describe('registry_server({ action: "activate" })', () => {
+  describe('registry({ action: "activate" })', () => {
     it('should reject non-existent server', async () => {
       await expect(
-        toolHandlers.registry_server(ctx, { action: 'activate', name: 'nonexistent' }),
+        toolHandlers.registry(ctx, { action: 'activate', name: 'nonexistent' }),
       ).rejects.toThrow('not found');
     });
 
     it('should reject server without command', async () => {
       ctx.registry.register({ name: 'no-cmd' });
       await expect(
-        toolHandlers.registry_server(ctx, { action: 'activate', name: 'no-cmd' }),
+        toolHandlers.registry(ctx, { action: 'activate', name: 'no-cmd' }),
       ).rejects.toThrow('no command');
     });
   });
 
-  describe('registry_server({ action: "deactivate" })', () => {
+  describe('registry({ action: "deactivate" })', () => {
     it('should return not_active for inactive server', async () => {
       ctx.registry.register({ name: 'inactive', command: 'node' });
-      const result = (await toolHandlers.registry_server(ctx, {
+      const result = (await toolHandlers.registry(ctx, {
         action: 'deactivate',
         name: 'inactive',
       })) as Record<string, unknown>;
@@ -232,18 +232,18 @@ describe('MCP Handlers', () => {
     });
   });
 
-  describe('registry_server({ action: "activate" }) — error cases', () => {
+  describe('registry({ action: "activate" }) — error cases', () => {
     it('should reject missing name', async () => {
-      await expect(
-        toolHandlers.registry_server(ctx, { action: 'activate', name: '' }),
-      ).rejects.toThrow('name is required');
+      await expect(toolHandlers.registry(ctx, { action: 'activate', name: '' })).rejects.toThrow(
+        'name is required',
+      );
     });
 
     it('should return already_active for active server', async () => {
       ctx.registry.register({ name: 'active-srv', command: 'node' });
       vi.spyOn(ctx.proxy, 'isActive').mockReturnValue(true);
 
-      const result = (await toolHandlers.registry_server(ctx, {
+      const result = (await toolHandlers.registry(ctx, {
         action: 'activate',
         name: 'active-srv',
       })) as Record<string, unknown>;
@@ -251,11 +251,11 @@ describe('MCP Handlers', () => {
     });
   });
 
-  describe('registry_server({ action: "deactivate" }) — additional cases', () => {
+  describe('registry({ action: "deactivate" }) — additional cases', () => {
     it('should reject missing name', async () => {
-      await expect(
-        toolHandlers.registry_server(ctx, { action: 'deactivate', name: '' }),
-      ).rejects.toThrow('name is required');
+      await expect(toolHandlers.registry(ctx, { action: 'deactivate', name: '' })).rejects.toThrow(
+        'name is required',
+      );
     });
   });
 
@@ -369,14 +369,6 @@ describe('MCP Handlers', () => {
       await expect(toolHandlers.registry(ctx, { action: 'invalid' })).rejects.toThrow(
         'Unknown registry action',
       );
-    });
-  });
-
-  describe('registry_server — invalid action', () => {
-    it('should reject unknown action', async () => {
-      await expect(
-        toolHandlers.registry_server(ctx, { action: 'invalid', name: 'x' }),
-      ).rejects.toThrow('Unknown registry_server action');
     });
   });
 });

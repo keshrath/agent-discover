@@ -2,21 +2,21 @@
 
 ## MCP Tools
 
-agent-discover exposes 2 action-based MCP tools plus dynamically proxied tools from active servers.
+agent-discover exposes **1 action-based MCP tool** (`registry`) plus dynamically proxied tools from active servers. Keeping the tool count to one minimizes prompt overhead — every action lives behind the same dispatcher.
 
 ### registry
 
-Registry management tool with multiple actions: `list`, `install`, `uninstall`, `browse`, `status`.
+Unified server-registry tool. Actions: `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
 
 **Parameters:**
 
 | Name             | Type     | Required | Description                                                                            |
 | ---------------- | -------- | -------- | -------------------------------------------------------------------------------------- |
-| `action`         | string   | **yes**  | Action: `list`, `install`, `uninstall`, `browse`, `status`                             |
+| `action`         | string   | **yes**  | One of `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`    |
 | `query`          | string   | no       | [list/browse] FTS search query                                                         |
 | `source`         | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`) |
 | `installed_only` | boolean  | no       | [list] Only show installed servers                                                     |
-| `name`           | string   | no       | [install/uninstall] Server name                                                        |
+| `name`           | string   | no       | [install/uninstall/activate/deactivate] Server name                                    |
 | `command`        | string   | no       | [install] Command to start server (required for manual install)                        |
 | `args`           | string[] | no       | [install] Command arguments                                                            |
 | `env`            | object   | no       | [install] Environment variables                                                        |
@@ -87,26 +87,17 @@ Registry management tool with multiple actions: `list`, `install`, `uninstall`, 
 
 ---
 
-### registry_server
-
-Server lifecycle tool. Actions: `activate`, `deactivate`.
+### registry — activate / deactivate
 
 Activation starts the server as a child process and exposes its tools through agent-discover. Proxied tools appear as `serverName__toolName`. Secrets stored for this server are automatically merged into the process environment.
 
 Deactivation stops the server and removes its proxied tools.
 
-**Parameters:**
-
-| Name     | Type   | Required | Description                        |
-| -------- | ------ | -------- | ---------------------------------- |
-| `action` | string | **yes**  | Action: `activate` or `deactivate` |
-| `name`   | string | **yes**  | Server name                        |
-
 **Example (activate):**
 
 ```json
 {
-  "name": "registry_server",
+  "name": "registry",
   "arguments": { "action": "activate", "name": "filesystem" }
 }
 ```
@@ -115,10 +106,12 @@ Deactivation stops the server and removes its proxied tools.
 
 ```json
 {
-  "name": "registry_server",
+  "name": "registry",
   "arguments": { "action": "deactivate", "name": "filesystem" }
 }
 ```
+
+Activation and deactivation trigger an MCP `tools/list_changed` notification, so MCP clients refresh their tool list automatically.
 
 ---
 

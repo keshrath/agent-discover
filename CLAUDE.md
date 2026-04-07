@@ -25,7 +25,7 @@ src/
 - **Design tokens**: CSS custom properties (`--bg`, `--accent`, `--border`, `--shadow-*`, etc.)
 - **Accent color**: `#5d8da8`
 - **Port**: 3424 (configurable via `AGENT_DISCOVER_PORT`)
-- **Tabs**: 2 tabs -- Servers (merged installed+active) and Browse
+- **Tabs**: 2 tabs — Servers (merged installed+active) and Browse (marketplace)
 - **Server cards**: health dots, error counts, expandable Secrets/Metrics/Config sections
 - **Theme sync**: Supports agent-desk postMessage theme injection + reverse sync
 
@@ -52,7 +52,7 @@ npm run check      # typecheck + lint + format + test
 
 - **REST**: `GET /health`, `GET /api/servers`, `GET /api/servers/:id`, `POST /api/servers`, `PUT /api/servers/:id`, `DELETE /api/servers/:id`, `POST /api/servers/:id/activate`, `POST /api/servers/:id/deactivate`, `GET /api/servers/:id/secrets`, `PUT /api/servers/:id/secrets/:key`, `DELETE /api/servers/:id/secrets/:key`, `POST /api/servers/:id/health`, `GET /api/servers/:id/metrics`, `GET /api/metrics`, `GET /api/browse`, `GET /api/status`
 - **WebSocket**: Full state on connect, delta updates via DB polling
-- **MCP**: 2 action-based tools (`registry` with actions: list/install/uninstall/browse/status, `registry_server` with actions: activate/deactivate) + proxied tools from active servers
+- **MCP**: 1 action-based tool — `registry` (actions: list/install/uninstall/activate/deactivate/browse/status) + proxied tools from active servers
 
 ## DB
 

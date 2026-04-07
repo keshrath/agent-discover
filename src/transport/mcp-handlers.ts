@@ -27,12 +27,11 @@ function optNum(v: unknown, fallback: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// registry — action-based dispatcher
+// registry — MCP server lifecycle dispatcher
 // ---------------------------------------------------------------------------
 
 const handleRegistry: HandlerFn = async (ctx, args) => {
   const action = str(args.action);
-
   switch (action) {
     case 'list':
       return registryList(ctx, args);
@@ -40,32 +39,17 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryInstall(ctx, args);
     case 'uninstall':
       return registryUninstall(ctx, args);
+    case 'activate':
+      return registryActivate(ctx, args);
+    case 'deactivate':
+      return registryDeactivate(ctx, args);
     case 'browse':
       return registryBrowse(ctx, args);
     case 'status':
       return registryStatus(ctx, args);
     default:
       throw new ValidationError(
-        `Unknown registry action: "${action}". Valid: list, install, uninstall, browse, status`,
-      );
-  }
-};
-
-// ---------------------------------------------------------------------------
-// registry_server — action-based dispatcher
-// ---------------------------------------------------------------------------
-
-const handleRegistryServer: HandlerFn = async (ctx, args) => {
-  const action = str(args.action);
-
-  switch (action) {
-    case 'activate':
-      return registryActivate(ctx, args);
-    case 'deactivate':
-      return registryDeactivate(ctx, args);
-    default:
-      throw new ValidationError(
-        `Unknown registry_server action: "${action}". Valid: activate, deactivate`,
+        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status`,
       );
   }
 };
@@ -340,5 +324,4 @@ const registryStatus: HandlerFn = (ctx) => {
 
 export const toolHandlers: Record<string, HandlerFn> = {
   registry: handleRegistry,
-  registry_server: handleRegistryServer,
 };

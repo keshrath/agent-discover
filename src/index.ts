@@ -89,10 +89,12 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse |
       try {
         const result = await handleTool(toolName, toolArgs);
 
-        if (toolName === 'registry_server') {
-          toolsChanged = true;
-        }
-        if (toolName === 'registry' && toolArgs.action === 'uninstall') {
+        if (
+          toolName === 'registry' &&
+          (toolArgs.action === 'activate' ||
+            toolArgs.action === 'deactivate' ||
+            toolArgs.action === 'uninstall')
+        ) {
           toolsChanged = true;
         }
 

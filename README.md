@@ -98,14 +98,13 @@ node dist/server.js --port 3424
 
 ---
 
-## MCP Tools (2)
+## MCP Tools (1)
 
-Both tools are action-based -- a single tool handles multiple operations via the `action` parameter.
+A single action-based tool handles every operation via the `action` parameter — this keeps the prompt-overhead cost minimal.
 
-| Tool              | Actions                                            | Description                                                                                                        |
-| ----------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `registry`        | `list`, `install`, `uninstall`, `browse`, `status` | Registry management -- search local servers, install from registry, remove, browse marketplace, show active status |
-| `registry_server` | `activate`, `deactivate`                           | Server lifecycle -- start/stop MCP servers on demand, tools appear/disappear dynamically                           |
+| Tool       | Actions                                                                      | Description                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `registry` | `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status` | Registry + server lifecycle — search local servers, install from marketplace or manual config, activate/deactivate, browse, show status |
 
 Activated servers expose their tools through agent-discover, namespaced as `serverName__toolName`. For example, activating a server named `filesystem` that exposes `read_file` makes it available as `filesystem__read_file`.
 

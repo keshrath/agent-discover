@@ -3,6 +3,9 @@
 //
 // Maps MCP tool calls to domain services. Each tool is a thin adapter.
 // Also merges proxied tools from active servers into the tool list.
+//
+// Single tool surface: `registry` (MCP server lifecycle) — minimal prompt
+// overhead. activate/deactivate live here too rather than a second tool.
 // =============================================================================
 
 import type { AppContext } from '../context.js';
@@ -18,21 +21,22 @@ export const tools: ToolDefinition[] = [
   {
     name: 'registry',
     description:
-      'MCP server registry. Actions: "list" (search local registry), "install" (add server from registry or manual config), "uninstall" (remove server), "browse" (search official MCP registry), "status" (show active servers and tools).',
+      'MCP server registry. Actions: "list" (search local registry), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'install', 'uninstall', 'browse', 'status'],
+          enum: ['list', 'install', 'uninstall', 'activate', 'deactivate', 'browse', 'status'],
           description: 'Action to perform',
         },
-        // list params
         query: { type: 'string', description: '[list/browse] Search query' },
         source: { type: 'string', description: '[list] Filter by source' },
         installed_only: { type: 'boolean', description: '[list] Only installed servers' },
-        // install params
-        name: { type: 'string', description: '[install/uninstall] Server name' },
+        name: {
+          type: 'string',
+          description: '[install/uninstall/activate/deactivate] Server name',
+        },
         command: { type: 'string', description: '[install] Command to start server' },
         args: {
           type: 'array',
@@ -46,29 +50,10 @@ export const tools: ToolDefinition[] = [
           items: { type: 'string' },
           description: '[install] Tags',
         },
-        // browse params
         limit: { type: 'number', description: '[browse] Max results (default 20)' },
         cursor: { type: 'string', description: '[browse] Pagination cursor' },
       },
       required: ['action'],
-    },
-  },
-
-  {
-    name: 'registry_server',
-    description:
-      'Activate or deactivate an MCP server. Activation starts the server process and exposes its tools. Deactivation stops it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['activate', 'deactivate'],
-          description: 'Action to perform',
-        },
-        name: { type: 'string', description: 'Server name' },
-      },
-      required: ['action', 'name'],
     },
   },
 ];

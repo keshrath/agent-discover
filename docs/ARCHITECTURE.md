@@ -156,7 +156,7 @@ The proxy is the core differentiator of agent-discover. When a server is activat
 3. It connects as an MCP client and calls `tools/list` to discover available tools
 4. Tools are stored in the database and added to the in-memory tool list
 5. Each tool is namespaced as `serverName__toolName` to avoid collisions
-6. When `tools/list` is called on agent-discover, the proxied tools are merged with the built-in 2 tools
+6. When `tools/list` is called on agent-discover, the proxied tools are merged with the single built-in `registry` tool
 7. When a proxied tool is called, `McpProxy.callTool()` forwards the call to the child server and records metrics (latency, success/failure) via `MetricsService`
 8. A `notifications/tools/list_changed` notification tells the MCP client to refresh its tool list
 

@@ -6,7 +6,7 @@
     "url": "https://github.com/keshrath/agent-discover",
     "source": "github"
   },
-  "version": "1.0.14",
+  "version": "1.0.16",
   "packages": [
     {
       "registryType": "npm",
