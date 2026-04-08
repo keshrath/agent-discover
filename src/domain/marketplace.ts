@@ -74,18 +74,53 @@ export class MarketplaceClient {
   }
 
   private async searchNpm(query: string, limit: number): Promise<MarketplaceResult['servers']> {
-    const params = new URLSearchParams();
-    // Bias towards MCP-tagged packages without excluding bare matches.
-    params.set('text', `${query} keywords:mcp`);
-    params.set('size', String(Math.min(limit, 50)));
-
+    // Run two searches in parallel: one biased to keywords:mcp (catches
+    // packages that opted in) and one with " mcp" appended to the text
+    // (catches packages that mention MCP in name/description but didn't
+    // tag themselves — e.g. @playwright/mcp). Merge and dedupe.
+    const size = String(Math.min(limit, 50));
+    const variants = [`${query} keywords:mcp`, `${query} mcp`];
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
-      const res = await fetch(`${NPM_SEARCH_API}?${params}`, { signal: controller.signal });
-      if (!res.ok) return [];
-      const data = (await res.json()) as { objects?: Array<{ package?: Record<string, unknown> }> };
-      const objects = Array.isArray(data.objects) ? data.objects : [];
+      const responses = await Promise.all(
+        variants.map(async (text) => {
+          const params = new URLSearchParams({ text, size });
+          try {
+            const res = await fetch(`${NPM_SEARCH_API}?${params}`, { signal: controller.signal });
+            if (!res.ok) return [] as Array<{ package?: Record<string, unknown> }>;
+            const data = (await res.json()) as {
+              objects?: Array<{ package?: Record<string, unknown> }>;
+            };
+            return Array.isArray(data.objects) ? data.objects : [];
+          } catch {
+            return [] as Array<{ package?: Record<string, unknown> }>;
+          }
+        }),
+      );
+
+      const seen = new Set<string>();
+      const objects: Array<{ package?: Record<string, unknown> }> = [];
+      for (const list of responses) {
+        for (const entry of list) {
+          const name = String((entry.package as Record<string, unknown> | undefined)?.name ?? '');
+          if (!name || seen.has(name)) continue;
+          // Filter out packages that don't appear to be MCP-related: keep
+          // those whose name contains "mcp" OR whose keywords include "mcp"
+          // OR whose description mentions "MCP" / "Model Context Protocol".
+          const pkg = (entry.package ?? {}) as Record<string, unknown>;
+          const kw = Array.isArray(pkg.keywords) ? (pkg.keywords as string[]).join(' ') : '';
+          const desc = String(pkg.description ?? '');
+          const haystack = `${name} ${kw} ${desc}`.toLowerCase();
+          if (!haystack.includes('mcp') && !haystack.includes('model context protocol')) {
+            continue;
+          }
+          seen.add(name);
+          objects.push(entry);
+        }
+      }
+
       return objects.map((entry) => {
         const pkg = (entry.package ?? {}) as Record<string, unknown>;
         const name = String(pkg.name ?? '');

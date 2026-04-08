@@ -649,7 +649,7 @@
     btn.innerHTML =
       '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span>Installing...';
 
-    var safeName = (server.name || '').replace(/\//g, '-');
+    var safeName = (server.name || '').replace(/@/g, '').replace(/\//g, '-');
     // Detect transport and build config
     var pkg = (server.packages || [])[0];
     var transport = (pkg && (pkg.transport || pkg.runtime)) || 'stdio';
