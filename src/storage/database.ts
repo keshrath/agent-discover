@@ -1,14 +1,21 @@
 // =============================================================================
 // agent-discover — Storage layer
 //
-// Thin wrapper around better-sqlite3 with schema management.
-// Provides a simplified query interface used by domain services.
+// Thin wrapper around agent-common's createDb. Pre-migration shim seeds the
+// `_meta.schema_version` row from the legacy `pragma user_version` value so
+// existing installations migrate cleanly to agent-common's _meta-table runner
+// without re-running migrations against tables that already have the columns.
+// All ALTER TABLE statements in v2/v3 use PRAGMA table_info guards to stay
+// idempotent on partially-migrated DBs.
 // =============================================================================
 
 import Database from 'better-sqlite3';
 import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
+import { createDb as createKitDb, type Db, type Migration } from 'agent-common';
+
+export type { Db } from 'agent-common';
 
 export interface DbOptions {
   /** Use ':memory:' for tests, or a file path. Defaults to ~/.claude/agent-discover.db */
@@ -17,61 +24,10 @@ export interface DbOptions {
   verbose?: boolean;
 }
 
-export interface Db {
-  readonly raw: Database.Database;
-  run(sql: string, params?: unknown[]): Database.RunResult;
-  queryAll<T>(sql: string, params?: unknown[]): T[];
-  queryOne<T>(sql: string, params?: unknown[]): T | null;
-  transaction<T>(fn: () => T): T;
-  close(): void;
-}
-
-const SCHEMA_VERSION = 3;
-
 export function createDb(options: DbOptions = {}): Db {
-  const dbPath = resolveDbPath(options.path);
-  const raw = new Database(dbPath, {
-    verbose: options.verbose ? (msg) => process.stderr.write(`[sql] ${msg}\n`) : undefined,
-  });
-
-  raw.pragma('journal_mode = WAL');
-  raw.pragma('busy_timeout = 5000');
-  raw.pragma('synchronous = NORMAL');
-  raw.pragma('foreign_keys = ON');
-
-  applySchema(raw);
-
-  return {
-    raw,
-
-    run(sql: string, params?: unknown[]): Database.RunResult {
-      const stmt = raw.prepare(sql);
-      return params?.length ? stmt.run(...params) : stmt.run();
-    },
-
-    queryAll<T>(sql: string, params?: unknown[]): T[] {
-      const stmt = raw.prepare(sql);
-      return (params?.length ? stmt.all(...params) : stmt.all()) as T[];
-    },
-
-    queryOne<T>(sql: string, params?: unknown[]): T | null {
-      const stmt = raw.prepare(sql);
-      const row = params?.length ? stmt.get(...params) : stmt.get();
-      return (row as T) ?? null;
-    },
-
-    transaction<T>(fn: () => T): T {
-      return raw.transaction(fn)();
-    },
-
-    close(): void {
-      try {
-        raw.close();
-      } catch {
-        /* ignore */
-      }
-    },
-  };
+  const path = resolveDbPath(options.path);
+  seedMetaFromUserVersion(path);
+  return createKitDb({ path, migrations, verbose: options.verbose });
 }
 
 function resolveDbPath(path?: string): string {
@@ -83,14 +39,48 @@ function resolveDbPath(path?: string): string {
   return join(dir, 'agent-discover.db');
 }
 
-function applySchema(raw: Database.Database): void {
-  const currentVersion = (raw.pragma('user_version', { simple: true }) as number) ?? 0;
+/**
+ * Bridge legacy pragma user_version DBs into agent-common's _meta table.
+ * Opens the DB once, copies user_version → _meta.schema_version (if _meta is
+ * empty), then closes. Safe on fresh DBs (both values are 0). Skipped for
+ * in-memory DBs.
+ */
+function seedMetaFromUserVersion(path: string): void {
+  if (path === ':memory:') return;
+  const raw = new Database(path);
+  try {
+    raw.exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    const existing = raw.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+      | { value: string }
+      | undefined;
+    if (existing) return;
+    const userVersion = raw.pragma('user_version', { simple: true }) as number;
+    if (userVersion > 0) {
+      raw
+        .prepare(`INSERT INTO _meta (key, value) VALUES ('schema_version', ?)`)
+        .run(String(userVersion));
+    }
+  } finally {
+    raw.close();
+  }
+}
 
-  if (currentVersion >= SCHEMA_VERSION) return;
+// ---------------------------------------------------------------------------
+// Migrations — version-ordered, applied by agent-common's runner.
+// All ALTER TABLE statements are guarded so they're safe to re-run on DBs
+// that legacy pragma-user_version code already touched.
+// ---------------------------------------------------------------------------
 
-  raw.transaction(() => {
-    if (currentVersion < 1) {
-      raw.exec(`
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return cols.some((c) => c.name === column);
+}
+
+const migrations: Migration[] = [
+  {
+    version: 1,
+    up: (db: Database.Database) => {
+      db.exec(`
         CREATE TABLE IF NOT EXISTS servers (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL UNIQUE,
@@ -125,7 +115,6 @@ function applySchema(raw: Database.Database): void {
           content=servers, content_rowid=id
         );
 
-        -- FTS triggers
         CREATE TRIGGER IF NOT EXISTS servers_ai AFTER INSERT ON servers BEGIN
           INSERT INTO servers_fts(rowid, name, description, tags)
           VALUES (new.id, new.name, new.description, new.tags);
@@ -143,59 +132,58 @@ function applySchema(raw: Database.Database): void {
           VALUES (new.id, new.name, new.description, new.tags);
         END;
       `);
-    }
+    },
+  },
+  {
+    version: 2,
+    up: (db: Database.Database) => {
+      if (!hasColumn(db, 'servers', 'approval_status')) {
+        db.exec(`ALTER TABLE servers ADD COLUMN approval_status TEXT DEFAULT 'experimental'`);
+      }
+      if (!hasColumn(db, 'servers', 'latest_version')) {
+        db.exec(`ALTER TABLE servers ADD COLUMN latest_version TEXT`);
+      }
+      if (!hasColumn(db, 'servers', 'last_health_check')) {
+        db.exec(`ALTER TABLE servers ADD COLUMN last_health_check TEXT`);
+      }
+      if (!hasColumn(db, 'servers', 'health_status')) {
+        db.exec(`ALTER TABLE servers ADD COLUMN health_status TEXT DEFAULT 'unknown'`);
+      }
+      if (!hasColumn(db, 'servers', 'error_count')) {
+        db.exec(`ALTER TABLE servers ADD COLUMN error_count INTEGER DEFAULT 0`);
+      }
 
-    if (currentVersion < 2) {
-      migrateV2(raw);
-    }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS server_secrets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+          key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          masked BOOLEAN DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(server_id, key)
+        );
 
-    if (currentVersion < 3) {
-      migrateV3(raw);
-    }
-
-    raw.pragma(`user_version = ${SCHEMA_VERSION}`);
-  })();
-}
-
-function migrateV2(raw: Database.Database): void {
-  // New columns on servers table
-  raw.exec(`
-    ALTER TABLE servers ADD COLUMN approval_status TEXT DEFAULT 'experimental';
-    ALTER TABLE servers ADD COLUMN latest_version TEXT;
-    ALTER TABLE servers ADD COLUMN last_health_check TEXT;
-    ALTER TABLE servers ADD COLUMN health_status TEXT DEFAULT 'unknown';
-    ALTER TABLE servers ADD COLUMN error_count INTEGER DEFAULT 0;
-  `);
-
-  // Secrets table
-  raw.exec(`
-    CREATE TABLE IF NOT EXISTS server_secrets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      masked BOOLEAN DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(server_id, key)
-    );
-  `);
-
-  // Metrics table
-  raw.exec(`
-    CREATE TABLE IF NOT EXISTS server_metrics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      tool_name TEXT NOT NULL,
-      call_count INTEGER DEFAULT 0,
-      error_count INTEGER DEFAULT 0,
-      total_latency_ms INTEGER DEFAULT 0,
-      last_called_at TEXT,
-      UNIQUE(server_id, tool_name)
-    );
-  `);
-}
-
-function migrateV3(raw: Database.Database): void {
-  raw.exec(`ALTER TABLE servers DROP COLUMN approval_status;`);
-}
+        CREATE TABLE IF NOT EXISTS server_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+          tool_name TEXT NOT NULL,
+          call_count INTEGER DEFAULT 0,
+          error_count INTEGER DEFAULT 0,
+          total_latency_ms INTEGER DEFAULT 0,
+          last_called_at TEXT,
+          UNIQUE(server_id, tool_name)
+        );
+      `);
+    },
+  },
+  {
+    version: 3,
+    up: (db: Database.Database) => {
+      if (hasColumn(db, 'servers', 'approval_status')) {
+        db.exec(`ALTER TABLE servers DROP COLUMN approval_status`);
+      }
+    },
+  },
+];
