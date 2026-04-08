@@ -6,6 +6,7 @@
 // serverName__toolName to avoid collisions.
 // =============================================================================
 
+import { spawnSync } from 'child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -16,6 +17,18 @@ import { version } from '../version.js';
 
 const ACTIVATE_TIMEOUT_MS = 60_000;
 const CALL_TIMEOUT_MS = 60_000;
+
+// Probes whether `cmd` resolves to an executable on PATH. We use `shell: true`
+// so Windows .cmd / .bat shims (npx.cmd, uvx.cmd) are honored — same trick the
+// /api/prereqs endpoint uses. Sync to keep the error-rewrite branch simple.
+function isCommandOnPath(cmd: string): boolean {
+  try {
+    const result = spawnSync(`${cmd} --version`, { shell: true, stdio: 'ignore' });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -113,10 +126,37 @@ export class McpProxy {
         } catch {
           /* ignore */
         }
-        throw new Error(
-          `Failed to activate "${config.name}": ${err instanceof Error ? err.message : String(err)}`,
-          { cause: err },
-        );
+        // The MCP SDK reports both "command not on PATH" and "child crashed
+        // before handshake" as the same opaque "MCP error -32000: Connection
+        // closed". Rewrite into something the user can act on. We only add
+        // the install-hint suffix if the command is *actually* missing from
+        // PATH (probed sync via spawnSync) — otherwise the hint would be
+        // misleading when the real issue is e.g. a non-existent package.
+        const raw = err instanceof Error ? err.message : String(err);
+        let friendly = raw;
+        const cmd = config.command;
+        const looksLikeChildExit =
+          raw.includes('Connection closed') ||
+          raw.includes('ENOENT') ||
+          raw.includes('spawn') ||
+          raw.includes('not found');
+        if (cmd && looksLikeChildExit) {
+          const onPath = isCommandOnPath(cmd);
+          if (!onPath) {
+            const hint =
+              cmd === 'uvx' || cmd === 'uv'
+                ? ' — install uv from https://docs.astral.sh/uv/getting-started/installation/'
+                : cmd === 'npx'
+                  ? ' — install Node.js from https://nodejs.org'
+                  : cmd === 'docker'
+                    ? ' — install Docker Desktop from https://docker.com'
+                    : '';
+            friendly = `command "${cmd}" not found on PATH${hint}. Original: ${raw}`;
+          } else {
+            friendly = `child process for "${cmd} ${(config.args ?? []).join(' ')}" exited before the MCP handshake completed — verify the package/args are correct and the server actually starts. Original: ${raw}`;
+          }
+        }
+        throw new Error(`Failed to activate "${config.name}": ${friendly}`, { cause: err });
       }
     } finally {
       this.activating.delete(config.name);

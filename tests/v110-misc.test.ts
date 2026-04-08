@@ -17,6 +17,7 @@ import { createContext, type AppContext } from '../src/context.js';
 import { createRouter } from '../src/transport/rest.js';
 import { createDb } from '../src/storage/database.js';
 import { InstallerService } from '../src/domain/installer.js';
+import { McpProxy } from '../src/domain/proxy.js';
 import { ValidationError } from '../src/types.js';
 
 describe('Hydration failure path', () => {
@@ -160,4 +161,37 @@ describe('InstallerService — edge cases', () => {
     expect(inst.detectInstallConfig('uvx-mcp-server-time').args).toEqual(['mcp-server-time']);
     expect(inst.detectInstallConfig('docker-myimg').args).toEqual(['run', '-i', '--rm', 'myimg']);
   });
+});
+
+describe('McpProxy.activate — friendly error rewrite', () => {
+  it('rewrites a missing command into a "not found on PATH" error', async () => {
+    const proxy = new McpProxy();
+    // This binary cannot exist; isCommandOnPath() returns false, so the
+    // rewrite branch picks the "not on PATH" message (no install hint, the
+    // command is not in our hint table).
+    await expect(
+      proxy.activate({
+        name: 'definitely-missing',
+        command: '__definitely_not_a_real_binary_xyz__',
+        args: [],
+        transport: 'stdio',
+      }),
+    ).rejects.toThrow(/not found on PATH/);
+  }, 15_000);
+
+  it('hedges into a "child exited before handshake" message when the command IS on PATH', async () => {
+    const proxy = new McpProxy();
+    // `node` is guaranteed on PATH (we are running under it). Args point at
+    // a script that does not exist, so the child exits non-zero before any
+    // MCP handshake. The rewrite must therefore NOT claim "not on PATH" —
+    // it must show the hedged message that points at the args/package.
+    await expect(
+      proxy.activate({
+        name: 'node-bad-args',
+        command: 'node',
+        args: ['/__definitely_not_a_real_script__.js'],
+        transport: 'stdio',
+      }),
+    ).rejects.toThrow(/exited before the MCP handshake/);
+  }, 15_000);
 });

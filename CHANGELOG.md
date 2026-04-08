@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-04-08
+
+### Fixed
+
+- **Activation error message rewrite for stdio servers.** When a stdio child process exits before the MCP handshake completes, the SDK reports the opaque `MCP error -32000: Connection closed` — equally true for "command not on PATH" and "child crashed because args were wrong". `McpProxy.activate()` now distinguishes the two by probing the command synchronously with `spawnSync(cmd --version, { shell: true })` and rewrites the failure into either:
+  - `command "<cmd>" not found on PATH` — with an install hint pointing at uv / Node / Docker docs when the command is one of those, OR
+  - `child process for "<cmd> <args>" exited before the MCP handshake completed — verify the package/args are correct and the server actually starts` — when the command IS on PATH but the package failed to start.
+
+  Both messages preserve the original SDK error in `Original: …` for debugging. Verified end-to-end via Playwright against a real `mcp-server-time` install (uvx-spawned Python child, MCP handshake, two tools discovered) plus negative tests for missing-command and bad-args.
+
+### Tests
+
+- `tests/v110-misc.test.ts`: replaced the two earlier friendly-error tests with sharper ones that lock in the rewrite branching — one asserts `not found on PATH` against an unknown binary, the other asserts `exited before the MCP handshake` against `node /__nope__.js` (proves the on-PATH branch is exercised, not just the unknown-command branch).
+
 ## [1.1.1] - 2026-04-08
 
 ### Fixed

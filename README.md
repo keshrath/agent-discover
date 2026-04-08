@@ -159,7 +159,7 @@ Real-time updates via WebSocket with 2-second database polling. Dark and light t
 ## Testing
 
 ```bash
-npm test              # 177 tests across 12 files
+npm test              # 179 tests across 12 files
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
 npm run check         # Full CI: typecheck + lint + format + test
