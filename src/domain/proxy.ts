@@ -228,18 +228,25 @@ export class McpProxy {
     const transportType = config.transport ?? 'stdio';
 
     if ((transportType === 'streamable-http' || transportType === 'sse') && config.url) {
-      // Build headers from config + secrets (secrets used as HTTP headers for remote servers)
-      const headers: Record<string, string> = { ...(config.headers ?? {}) };
+      // Build headers from config + secrets (secrets used as HTTP headers for remote servers).
+      // Reject any value containing CR/LF to prevent HTTP header injection.
+      const safeHeader = (v: string): boolean => !/[\r\n]/.test(v);
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(config.headers ?? {})) {
+        if (safeHeader(v)) headers[k] = v;
+      }
       if (this.secretsService && this.serverIdResolver) {
         const serverId = this.serverIdResolver(config.name);
         if (serverId !== null) {
           const secretsEnv = this.secretsService.getEnvForServer(serverId);
-          // Map common secret keys to HTTP headers
-          if (secretsEnv.AUTHORIZATION) headers['Authorization'] = secretsEnv.AUTHORIZATION;
-          if (secretsEnv.API_KEY) headers['Authorization'] = 'Bearer ' + secretsEnv.API_KEY;
-          // Pass all other secrets as headers too
+          if (secretsEnv.AUTHORIZATION && safeHeader(secretsEnv.AUTHORIZATION)) {
+            headers['Authorization'] = secretsEnv.AUTHORIZATION;
+          }
+          if (secretsEnv.API_KEY && safeHeader(secretsEnv.API_KEY)) {
+            headers['Authorization'] = 'Bearer ' + secretsEnv.API_KEY;
+          }
           Object.entries(secretsEnv).forEach(([k, v]) => {
-            if (!headers[k] && k !== 'AUTHORIZATION' && k !== 'API_KEY') {
+            if (!headers[k] && k !== 'AUTHORIZATION' && k !== 'API_KEY' && safeHeader(v)) {
               headers[k] = v;
             }
           });
