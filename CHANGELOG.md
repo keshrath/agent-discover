@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.25] - 2026-04-08
+
+### Changed
+
+- Tidied `.gitignore` with section headers and added `test-results/` + `playwright-report/`.
+
+## [1.0.24] - 2026-04-08
+
+### Added
+
+- **Playwright E2E dashboard test suite** at `tests/e2e-ui/dashboard.pw.ts`. Boots the standalone HTTP+WS server against a temp SQLite DB on a free port, seeds three mock server entries via the registry, and verifies: page loads with no console/page errors, websocket upgrade, REST `/api/servers` returns the seeded entries, the installed list renders the seeded server cards, the Browse tab switches into view. Runnable via `npm run test:e2e:ui`. Devdep `@playwright/test`. Vitest count unchanged at 151.
+
+## [1.0.23] - 2026-04-08
+
+### Changed
+
+- Dropped the `seedMetaFromUserVersion` shim in favour of `agent-common`'s `adoptUserVersion` + `addColumnIfMissing` helpers.
+
+## [1.0.22] - 2026-04-08
+
+### Changed
+
+- Version bump after a tag collision on the database.ts shim release.
+
+## [1.0.21] - 2026-04-08
+
+### Changed
+
+- `storage/database.ts` delegated to `agent-common`'s `createDb`, with a `user_version` → `_meta` seeding shim for in-place migration of existing DBs.
+
+## [1.0.20] - 2026-04-08
+
+### Changed
+
+- `index.ts` MCP dispatcher delegated to `agent-common`'s `startMcpServer`, with `dynamic tools` + `onToolCalled` notify hooks for the proxy lifecycle.
+
+## [1.0.19] - 2026-04-08
+
+### Changed
+
+- `transport/ws.ts` delegated to `agent-common`'s `setupWebSocket`.
+
+## [1.0.18] - 2026-04-08
+
+### Changed
+
+- `transport/rest.ts` `json` / `readBody` / `serveStatic` helpers delegated to `agent-common`, with strict 404 fallback.
+
+## [1.0.17] - 2026-04-08
+
+### Changed
+
+- Added `agent-common` as a runtime dependency for events, package metadata, and the dashboard server primitives.
+
 ## [1.0.16] - 2026-04-07
 
 ### Changed
