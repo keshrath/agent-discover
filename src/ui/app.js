@@ -20,6 +20,7 @@
   let currentTab = 'installed';
   let searchTimeout = null;
   let openSections = {}; // track open sections per server: { "serverId-sectionName": true }
+  let prereqs = null; // { npx, uvx, docker, uv } — populated on load
 
   // -------------------------------------------------------------------------
   // WebSocket
@@ -146,6 +147,20 @@
         fetchBrowse(q);
       }, 400);
     });
+  }
+
+  function fetchPrereqs() {
+    AD._fetch('/api/prereqs')
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        prereqs = data;
+        renderBrowse();
+      })
+      .catch(function () {
+        /* prereqs are advisory only — never block UI */
+      });
   }
 
   function fetchBrowse(query) {
@@ -478,16 +493,37 @@
     );
   }
 
+  function renderPrereqBanner() {
+    if (!prereqs) return '';
+    var missing = [];
+    if (!prereqs.npx) missing.push({ tool: 'npx', hint: 'install Node.js — npx ships with it' });
+    if (!prereqs.uvx && !prereqs.uv)
+      missing.push({ tool: 'uvx', hint: 'install uv: https://docs.astral.sh/uv/' });
+    if (!missing.length) return '';
+    return (
+      '<div class="prereq-banner" style="padding:10px 14px;margin-bottom:12px;border:1px solid var(--orange,#e67e22);border-radius:6px;background:rgba(230,126,34,0.08);font-size:13px"><strong>Heads up:</strong> ' +
+      missing
+        .map(function (m) {
+          return '<code>' + esc(m.tool) + '</code> not found on PATH (' + esc(m.hint) + ')';
+        })
+        .join(' &nbsp;·&nbsp; ') +
+      '. Installs requiring those tools will fail until they are available.</div>'
+    );
+  }
+
   function renderBrowse() {
     var el = AD._root.getElementById('browse-list');
+    var banner = renderPrereqBanner();
     if (!browseResults.length) {
       var q = AD._root.getElementById('browse-search').value.trim();
       if (!q) {
         el.innerHTML =
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry</p><p class="hint">Type a query above to discover servers</p></div>';
+          banner +
+          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry, npm and PyPI</p><p class="hint">Type a query above to discover servers</p></div>';
       } else {
         el.innerHTML =
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results in MCP registry</p>' +
+          banner +
+          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results found</p>' +
           '<a class="hint-link" data-action="show-npm-form">Can\'t find it? Install from npm</a>' +
           '<div class="npm-install-form" style="display:none">' +
           '<input type="text" id="npm-package-input" placeholder="npm package name (e.g. @modelcontextprotocol/server-everything)" />' +
@@ -574,7 +610,7 @@
       })
       .join('');
 
-    morph(el, html);
+    morph(el, banner + html);
   }
 
   function esc(str) {
@@ -652,21 +688,27 @@
     var safeName = (server.name || '').replace(/@/g, '').replace(/\//g, '-');
     // Detect transport and build config
     var pkg = (server.packages || [])[0];
-    var transport = (pkg && (pkg.transport || pkg.runtime)) || 'stdio';
+    var runtime = (pkg && (pkg.transport || pkg.runtime)) || 'stdio';
     var remoteUrl = pkg && pkg.url ? pkg.url : null;
 
     var serverData = {
       name: safeName,
       description: server.description || '',
       source: 'registry',
-      transport: transport,
+      transport: runtime,
       tags: ['marketplace'],
     };
 
-    if (transport === 'streamable-http' || transport === 'sse') {
+    if (runtime === 'streamable-http' || runtime === 'sse') {
       serverData.homepage = remoteUrl || server.repository || '';
+    } else if (runtime === 'python' || (pkg && pkg.registry_name === 'pypi')) {
+      // PyPI package — install via uvx
+      serverData.transport = 'stdio';
+      serverData.command = 'uvx';
+      serverData.args = [pkg ? pkg.name || server.name : server.name || safeName];
+      serverData.tags = ['marketplace', 'pypi'];
     } else {
-      // stdio / node / python — default to npx
+      // stdio / node — default to npx
       serverData.transport = 'stdio';
       serverData.command = 'npx';
       serverData.args = ['-y', pkg ? pkg.name || server.name : server.name || safeName];
@@ -1034,6 +1076,7 @@
     _initDelegatedClicks();
     connect();
     initThemeSync();
+    fetchPrereqs();
   }
 
   // -------------------------------------------------------------------------

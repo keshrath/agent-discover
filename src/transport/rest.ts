@@ -8,7 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import {
   json,
   readBody as kitReadBody,
@@ -132,11 +132,19 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       homepage,
     });
 
-    // Async pre-download for npx-based servers
+    // Async pre-download
     if (server.command === 'npx' && server.args && server.args.length > 0) {
       const pkgName = server.args.find((a: string) => a !== '-y') ?? server.args[0];
       if (pkgName) {
         execFile('npm', ['cache', 'add', pkgName], { timeout: 120_000 }, () => {
+          /* fire and forget */
+        });
+      }
+    } else if (server.command === 'uvx' && server.args && server.args.length > 0) {
+      const pkgName = server.args[0];
+      if (pkgName) {
+        // `uv tool install` warms uv's tool cache without running the package
+        execFile('uv', ['tool', 'install', pkgName], { timeout: 180_000 }, () => {
           /* fire and forget */
         });
       }
@@ -152,18 +160,35 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       json(res, { error: 'Not found' }, 404);
       return;
     }
-    if (server.command !== 'npx' || !server.args || server.args.length === 0) {
-      json(res, { status: 'skipped', reason: 'not an npx server' });
+    if (!server.args || server.args.length === 0) {
+      json(res, { status: 'skipped', reason: 'no package name' });
       return;
     }
-    const pkgName = server.args.find((a) => a !== '-y') ?? server.args[0];
+
+    let cmd: string;
+    let cmdArgs: string[];
+    let pkgName: string;
+    if (server.command === 'npx') {
+      pkgName = server.args.find((a) => a !== '-y') ?? server.args[0];
+      cmd = 'npm';
+      cmdArgs = ['cache', 'add', pkgName];
+    } else if (server.command === 'uvx') {
+      pkgName = server.args[0];
+      cmd = 'uv';
+      cmdArgs = ['tool', 'install', pkgName];
+    } else {
+      json(res, { status: 'skipped', reason: 'not an npx/uvx server' });
+      return;
+    }
+
     if (!pkgName) {
       json(res, { status: 'skipped', reason: 'no package name found' });
       return;
     }
+
     try {
       await new Promise<void>((resolve, reject) => {
-        execFile('npm', ['cache', 'add', pkgName], { timeout: 120_000 }, (err) => {
+        execFile(cmd, cmdArgs, { timeout: 180_000 }, (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -173,6 +198,50 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       const message = err instanceof Error ? err.message : String(err);
       json(res, { status: 'failed', error: message }, 500);
     }
+  });
+
+  // Phase 3: prereqs probe — UI uses this to warn when npx/uvx/docker is
+  // missing on the host before the user attempts an install. Uses `spawn`
+  // with `shell: true` (instead of execFile) so Windows .cmd/.bat shims
+  // (npx.cmd, uvx.cmd) are resolved without execFile's strict path lookup.
+  route('GET', '/api/prereqs', async (_req, res) => {
+    const probe = (cmd: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        let done = false;
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          resolve(ok);
+        };
+        try {
+          const child = spawn(`${cmd} --version`, { shell: true, stdio: 'ignore' });
+          const t = setTimeout(() => {
+            try {
+              child.kill();
+            } catch {
+              /* ignore */
+            }
+            finish(false);
+          }, 5_000);
+          child.on('exit', (code) => {
+            clearTimeout(t);
+            finish(code === 0);
+          });
+          child.on('error', () => {
+            clearTimeout(t);
+            finish(false);
+          });
+        } catch {
+          finish(false);
+        }
+      });
+    const [npx, uvx, docker, uv] = await Promise.all([
+      probe('npx'),
+      probe('uvx'),
+      probe('docker'),
+      probe('uv'),
+    ]);
+    json(res, { npx, uvx, docker, uv });
   });
 
   route('DELETE', '/api/servers/:id', async (_req, res, params) => {
