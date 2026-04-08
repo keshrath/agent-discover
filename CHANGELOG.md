@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-04-08
+
+Federated marketplace release: `/api/browse` now spans the official MCP registry, npm, and PyPI in one query, with cross-process activation, prereqs probing, and a `uvx` install path. Full UI/REST/MCP coverage.
+
+### Added
+
+- **PyPI marketplace integration.** `MarketplaceClient.searchPypi()` resolves a curated list of well-known Python MCP servers (`mcp-server-fetch`, `mcp-server-git`, `mcp-server-time`, `mcp-server-postgres`, `mcp-server-sqlite`, `mcp-proxy`, `mcp-cli`, …) against the stable PyPI JSON API (`/pypi/<name>/json`) for live metadata, plus a best-effort HTML scrape of `pypi.org/search` to surface anything beyond the curated list. PyPI hits are tagged `runtime: python` and merged into `/api/browse` results alongside the official registry and npm.
+- **npm search fallback in `/api/browse`.** Two parallel npm queries (`<query> keywords:mcp` and `<query> mcp`) merge + dedupe with the official-registry results. The first variant catches packages that opted into the `keywords:mcp` tag; the second catches packages like Microsoft's `@playwright/mcp` that have no `keywords` field at all. Filtered to entries mentioning `mcp` / `model context protocol` in name/keywords/description.
+- **Federated dedupe with cross-source visibility.** Browse results are keyed by `<source>:<name>` (`registry:`, `npm:`, `pypi:`) so packages with colliding names across sources (e.g. `mcp-server-sqlite` exists on both npm and PyPI as different projects) all stay visible, while same-source version duplicates still collapse (highest semver wins).
+- **uvx install path in the dashboard.** The Browse-tab Install button now branches on `pkg.runtime === 'python'` (or `registry_name === 'pypi'`) and posts `command: 'uvx'`, `args: ['<pkg>']`, `tags: ['marketplace', 'pypi']`. The async pre-download path (`POST /api/servers`) and the explicit `POST /api/servers/:id/preinstall` endpoint both grew a `uv tool install <pkg>` branch alongside the existing `npm cache add`.
+- **Prereqs probe (`GET /api/prereqs`).** Spawns `npx --version`, `uvx --version`, `docker --version`, `uv --version` using `spawn` with `shell: true` so Windows `.cmd` shims resolve. Returns `{ npx, uvx, docker, uv }`. The dashboard fetches it on load and renders an orange banner above the Browse list when something needed for an install is missing, with install hints linking to nodejs.org / docs.astral.sh/uv.
+- **README/CHANGELOG/USER-MANUAL/API/ARCHITECTURE/DASHBOARD docs** brought fully up to date for the new federated marketplace, hydration, prereqs, and uvx flow.
+
+### Fixed
+
+- **Cross-process activation hydration.** Removed the `UPDATE servers SET active = 0` startup wipe in `context.ts`. Each fresh agent-discover process now reads `WHERE active = 1 AND installed = 1` and re-activates those servers in its own `McpProxy` on boot, with stale entries (failed activate) cleared back to `active = 0` so we don't retry forever. Activation lives in-memory in `McpProxy.activeServers` but the DB-backed `active` flag is the cross-process source of truth, so a tool activated via the dashboard UI is now visible to a freshly-spawned MCP client process without manual re-activation.
+- **Scoped npm names rejected by server-name validation.** The Browse-tab install path sanitised `@scope/pkg` → `@scope-pkg`, leaving the leading `@` which fails the registry's `^[a-zA-Z0-9]…$` regex with HTTP 422. Now strips `@` to match the parallel `__installFromNpm` path. Confirmed via Playwright e2e against `@modelcontextprotocol/server-everything`.
+- **Marketplace version-duplicates.** `parseResponse` now collapses one-row-per-version results from the official registry (`playwright-wizard-mcp ×3` → `×1`).
+
+### Security
+
+- **CRLF header injection in proxy secret merge.** When activating an SSE / streamable-http remote server, secrets stored for that server are merged into the outbound HTTP headers (`Authorization`, `API_KEY`, plus pass-through). Values containing `\r` or `\n` are now rejected before insertion to prevent HTTP header injection from a poisoned secret value. (`src/domain/proxy.ts`)
+
+[Note: 1.0.28 – 1.0.31 were intermediate dev tags during this work and have been folded into 1.1.0 for the public release.]
+
 ## [1.0.27] - 2026-04-08
 
 ### Documentation

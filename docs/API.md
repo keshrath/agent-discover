@@ -145,6 +145,25 @@ Health check endpoint.
 
 ---
 
+### GET /api/prereqs
+
+Probe the host for installed package managers. The dashboard uses this to warn when a tool needed for an install (`npx`, `uvx`, `docker`) is missing.
+
+Each value is the result of spawning `<tool> --version` with a 5-second timeout. Uses `shell: true` so Windows `.cmd`/`.bat` shims (`npx.cmd`, `uvx.cmd`) resolve correctly.
+
+**Response:**
+
+```json
+{
+  "npx": true,
+  "uvx": false,
+  "docker": false,
+  "uv": false
+}
+```
+
+---
+
 ### GET /api/servers
 
 List registered servers. Supports query parameters for filtering.
@@ -409,7 +428,9 @@ Global metrics overview across all servers with recorded activity.
 
 ### GET /api/browse
 
-Browse the MCP registry marketplace.
+Federated search across the **official MCP registry**, **npm**, and **PyPI**, merged into a single result. The official registry is the primary source; npm and PyPI augment best-effort and never block the response.
+
+Same-source version duplicates are collapsed by name (highest semver wins). Cross-source name collisions are kept distinct via a `<source>:<name>` dedupe key, so e.g. `mcp-server-sqlite` (npm) and `mcp-server-sqlite` (PyPI) both appear.
 
 **Query parameters:**
 
@@ -419,7 +440,15 @@ Browse the MCP registry marketplace.
 | `limit`  | Max results (default 20) |
 | `cursor` | Pagination cursor        |
 
-**Response:** Marketplace result with `servers` array and `next_cursor`.
+**Response:** Marketplace result with `servers` array and `next_cursor`. Each server entry's `packages[].runtime` is one of:
+
+| Runtime           | Source                                       | Install command (default)    |
+| ----------------- | -------------------------------------------- | ---------------------------- |
+| `node`            | Official registry node entries, npm fallback | `npx -y <pkg>`               |
+| `python`          | PyPI curated list / scrape                   | `uvx <pkg>`                  |
+| `docker`          | Official registry docker entries             | `docker run -i --rm <image>` |
+| `streamable-http` | Official registry, remote MCP servers        | (no spawn — direct HTTP)     |
+| `sse`             | Official registry, remote MCP servers        | (no spawn — direct SSE)      |
 
 ---
 

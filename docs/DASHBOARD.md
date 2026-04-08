@@ -33,14 +33,16 @@ The badge in the sidebar navigation shows the total count of servers.
 
 ### Browse
 
-Search and browse the official MCP registry marketplace. Enter a search term to find MCP servers available for installation. Results appear after a 400ms debounce delay.
+Federated search across the **official MCP registry**, **npm**, and **PyPI**. Enter a search term to find MCP servers available for installation. Results appear after a 400ms debounce delay.
 
-Results show:
+Each card shows:
 
 - Server name, description, and version
-- Available packages (npm, Python, Docker)
+- Runtime tag (`node`, `python`, `streamable-http`, `sse`, `docker`)
 - Repository link (clickable, opens in new tab)
-- **Install button**: Registers the server in the local database. Shows a checkmark if already installed. Shows a spinner during install and an error indicator on failure.
+- **Install button**: Registers the server in the local database with the right command for its runtime — `npx -y <pkg>` for node, `uvx <pkg>` for python, the remote URL for sse/streamable-http. Shows a checkmark if already installed. Shows a spinner during install and an error indicator on failure.
+
+A **prereqs banner** is rendered above the result list when a package manager that the host needs (`npx`, `uvx`, `docker`) is missing — fed by `GET /api/prereqs` which probes each tool with `<tool> --version`. The banner explains which tool is missing and how to install it.
 
 Installing a server from Browse adds it to the Servers tab.
 

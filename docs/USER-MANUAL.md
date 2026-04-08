@@ -23,7 +23,7 @@
 agent-discover is an MCP (Model Context Protocol) server that functions as a dynamic registry and marketplace for other MCP servers. Instead of hardcoding every MCP server in your agent's configuration and restarting each time you add or remove one, agent-discover lets you:
 
 - **Register** MCP servers in a local SQLite database.
-- **Browse** the official MCP registry at `registry.modelcontextprotocol.io` and install servers with a single tool call.
+- **Browse** a federated marketplace covering the official MCP registry, npm, and PyPI in one search, and install servers with a single tool call.
 - **Activate and deactivate** servers on demand -- their tools appear and disappear from the agent's tool list without any restart.
 - **Proxy** tool calls transparently -- activated server tools are namespaced as `serverName__toolName` and routed through agent-discover to the child server process.
 - **Manage secrets** -- store API keys and tokens per server, automatically injected into the environment on activation.
@@ -44,7 +44,7 @@ Internally, the project uses a layered architecture:
 
 ```
 domain/      Registry CRUD, MCP proxy, marketplace client, installer, secrets, health, metrics, event bus
-storage/     SQLite via better-sqlite3 (WAL mode, schema V2)
+storage/     SQLite via better-sqlite3 (WAL mode, schema V3)
 transport/   REST (node:http), WebSocket (ws), MCP (stdio JSON-RPC)
 ui/          Vanilla JS dashboard (no build step for the UI itself)
 ```
@@ -221,15 +221,17 @@ When no servers are registered, a placeholder message is shown with a hint to us
 
 ### Browse Tab
 
-Search the official MCP registry. Type a query in the search bar and results appear after a 400ms debounce delay. Each result card shows:
+Federated search across the official MCP registry, npm, and PyPI. Type a query in the search bar and results appear after a 400ms debounce delay. Each result card shows:
 
 - **Server name** and **version**
 - **Description**
-- **Available packages** with their runtime (node, python, etc.)
+- **Available packages** with their runtime tag (`node`, `python`, `streamable-http`, `sse`, `docker`)
 - **Repository link** (clickable, opens in new tab)
-- **Install button**: Registers the server in the local database. Shows a checkmark and "Installed" label if already present. Shows a spinner during installation and an error indicator on failure.
+- **Install button**: Registers the server in the local database with the right command for its runtime — `npx -y <pkg>` for node, `uvx <pkg>` for python, the remote URL for sse/streamable-http. Shows a checkmark and "Installed" label if already present. Shows a spinner during installation and an error indicator on failure.
 
-The search calls `GET /api/browse?query=...&limit=20` which proxies to the official MCP registry API.
+A **prereqs banner** is rendered above the result list when a package manager that the host needs (`npx`, `uvx`, `docker`) is missing — for example, _"uvx not found on PATH"_. The banner is fed by `GET /api/prereqs` which probes each tool with `<tool> --version`.
+
+The search calls `GET /api/browse?query=...&limit=20`, which under the hood queries the official MCP registry, the npm search API, and the PyPI JSON API in parallel and merges the results. Same-source version duplicates collapse; cross-source name collisions stay distinct via a `<source>:<name>` dedupe key.
 
 ### Theme Toggle
 
@@ -579,6 +581,31 @@ Health check endpoint.
 
 ```bash
 curl http://localhost:3424/health
+```
+
+---
+
+### GET /api/prereqs
+
+Probe the host for installed package managers. The dashboard fetches this on load and uses the result to render a banner above the Browse tab when a tool needed for an install is missing.
+
+Each value is the result of spawning `<tool> --version` with a 5-second timeout, using `shell: true` so Windows `.cmd` shims (`npx.cmd`, `uvx.cmd`) resolve correctly.
+
+**Response:**
+
+```json
+{
+  "npx": true,
+  "uvx": false,
+  "docker": false,
+  "uv": false
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:3424/api/prereqs
 ```
 
 ---
@@ -966,7 +993,7 @@ curl http://localhost:3424/api/metrics
 
 ### GET /api/browse
 
-Search the official MCP registry. Proxies the request to `registry.modelcontextprotocol.io`.
+Federated search across the official MCP registry, npm, and PyPI in parallel. The official registry is the primary source; npm and PyPI augment best-effort and never block the response. Same-source version dupes collapse; cross-source name collisions stay visible via a `<source>:<name>` dedupe key.
 
 **Query Parameters:**
 
@@ -1129,51 +1156,63 @@ This tells MCP clients like Claude Code to call `tools/list` again to get the up
 
 ## 8. Marketplace
 
-### How the Official MCP Registry Works
+### Federated search across three sources
 
-The official MCP registry at `https://registry.modelcontextprotocol.io` is a public index of MCP servers. agent-discover queries its API at `/v0/servers` to search for and retrieve server metadata.
+A single browse query hits **three sources in parallel** and merges the results:
 
-The registry returns server entries that include:
+| Source                | Endpoint                                                   | What it covers                                                                                                                           |
+| --------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Official MCP registry | `registry.modelcontextprotocol.io/v0/servers`              | Servers explicitly published to the official index. Sparse and curated.                                                                  |
+| npm                   | `registry.npmjs.org/-/v1/search`                           | Two parallel queries (`<q> keywords:mcp` and `<q> mcp`) so packages without the `keywords` field still surface (e.g. `@playwright/mcp`). |
+| PyPI                  | Curated list + `pypi.org/pypi/<name>/json` (+ HTML scrape) | Well-known Python MCP servers (`mcp-server-fetch`, `mcp-server-git`, `mcp-server-time`, `mcp-server-postgres`, `mcp-server-sqlite`, …).  |
 
-- **name**: The server's identifier.
-- **description**: What the server does.
-- **version**: Current version.
-- **repository**: Source code URL.
-- **remotes/packages**: Available installation methods with their runtimes (node, python, docker).
+Same-source version duplicates are collapsed (highest semver wins). Cross-source name collisions stay visible — `mcp-server-sqlite` exists on both npm and PyPI as different projects, so both show up with their respective `runtime` tags (`node` vs `python`).
 
 ### Searching for Servers
 
-Use `registry_browse` to search:
+Use the `registry` tool with `action: "browse"`:
 
 ```
-registry_browse with query "github"
+registry { "action": "browse", "query": "github" }
 ```
 
-Or via the dashboard's Browse tab -- type in the search bar and results appear after a short delay.
+Or via the dashboard's Browse tab — type in the search bar and results appear after a short delay.
 
 ### Understanding Transport Types
 
 MCP servers can use different transport mechanisms:
 
-| Transport         | Description                                                                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `stdio`           | Communication over stdin/stdout. The default and most common for local servers. agent-discover launches these as child processes. |
-| `sse`             | Server-Sent Events over HTTP. For remote/hosted servers.                                                                          |
-| `streamable-http` | HTTP-based bidirectional streaming. For remote servers.                                                                           |
+| Transport         | Description                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `stdio`           | Communication over stdin/stdout. Default for local servers (npm/PyPI/Docker). agent-discover launches these as child processes. |
+| `sse`             | Server-Sent Events over HTTP. For remote/hosted servers.                                                                        |
+| `streamable-http` | HTTP-based bidirectional streaming. For remote servers.                                                                         |
 
-Currently, agent-discover's proxy only supports `stdio` transport -- it spawns child processes and communicates via stdin/stdout. Servers with `sse` or `streamable-http` transport are shown in search results but cannot be activated through the proxy.
+All three transports are supported. Stdio servers are spawned as child processes; SSE/streamable-http servers are connected directly via the official MCP SDK clients with secrets merged into HTTP headers (CRLF-validated).
+
+### Install methods and prerequisites
+
+Each browse result carries a `runtime` tag that determines how it gets installed:
+
+| Runtime  | Install command              | Required on host                                  |
+| -------- | ---------------------------- | ------------------------------------------------- |
+| `node`   | `npx -y <pkg>`               | `npx` (ships with [Node.js](https://nodejs.org/)) |
+| `python` | `uvx <pkg>`                  | `uvx` ([install uv](https://docs.astral.sh/uv/))  |
+| `docker` | `docker run -i --rm <image>` | `docker`                                          |
+
+The dashboard probes `GET /api/prereqs` on load and shows an orange banner above the Browse tab when a required tool is missing — for example, _"uvx not found on PATH (install uv: https://docs.astral.sh/uv/)"_ if you try to browse Python servers without uv installed.
 
 ### Installing from Marketplace Results
 
-After browsing, install a server from the registry:
+After browsing, install from the dashboard with the per-card Install button (it picks the right command automatically based on `runtime`), or via the `registry` tool:
 
 ```
-registry_browse with query "filesystem"
+registry { "action": "browse", "query": "filesystem" }
 # Find the server you want, then:
-registry_install with name "filesystem" and source "registry"
+registry { "action": "install", "name": "filesystem", "source": "registry" }
 ```
 
-agent-discover will match the name against registry results, detect the appropriate package manager, and configure the server automatically.
+agent-discover will match the name against the federated results, detect the appropriate package manager (`npx` / `uvx` / `docker`), and configure the server automatically. The async pre-download path (`npm cache add` for npx servers, `uv tool install` for uvx servers) warms the cache so the first activation is fast.
 
 The auto-detection logic:
 
@@ -1334,13 +1373,27 @@ Server configuration can be updated after registration via the `PUT /api/servers
 
 ### Marketplace Search Returns Empty
 
-**Symptom:** `registry_browse` returns no results.
+**Symptom:** `registry { "action": "browse" }` returns no results.
 
 **Causes:**
 
-- The search term may not match any servers in the registry. Try broader terms.
-- Network connectivity issues -- the machine needs internet access to reach `registry.modelcontextprotocol.io`.
-- Registry API timeout (15-second limit). Check your network connection.
+- The search term may not match any servers across the official registry, npm, or PyPI. Try broader terms.
+- Network connectivity issues — the machine needs internet access to reach `registry.modelcontextprotocol.io`, `registry.npmjs.org`, and `pypi.org`.
+- API timeouts (15-second limit per source). Check your network connection. The npm and PyPI fallbacks are best-effort and never block the official-registry response, so a timeout on one source still returns results from the others.
+
+### "uvx not found on PATH" banner
+
+**Symptom:** Browse tab shows an orange banner about a missing package manager.
+
+**Cause:** `GET /api/prereqs` probed the host and `uvx --version` (or `npx`/`docker`) returned non-zero. PyPI / Python MCP servers cannot install until the matching tool is on the PATH.
+
+**Solution:** Install the missing tool — for `uvx`, install [uv](https://docs.astral.sh/uv/) (single-line installer for Linux/macOS/Windows). Reload the dashboard and the banner disappears.
+
+### Dashboard activation does not show up in another MCP client
+
+**Symptom:** I activated a server via the dashboard UI but a second MCP client (e.g. another Claude Code session) does not see the proxied tools.
+
+**Resolution:** Fixed in v1.1.0. Each fresh agent-discover process now hydrates its in-memory proxy from the DB-backed `active` flag on startup. Restart the second client to spawn a new stdio child, and it will re-activate the same set of servers automatically.
 
 ### WebSocket Disconnections
 

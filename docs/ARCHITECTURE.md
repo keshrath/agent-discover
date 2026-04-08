@@ -41,8 +41,12 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 
 - **RegistryService** (`src/domain/registry.ts`): CRUD operations for the local server registry. Handles registration, listing, FTS search (via SQLite FTS5), and tool metadata storage. Supports `update` and `updateById` for modifying server config.
 - **McpProxy** (`src/domain/proxy.ts`): Manages child MCP server processes. Connects via `StdioClientTransport` from `@modelcontextprotocol/sdk`, discovers tools, and proxies tool calls. Tools are namespaced as `serverName__toolName`. On activation, merges secrets into the server environment. On each tool call, records metrics (latency, success/failure).
-- **MarketplaceClient** (`src/domain/marketplace.ts`): HTTP client for the official MCP registry API at `registry.modelcontextprotocol.io`. Supports search, browse, and individual server lookup.
-- **InstallerService** (`src/domain/installer.ts`): Detects the install method for a package (npm/npx, Python/uvx, Docker) and builds the appropriate command configuration. Validates package names against a safe regex pattern.
+- **MarketplaceClient** (`src/domain/marketplace.ts`): Federated browse/search across three sources, merged into a single `MarketplaceResult`.
+  - **Official MCP registry** (`registry.modelcontextprotocol.io/v0/servers`) — primary source, version-deduped by name.
+  - **npm search** (`registry.npmjs.org/-/v1/search`) — two parallel variants (`keywords:mcp` and `<query> mcp`) so packages without the `keywords` field (e.g. `@playwright/mcp`) still surface; results filtered to those mentioning `mcp` / `model context protocol`.
+  - **PyPI** (`pypi.org/pypi/<name>/json` + `pypi.org/search` HTML scrape) — curated list of well-known Python MCP servers (`mcp-server-fetch`, `mcp-server-git`, `mcp-server-time`, `mcp-server-postgres`, `mcp-server-sqlite`, `mcp-proxy`, …) resolved against the stable per-package JSON API for live metadata, plus a best-effort HTML scrape for anything beyond the curated list.
+  - Cross-source dedupe key is `<source>:<name>` so npm/PyPI name collisions both stay visible.
+- **InstallerService** (`src/domain/installer.ts`): Detects the install method for a package (npm/npx, Python/uvx, Docker) and builds the appropriate command configuration. Validates package names against `^[@a-zA-Z0-9._/-]+$`.
 - **SecretsService** (`src/domain/secrets.ts`): Manages per-server secrets (API keys, tokens). Secrets are stored in the `server_secrets` table. Values are masked in API responses (first 4 chars visible). The `getEnvForServer()` method returns all secrets as a key-value map for env var injection on activation.
 - **HealthService** (`src/domain/health.ts`): Monitors server health. For active servers, checks via `getServerTools()`. For inactive servers with a command, performs a quick activate/deactivate cycle with a 5-second timeout. Updates `health_status`, `last_health_check`, and `error_count` in the database. Has a `checkAll()` method for batch health checks.
 - **MetricsService** (`src/domain/metrics.ts`): Tracks per-tool call counts, error counts, and total latency in the `server_metrics` table. Called automatically by the proxy on each tool call. Provides `getServerMetrics()` for per-server detail and `getOverview()` for a cross-server summary.
@@ -74,6 +78,12 @@ interface AppContext {
 The proxy receives references to `SecretsService` and `MetricsService` via setter methods, plus a `serverIdResolver` function that maps server names to database IDs via the registry.
 
 Every layer receives its dependencies explicitly. No global state, no singletons.
+
+### Cross-process activation hydration
+
+`McpProxy.activeServers` is per-process in-memory state, but the `active` flag in the `servers` table is the cross-process source of truth. On startup, `createContext()` reads `WHERE active = 1 AND installed = 1` and re-activates each row in the local proxy. If hydration fails for any server (binary missing, child crashes), the stale `active` flag is cleared so the next startup doesn't retry forever.
+
+This means a server activated via the dashboard UI in the leader process is automatically picked up by every freshly-spawned MCP client (each Claude Code / Cursor / Codex session that opens a new stdio child) without manual re-activation.
 
 ## Database Schema (V3)
 
@@ -175,17 +185,26 @@ Tool names are parsed by finding the longest matching server name prefix followe
 
 ## Marketplace Integration
 
-The `MarketplaceClient` talks to the official MCP registry API:
+The `MarketplaceClient` performs a federated search across three sources:
 
-- `GET /v0/servers?search=...&limit=...&cursor=...` for browsing/searching
-- `GET /v0/servers/:name` for individual server details
+| Source                | Endpoint                                               | Notes                                                                                                                                   |
+| --------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Official MCP registry | `registry.modelcontextprotocol.io/v0/servers`          | Primary; one row per version → version-deduped by name with semver-ish comparison. `GET /v0/servers/:name` available for direct lookup. |
+| npm                   | `registry.npmjs.org/-/v1/search`                       | Two parallel queries: `<q> keywords:mcp` and `<q> mcp`; merged + filtered to mcp-related entries. Tagged `runtime: node`.               |
+| PyPI                  | `pypi.org/pypi/<name>/json` + `pypi.org/search` (HTML) | Curated package list resolved against the stable per-package JSON API; HTML scrape augments. Tagged `runtime: python`.                  |
+
+Results merge with cross-source dedupe key `<source>:<name>` so same-named packages on different sources both stay visible. Both fallback queries are best-effort and never block the official-registry response.
 
 When installing from the registry (`source: "registry"`), the flow is:
 
-1. Search the marketplace for the server name
-2. Find a matching package (prefer Node.js, fall back to Python)
-3. Use `InstallerService` to detect the install method and build the command
-4. Register the server in the local database
+1. Search the marketplace for the server name.
+2. Pick the matching package and use `InstallerService.detectInstallConfig()` to build the command — `npx -y <pkg>` for `runtime: node`, `uvx <pkg>` for `runtime: python`, `docker run -i --rm <image>` for `runtime: docker`.
+3. Register the server in the local database.
+4. Asynchronously warm the cache: `npm cache add <pkg>` for npx servers, `uv tool install <pkg>` for uvx servers.
+
+### Prereqs probe
+
+`GET /api/prereqs` spawns `<tool> --version` for `npx`, `uvx`, `docker`, and `uv` (using `spawn` with `shell: true` so Windows `.cmd` shims resolve) and returns `{ npx, uvx, docker, uv }`. The dashboard fetches this on load and renders an orange banner above the Browse tab when an install method is unavailable on the host.
 
 ## Leader Election (Dashboard)
 
