@@ -48,7 +48,36 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     return server ? server.id : null;
   });
 
-  db.run('UPDATE servers SET active = 0');
+  // Hydrate the in-process proxy from servers marked active in the DB.
+  // Activation lives in McpProxy.activeServers (in-memory) but the DB-backed
+  // active flag is the cross-process source of truth, so each new instance
+  // (e.g. a fresh stdio child spawned by an MCP client) re-establishes its
+  // own proxy connections to the same set of child servers.
+  void (async () => {
+    const activeRows = db.queryAll<{ name: string }>(
+      'SELECT name FROM servers WHERE active = 1 AND installed = 1',
+    );
+    for (const row of activeRows) {
+      const server = registry.getByName(row.name);
+      if (!server) continue;
+      try {
+        await proxy.activate({
+          name: server.name,
+          command: server.command ?? undefined,
+          args: server.args,
+          env: server.env,
+          transport: server.transport,
+          url: server.homepage ?? undefined,
+        });
+      } catch (err) {
+        process.stderr.write(
+          `[agent-discover] failed to hydrate active server "${server.name}": ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        // Clear the stale active flag so we don't retry forever
+        registry.setActive(server.name, false);
+      }
+    }
+  })();
 
   return {
     db,
