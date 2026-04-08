@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "MCP server registry and marketplace — discover, install, activate, and manage MCP tools on demand",
   "type": "module",
@@ -29,6 +29,7 @@
     "start:server": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e:ui": "playwright test",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint src/ tests/ --fix",
