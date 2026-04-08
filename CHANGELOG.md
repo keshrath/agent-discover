@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-04-08
+
+### Fixed
+
+- **Concurrent `McpProxy.activate()` race.** Two parallel `activate(name)` calls used to both pass the `if (activeServers.has(name))` guard before either awaited `client.connect()`, causing two child processes to spawn for the same logical server. The fix reserves the name in a synchronous `activating` set before any await so the second caller rejects immediately. (`src/domain/proxy.ts`, regression test in `tests/proxy-race.test.ts`)
+
+### Tests
+
+- Quality pass on the v1.1.0 backfill — total suite 151 → 177:
+  - `tests/marketplace-extra.test.ts` (11) — `searchNpm` / `searchPypi` augmentation via mocked `fetch`. Failure-mode tests now seed a real registry result and assert it survives intact when npm/pypi blow up, instead of the meaningless `Array.isArray` check. Cross-source dedupe asserts exactly two `mcp-server-sqlite` rows from `npm` + `python`, not `>= 1`.
+  - `tests/proxy-headers.test.ts` (4) — locks in CRLF header sanitization on streamable-http and SSE. `readHeaders()` throws if it can't locate the SDK's `requestInit` so an upstream rename fails loudly instead of silently turning the file into a no-op.
+  - `tests/proxy-race.test.ts` (2) — regression for the activate-race fix above; mocks the MCP SDK Client to hold `connect()` open across two parallel `activate()` calls.
+  - `tests/v110-misc.test.ts` (9) — hydration failure path against a real temp DB, `/api/prereqs` with a positive `npx === true` assertion (proves `probe()` actually exits 0 on success rather than always returning false), `RegistryService.getByName` surfacing `SyntaxError` on malformed `args` and `env` JSON columns, `InstallerService` edge cases (scoped npm names, python/docker routing, unicode + shell metachar rejection, prefix stripping).
+
 ## [1.1.0] - 2026-04-08
 
 Federated marketplace release: `/api/browse` now spans the official MCP registry, npm, and PyPI in one query, with cross-process activation, prereqs probing, and a `uvx` install path. Full UI/REST/MCP coverage.

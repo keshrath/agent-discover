@@ -62,6 +62,11 @@ export interface ParsedToolName {
 
 export class McpProxy {
   private readonly activeServers = new Map<string, ActiveServer>();
+  // Names currently mid-activation. Held only across the connect/listTools
+  // await — prevents two parallel activate(name) calls from both spawning
+  // child processes (the original `if (activeServers.has(name))` guard
+  // races because both callers pass it before either awaits).
+  private readonly activating = new Set<string>();
   private secretsService?: SecretsService;
   private metricsService?: MetricsService;
   private serverIdResolver?: (name: string) => number | null;
@@ -85,30 +90,36 @@ export class McpProxy {
       inputSchema?: Record<string, unknown>;
     }>
   > {
-    if (this.activeServers.has(config.name)) {
+    if (this.activeServers.has(config.name) || this.activating.has(config.name)) {
       throw new Error(`Server "${config.name}" is already active`);
     }
-
-    const transport = this.createTransport(config);
-    const client = new Client({ name: 'agent-discover', version }, { capabilities: {} });
-
+    // Reserve the name synchronously before any await so a parallel
+    // activate(name) call can't slip past the guard above.
+    this.activating.add(config.name);
     try {
-      await withTimeout(client.connect(transport), ACTIVATE_TIMEOUT_MS, 'connect');
-      const result = await withTimeout(client.listTools(), ACTIVATE_TIMEOUT_MS, 'listTools');
-      const tools = result.tools ?? [];
+      const transport = this.createTransport(config);
+      const client = new Client({ name: 'agent-discover', version }, { capabilities: {} });
 
-      this.activeServers.set(config.name, { client, transport, tools, config });
-      return tools;
-    } catch (err) {
       try {
-        await client.close();
-      } catch {
-        /* ignore */
+        await withTimeout(client.connect(transport), ACTIVATE_TIMEOUT_MS, 'connect');
+        const result = await withTimeout(client.listTools(), ACTIVATE_TIMEOUT_MS, 'listTools');
+        const tools = result.tools ?? [];
+
+        this.activeServers.set(config.name, { client, transport, tools, config });
+        return tools;
+      } catch (err) {
+        try {
+          await client.close();
+        } catch {
+          /* ignore */
+        }
+        throw new Error(
+          `Failed to activate "${config.name}": ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        );
       }
-      throw new Error(
-        `Failed to activate "${config.name}": ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err },
-      );
+    } finally {
+      this.activating.delete(config.name);
     }
   }
 
