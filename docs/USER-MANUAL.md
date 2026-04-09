@@ -106,15 +106,37 @@ node scripts/setup.js --agent generic
 
 ### Environment Variables
 
+#### Core
+
 | Variable              | Default                       | Description                 |
 | --------------------- | ----------------------------- | --------------------------- |
 | `AGENT_DISCOVER_PORT` | `3424`                        | HTTP port for the dashboard |
 | `AGENT_DISCOVER_DB`   | `~/.claude/agent-discover.db` | Path to the SQLite database |
 
+#### Embeddings (semantic search for `find_tool`)
+
+Embeddings are **opt-in**. The default is `none` — `find_tool` ranks with BM25 + verb synonyms only. Setting a provider enables hybrid BM25 + cosine retrieval, which closes the natural-language gap (e.g. "billing arrangement" → "subscription") that BM25 alone misses.
+
+| Variable                                | Default | Description                                                                   |
+| --------------------------------------- | ------- | ----------------------------------------------------------------------------- |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none`  | `none` \| `local` \| `openai`                                                 |
+| `AGENT_DISCOVER_EMBEDDING_MODEL`        | —       | Override the default model id for the chosen provider                         |
+| `AGENT_DISCOVER_EMBEDDING_THREADS`      | `1`     | Local provider only — onnx runtime thread count                               |
+| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM             |
+| `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to plain `OPENAI_API_KEY` if unset) |
+
+See [SETUP.md](SETUP.md#embeddings-semantic-search-for-find_tool--find_tools) for the full enable/disable walkthrough and the local-vs-openai trade-off.
+
 Set these before starting agent-discover. For example:
 
 ```bash
 AGENT_DISCOVER_PORT=4000 node dist/index.js
+
+# enable semantic search via OpenAI
+AGENT_DISCOVER_EMBEDDING_PROVIDER=openai OPENAI_API_KEY=sk-... node dist/index.js
+
+# enable semantic search via local @huggingface/transformers (no network, no key)
+AGENT_DISCOVER_EMBEDDING_PROVIDER=local node dist/index.js
 ```
 
 ### Claude Code Setup
@@ -247,9 +269,151 @@ The WebSocket auto-reconnects after a 2-second delay if the connection drops. A 
 
 ## 5. MCP Tools Reference
 
-agent-discover exposes a single action-based MCP tool — `registry` — plus any number of proxied tools from activated servers. The `registry` tool handles actions: `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
+agent-discover exposes a single action-based MCP tool — `registry` — plus any number of proxied tools from activated servers. The `registry` tool handles 11 actions:
 
-> **Note:** The examples below use the shorthand `registry_list`, `registry_install`, etc. for readability. In practice, these are called as the `registry` tool with `action: "list"`, `action: "install"`, etc. The same applies to `registry_activate` / `registry_deactivate` — both are now `registry` actions, not a separate tool.
+**Discovery actions** (the recommended modern flow):
+
+- `find_tool` — single-call discovery. Hybrid BM25 + semantic ranking returns the best match for an intent.
+- `find_tools` — batch variant for multi-step tasks.
+- `get_schema` — fetch the full input schema for a tool already discovered via `find_tool`.
+- `proxy_call` — invoke a discovered tool through agent-discover without exposing it to the host catalog.
+
+**Server lifecycle actions** (lower-level, still supported):
+
+- `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`
+
+> **Note:** The examples below use the shorthand `registry_list`, `registry_install`, etc. for readability. In practice, these are called as the `registry` tool with `action: "list"`, `action: "install"`, etc.
+
+### registry_find_tool
+
+**The recommended way to discover and invoke tools.** Single-call discovery with hybrid BM25 + semantic retrieval. Auto-activates the owning child server so the agent can call the proxied tool immediately.
+
+**Parameters:**
+
+| Name            | Type    | Required | Description                                                                                                                                                                                                 |
+| --------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query`         | string  | yes      | Natural-language description of what you want the tool to do                                                                                                                                                |
+| `limit`         | number  | no       | Max results in `other_matches` (default: 5)                                                                                                                                                                 |
+| `auto_activate` | boolean | no       | When `false`, do not expose the proxied tools to the host. Use `proxy_call` to invoke them instead. Default `true`. Recommended `false` for catalogs above ~1k tools so the host's MCP catalog stays small. |
+
+**Example:**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "find_tool",
+    "query": "post a message to a slack channel",
+    "auto_activate": false
+  }
+}
+```
+
+**Returns:**
+
+```json
+{
+  "found": true,
+  "confidence": "high",
+  "score": 0.87,
+  "call_as": "mcp__slack__post_message",
+  "server": "slack",
+  "tool": "post_message",
+  "description": "Post a message to a Slack channel or thread.",
+  "required_args": [
+    { "name": "channel", "type": "string", "description": "Channel ID or name." },
+    { "name": "text", "type": "string", "description": "Message body." }
+  ],
+  "optional_count": 1,
+  "next_step": "invoke call_as directly",
+  "other_matches": [
+    {
+      "call_as": "mcp__slack__list_channels",
+      "tool": "list_channels",
+      "description": "...",
+      "score": 0.42
+    }
+  ]
+}
+```
+
+When the top-result score falls below `0.25` the response is `{ found: false, top_score, hint }` instead.
+
+### registry_find_tools
+
+Batch variant of `find_tool`. Pass an array of intents and get one ranked result per intent in a single round-trip — useful for multi-step tasks where the agent needs to discover several tools at once.
+
+**Parameters:**
+
+| Name            | Type     | Required | Description                                   |
+| --------------- | -------- | -------- | --------------------------------------------- |
+| `intents`       | string[] | yes      | One natural-language intent per tool you need |
+| `limit`         | number   | no       | Max results per intent (default: 5)           |
+| `auto_activate` | boolean  | no       | Same as `find_tool`. Default `true`.          |
+
+**Example:**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "find_tools",
+    "intents": ["recent sentry errors for the web project", "create a linear issue"],
+    "auto_activate": false
+  }
+}
+```
+
+Returns `{ results: [...] }` with one entry per intent in the same shape as `find_tool`.
+
+### registry_get_schema
+
+Returns the full `input_schema` for a tool already discovered via `find_tool`. Use only when the compact `required_args` summary in the `find_tool` response isn't enough — most tools can be invoked directly from `find_tool`.
+
+**Parameters:**
+
+| Name      | Type   | Required | Description                                                      |
+| --------- | ------ | -------- | ---------------------------------------------------------------- |
+| `call_as` | string | yes      | Fully-qualified `mcp__server__tool` name returned by `find_tool` |
+
+**Example:**
+
+```json
+{
+  "name": "registry",
+  "arguments": { "action": "get_schema", "call_as": "mcp__slack__post_message" }
+}
+```
+
+### registry_proxy_call
+
+Invoke a discovered tool **through** agent-discover without exposing it to the host catalog. Combined with `find_tool({auto_activate: false})`, this keeps the host MCP surface area at exactly 5 agent-discover actions regardless of how many tools the registered child servers expose. Critical for very large catalogs where flooding the host with thousands of schemas would blow the model's context budget.
+
+**Parameters:**
+
+| Name        | Type   | Required | Description                                                                                                |
+| ----------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `call_as`   | string | yes\*    | Fully-qualified `mcp__server__tool` name from `find_tool` (alternative: pass `server` + `tool` separately) |
+| `server`    | string | yes\*    | Server name (alternative to `call_as`)                                                                     |
+| `tool`      | string | yes\*    | Tool name (alternative to `call_as`)                                                                       |
+| `arguments` | object | no       | Arguments to pass to the proxied tool                                                                      |
+
+\* Either `call_as` OR both `server` + `tool` must be provided.
+
+**Example:**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "proxy_call",
+    "call_as": "mcp__slack__post_message",
+    "arguments": { "channel": "#releases", "text": "deploy finished" }
+  }
+}
+```
+
+If the proxied tool call fails, the response includes a `did_you_mean` array with similarly-named tools so the agent can recover from a wrong-tool selection in one extra turn instead of giving up.
 
 ### registry_list
 

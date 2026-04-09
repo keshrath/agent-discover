@@ -252,12 +252,52 @@ WantedBy=multi-user.target
 
 ### Environment variables
 
+#### Core
+
 | Variable               | Default                       | Description                                                                                |
 | ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
 | `AGENT_DISCOVER_PORT`  | `3424`                        | Dashboard HTTP/WebSocket port                                                              |
 | `AGENT_DISCOVER_DB`    | `~/.claude/agent-discover.db` | SQLite database path                                                                       |
 | `AGENT_DISCOVER_NO_UI` | unset                         | If set to `1`, the stdio MCP server skips starting the dashboard (useful in headless mode) |
 | `AGENT_DISCOVER_LOG`   | `info`                        | Log level (`error`, `warn`, `info`, `debug`)                                               |
+
+#### Embeddings (semantic search for `find_tool` / `find_tools`)
+
+Embeddings are **opt-in**. The default is `none` — `find_tool` ranks with BM25 + verb synonyms only, which is fine for keyword-rich queries. Setting a provider enables hybrid BM25 + cosine retrieval, which closes the natural-language gap (e.g. "billing arrangement" → "subscription") that BM25 alone misses.
+
+| Variable                                | Default | Description                                                                   |
+| --------------------------------------- | ------- | ----------------------------------------------------------------------------- |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none`  | `none` \| `local` \| `openai`                                                 |
+| `AGENT_DISCOVER_EMBEDDING_MODEL`        | —       | Override the default model id for the chosen provider                         |
+| `AGENT_DISCOVER_EMBEDDING_THREADS`      | `1`     | Local provider only — onnx runtime thread count                               |
+| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM             |
+| `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to plain `OPENAI_API_KEY` if unset) |
+
+**To use the local provider** (no network, no API key):
+
+```bash
+npm install @huggingface/transformers       # optional peer dep
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=local
+```
+
+The default model is `Xenova/all-MiniLM-L6-v2` (384 dims, q8 quantized). The first call downloads and caches the model — subsequent calls reuse it. Idle for `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` seconds and the model is unloaded from RAM until needed again.
+
+**To use the OpenAI provider**:
+
+```bash
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=openai
+export OPENAI_API_KEY=sk-...                # or AGENT_DISCOVER_OPENAI_API_KEY
+```
+
+Default model is `text-embedding-3-small` (1536 dims). One-time cost to embed your registered tools at registration; queries do brute-force cosine over the local store with no further API calls.
+
+**To explicitly disable** (this is the default, but you can set it explicitly to override an inherited env):
+
+```bash
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=none
+```
+
+If a provider is requested but unavailable (missing API key, transformers not installed, model fails to load), the registry logs a warning to stderr and falls back to BM25-only ranking — it never crashes.
 
 ### CLI flags
 

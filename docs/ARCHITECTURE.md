@@ -20,9 +20,9 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 |  +----------+ +----------+ +-------------+ |
 |  |Installer | |  Events  | |  Secrets    | |
 |  +----------+ +----------+ +-------------+ |
-|  +----------+ +----------+                  |
-|  |  Health  | | Metrics  |                  |
-|  +----------+ +----------+                  |
+|  +----------+ +----------+ +-------------+ |
+|  |  Health  | | Metrics  | | Embeddings  | |
+|  +----------+ +----------+ +-------------+ |
 +---------------------------------------------+
 |  Storage Layer                              |
 |  +--------------------------------------+   |
@@ -51,6 +51,25 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 - **HealthService** (`src/domain/health.ts`): Monitors server health. For active servers, checks via `getServerTools()`. For inactive servers with a command, performs a quick activate/deactivate cycle with a 5-second timeout. Updates `health_status`, `last_health_check`, and `error_count` in the database. Has a `checkAll()` method for batch health checks.
 - **MetricsService** (`src/domain/metrics.ts`): Tracks per-tool call counts, error counts, and total latency in the `server_metrics` table. Called automatically by the proxy on each tool call. Provides `getServerMetrics()` for per-server detail and `getOverview()` for a cross-server summary.
 - **EventBus** (`src/domain/events.ts`): In-process pub/sub with typed events and wildcard support. Used internally to emit lifecycle events (`server:registered`, `server:activated`, `server:installed`, etc.).
+- **Embeddings subsystem** (`src/embeddings/`): Pluggable provider for semantic tool search. Mirrors agent-knowledge's pattern. Default provider is `none` (semantic search disabled, BM25-only ranking) so installs without an embedding key keep working unchanged. Selectable via `AGENT_DISCOVER_EMBEDDING_PROVIDER`:
+  - **`none`** (`src/embeddings/none.ts`) — `NoopEmbeddingProvider`. Reports unavailable so callers fall back to BM25.
+  - **`local`** (`src/embeddings/local.ts`) — `Xenova/all-MiniLM-L6-v2` (384 dims) via `@huggingface/transformers` (optional peer dep, dynamically imported via indirect string so the package isn't required at compile time). q8 quantized, configurable thread count + idle-unload timeout.
+  - **`openai`** (`src/embeddings/openai.ts`) — `text-embedding-3-small` (1536 dims), native `fetch`, batched 256 inputs per request. No SDK dependency.
+  - **Factory** (`src/embeddings/factory.ts`) caches the resolved provider, falls back to `NoopEmbeddingProvider` on any unavailable / API-key-missing / model-load-failure case so the registry never crashes on a misconfiguration.
+  - **Math + encoding helpers** (`src/embeddings/index.ts`) — `cosineSimilarity`, base64 `encodeEmbedding` / `decodeEmbedding` for SQLite TEXT storage.
+
+  `RegistryService` consumes the provider lazily via `getEmbeddings()` so the factory's dynamic imports only run when somebody actually saves or searches tools. `saveToolsWithEmbeddings()` and `searchToolsHybrid()` use the provider when available; both transparently fall back to BM25-only when the provider name is `none`.
+
+### Hybrid retrieval pipeline (`searchToolsHybrid`)
+
+When semantic search is enabled, `find_tool` and `find_tools` route through hybrid retrieval instead of pure BM25:
+
+1. **Semantic candidates**: brute-force cosine similarity over the entire embedded catalog. Brute force is fast enough for any realistic catalog (~60ms at N=10k with 1536-dim float32 vectors) and avoids a native ANN dependency.
+2. **BM25 candidates**: FTS5 over `server_tools_fts` with `name × 4 / description × 1` column weighting + a query preprocessor that expands verb synonyms (`fetch → get`, `cancel → delete`, …) and singularizes plurals (`subscriptions → subscription`).
+3. **Hybrid re-rank**: union of both candidate sets, scored `0.7 × cosine + 0.3 × normalized_BM25`. Semantic gets the higher weight because BM25 misses paraphrased queries (e.g. "billing arrangement" never matches "subscription") whereas embeddings handle them naturally.
+4. **Confidence label**: derived from the BM25 score gap between top-1 and top-2 — `high` (gap ≥ 0.5), `medium` (≥ 0.15), `low` otherwise.
+5. **No-match threshold**: if the top hybrid score falls below `0.25`, `find_tool` returns `{ found: false, top_score, hint }` instead of a low-confidence garbage match. Real queries typically score > 0.4; garbage matches sit around 0.05–0.15.
+6. **`did_you_mean` recovery**: when a proxied tool call fails, the proxy intercepts the error and runs a BM25 search by the failed tool name, attaching the top 3 alternatives so the agent can correct in one extra turn.
 
 ### Storage Layer
 
@@ -85,7 +104,7 @@ Every layer receives its dependencies explicitly. No global state, no singletons
 
 This means a server activated via the dashboard UI in the leader process is automatically picked up by every freshly-spawned MCP client (each Claude Code / Cursor / Codex session that opens a new stdio child) without manual re-activation.
 
-## Database Schema (V3)
+## Database Schema (V5)
 
 ### servers
 
@@ -115,15 +134,21 @@ This means a server activated via the dashboard UI in the leader process is auto
 
 ### server_tools
 
-| Column       | Type    | Description                       |
-| ------------ | ------- | --------------------------------- |
-| id           | INTEGER | Primary key (autoincrement)       |
-| server_id    | INTEGER | FK to servers (ON DELETE CASCADE) |
-| name         | TEXT    | Tool name                         |
-| description  | TEXT    | Tool description                  |
-| input_schema | TEXT    | JSON schema for tool parameters   |
+| Column          | Type    | Description                                                                    |
+| --------------- | ------- | ------------------------------------------------------------------------------ |
+| id              | INTEGER | Primary key (autoincrement)                                                    |
+| server_id       | INTEGER | FK to servers (ON DELETE CASCADE)                                              |
+| name            | TEXT    | Tool name                                                                      |
+| description     | TEXT    | Tool description                                                               |
+| input_schema    | TEXT    | JSON schema for tool parameters                                                |
+| embedding       | TEXT    | Base64-encoded float32 vector (V5+, nullable — set when semantic search is on) |
+| embedding_model | TEXT    | Model id that produced the embedding (V5+, nullable)                           |
 
 Unique constraint: `(server_id, name)`.
+
+### server_tools_fts (V4+)
+
+FTS5 virtual table over `server_tools(name, description)` with `tokenize='unicode61 remove_diacritics 1'`. Used by `searchTools()` for BM25 ranking with `name × 4 / description × 1` column weighting. Backed by `AFTER INSERT / UPDATE / DELETE` triggers on `server_tools` so it stays in sync automatically.
 
 ### server_secrets
 

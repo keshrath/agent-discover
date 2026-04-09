@@ -2,8 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-1-purple)]()
+[![Registry Actions](https://img.shields.io/badge/registry%20actions-11-blueviolet)]()
 [![REST Endpoints](https://img.shields.io/badge/REST-19%20endpoints-orange)]()
 
 **MCP server registry and marketplace.** Discover, install, activate, and manage MCP tools on demand. Acts as a dynamic proxy -- activated servers have their tools merged into the registry's own tool list, so agents can use them without restarting.
@@ -37,6 +38,11 @@ Static MCP configs mean every server is always running, even when unused. Adding
 
 ## Features
 
+- **Single-call tool discovery (`find_tool`)** — hybrid BM25 + semantic ranking returns the top match with a confidence label, compact `required_args`, and 4 ranked alternatives. Auto-activates the owning child server so the agent can call the proxied tool immediately on the next turn. Replaces the multi-step `search → list → activate` dance with one round-trip.
+- **Batch discovery (`find_tools`)** — pass an array of intents to discover N tools in a single round-trip for multi-step tasks.
+- **Indirect invocation (`proxy_call`)** — call a discovered tool **through** agent-discover without exposing it to the host catalog. Keeps the host MCP surface at exactly 5 actions regardless of how many tools the registered child servers expose — critical for very large catalogs where flooding the host with thousands of schemas would blow the model's context budget.
+- **Pluggable embeddings (`AGENT_DISCOVER_EMBEDDING_PROVIDER`)** — semantic search is opt-in via `none` (default, BM25 only) / `local` (Xenova/all-MiniLM-L6-v2 via `@huggingface/transformers`) / `openai` (`text-embedding-3-small`). Provider failures fall back to BM25 cleanly. Mirrors agent-knowledge's pattern so the same model can be reused.
+- **`did_you_mean` recovery** — when a proxied tool call fails, the proxy attaches BM25-ranked similar-tool suggestions to the error response so the agent can correct in one extra turn instead of giving up.
 - **Local registry** -- register MCP servers in a SQLite database with name, command, args, env, tags
 - **Federated marketplace search** -- a single query hits the official MCP registry, npm, and PyPI in parallel, dedupes by `<source>:<name>`, and collapses version duplicates
 - **PyPI integration** -- curated list of well-known Python MCP servers (`mcp-server-fetch`, `mcp-server-git`, `mcp-server-time`, `mcp-server-postgres`, `mcp-server-sqlite`, `mcp-proxy`, …) plus live metadata via the PyPI JSON API; Python entries install via `uvx`
@@ -49,10 +55,11 @@ Static MCP configs mean every server is always running, even when unused. Adding
 - **Secret management** -- store API keys and tokens per server, automatically injected as env vars (stdio) or HTTP headers (SSE/streamable-http) on activation; CRLF-validated to prevent header injection
 - **Health checks** -- connect/disconnect probes for inactive servers, tool-list checks for active ones, with error count tracking
 - **Per-tool metrics** -- call counts, error counts, and average latency recorded automatically on every proxied tool call
-- **Full-text search** -- FTS5 search across server names, descriptions, and tags
+- **Full-text search** -- FTS5 search across server names, descriptions, and tags + cross-server tool index for `find_tool`
 - **Pre-download** -- fire-and-forget `npm cache add` (npx servers) or `uv tool install` (uvx servers) on registration, plus a dedicated `/preinstall` endpoint
 - **Real-time dashboard** -- web UI at http://localhost:3424 with Servers and Browse tabs, dark/light theme, WebSocket updates
 - **3 transport layers** -- MCP (stdio), REST API (HTTP), WebSocket (real-time events)
+- **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real Claude Code and OpenCode hosts. Headline result at N=1000 against an adversarial natural-language verb pack: discover 100% accuracy + 27% lower per-turn token cost vs eager 80% accuracy. See [`bench/README.md`](bench/README.md).
 
 ---
 
@@ -106,13 +113,25 @@ node dist/server.js --port 3424
 
 ## MCP Tools (1)
 
-A single action-based tool handles every operation via the `action` parameter — this keeps the prompt-overhead cost minimal.
+A single action-based tool handles every operation via the `action` parameter — this keeps the prompt-overhead cost minimal regardless of how many child servers are registered.
 
-| Tool       | Actions                                                                      | Description                                                                                                                             |
-| ---------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `registry` | `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status` | Registry + server lifecycle — search local servers, install from marketplace or manual config, activate/deactivate, browse, show status |
+| Action       | Purpose                                                                                                                                                               |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `find_tool`  | **Single-call discovery.** Hybrid BM25 + semantic search → top match + confidence label + compact `required_args` + 4 alternatives. Auto-activates the owning server. |
+| `find_tools` | **Batch discovery.** Pass `intents: [...]` to discover N tools in one round-trip. Use for multi-step tasks.                                                           |
+| `get_schema` | Full `input_schema` for a discovered tool. Only needed when the compact `required_args` summary isn't enough (conditional / polymorphic args).                        |
+| `proxy_call` | Invoke a discovered tool **through** agent-discover without exposing it to the host catalog. Pair with `find_tool({auto_activate: false})` for huge catalogs.         |
+| `list`       | Search the local registry by server (FTS5).                                                                                                                           |
+| `install`    | Add a server from the marketplace or via manual config (command + args + env).                                                                                        |
+| `uninstall`  | Remove a server.                                                                                                                                                      |
+| `activate`   | Start a server, discover its tools, expose them to the host as `serverName__toolName`.                                                                                |
+| `deactivate` | Stop a server, hide its tools.                                                                                                                                        |
+| `browse`     | Federated search across the official MCP registry, npm, and PyPI.                                                                                                     |
+| `status`     | Active servers summary (names, tool counts, tool lists).                                                                                                              |
 
 Activated servers expose their tools through agent-discover, namespaced as `serverName__toolName`. For example, activating a server named `filesystem` that exposes `read_file` makes it available as `filesystem__read_file`.
+
+When `find_tool` is called with `auto_activate: false` (recommended for catalogs above ~1k tools), the proxy connection is opened silently and tools must be invoked via `proxy_call` instead of being added to the host's catalog. This keeps the host MCP surface area constant regardless of how many tools the registered child servers expose.
 
 ---
 
@@ -170,10 +189,28 @@ npm run test:e2e:ui   # Playwright dashboard smoke tests
 
 ## Environment Variables
 
+### Core
+
 | Variable              | Default                       | Description          |
 | --------------------- | ----------------------------- | -------------------- |
 | `AGENT_DISCOVER_PORT` | `3424`                        | Dashboard HTTP port  |
 | `AGENT_DISCOVER_DB`   | `~/.claude/agent-discover.db` | SQLite database path |
+
+### Embeddings (semantic search for `find_tool`)
+
+Embeddings are **opt-in**. The default is `none`, which means `find_tool` ranks by BM25 + verb synonyms only. Setting a provider enables hybrid BM25 + cosine retrieval, which closes the natural-language gap (e.g. "billing arrangement" → "subscription") that BM25 alone misses.
+
+| Variable                                | Default | Description                                                             |
+| --------------------------------------- | ------- | ----------------------------------------------------------------------- |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none`  | `none` \| `local` \| `openai`                                           |
+| `AGENT_DISCOVER_EMBEDDING_MODEL`        | —       | Override the default model id for the chosen provider                   |
+| `AGENT_DISCOVER_EMBEDDING_THREADS`      | `1`     | Local provider only — onnx runtime thread count                         |
+| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM       |
+| `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to `OPENAI_API_KEY` if unset) |
+
+**Local provider** uses `Xenova/all-MiniLM-L6-v2` (384 dims) via `@huggingface/transformers`. Install the optional peer dependency with `npm install @huggingface/transformers` if you want to use it. No network calls, no API key.
+
+**OpenAI provider** uses `text-embedding-3-small` (1536 dims). Same model as agent-knowledge so the two servers can share an embedding key.
 
 ### Host package manager prerequisites
 

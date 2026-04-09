@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-04-09
+
+### Documentation
+
+- **README.md**: bumped test count to 179, added the new badge for 11 registry actions, rewrote the "MCP Tools" section to document `find_tool` / `find_tools` / `get_schema` / `proxy_call` with the auto_activate guidance, expanded the Features list to lead with single-call discovery + pluggable embeddings + indirect invocation, added the embeddings env-var section, linked the bench README headline result.
+- **CHANGELOG.md**: backfilled v1.1.3 / v1.1.4 / v1.2.0 / v1.2.1 / v1.2.2 entries.
+- **docs/API.md**: documented all 4 new registry actions with parameters and example payloads + responses, added the no-match threshold semantics for `find_tool`.
+- **docs/ARCHITECTURE.md**: added the embeddings provider layer to the layered diagram, documented the `src/embeddings/` subsystem (none/local/openai), the hybrid retrieval pipeline, the `0.25` no-match threshold, the migration to schema V5, and the new `embedding` / `embedding_model` columns on `server_tools`.
+- **docs/USER-MANUAL.md**: new sections for `registry_find_tool` / `registry_find_tools` / `registry_get_schema` / `registry_proxy_call` with usage examples, added the embeddings env-var table to the configuration section.
+- **docs/SETUP.md**: added the embeddings env-var table with full enable/disable walkthrough for both local and openai providers.
+
+## [1.2.2] - 2026-04-09
+
+### Fixed
+
+- **`find_tool` / `find_tools` no-match detection.** Hybrid retrieval (introduced in 1.2.0) returned at least one match for every query because cosine similarity is non-zero for every embedded tool, so the existing `matches.length === 0` guard never fired and a query like `"totally nonexistent xyzzy"` would surface a low-confidence garbage tool. Both actions now apply a `MIN_SCORE_THRESHOLD = 0.25` to the top result and return `{ found: false, top_score, hint }` when nothing crosses it. Real queries (typical scores > 0.4) are unaffected; garbage matches (~0.1) are now correctly rejected. Caught by the v1.2.x E2E test pass.
+
+## [1.2.1] - 2026-04-09
+
+### Added
+
+- **Pluggable embedding providers (`src/embeddings/`).** Multi-provider subsystem mirroring agent-knowledge's pattern, with semantic search opt-in via `AGENT_DISCOVER_EMBEDDING_PROVIDER` (default `none` so existing installs without an embedding key keep working with BM25-only ranking). Providers shipped:
+  - `none` — `NoopEmbeddingProvider`, returned by default. Reports unavailable so callers transparently fall back to BM25.
+  - `openai` — `OpenAIEmbeddingProvider`, `text-embedding-3-small` (1536 dims), native `fetch`, batched 256 inputs per request.
+  - `local` — `LocalEmbeddingProvider`, `Xenova/all-MiniLM-L6-v2` (384 dims) via `@huggingface/transformers` (optional peer dep, dynamically imported via indirect string so the package isn't required at compile time). q8 quantized, configurable `AGENT_DISCOVER_EMBEDDING_THREADS` and `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT`.
+- **Provider factory** (`src/embeddings/factory.ts`) caches the resolved provider, falls back to `NoopEmbeddingProvider` on any unavailable / API-key-missing / model-load-failure case so the registry never crashes on a misconfiguration.
+- **Shared math + encoding helpers** (`cosineSimilarity`, `encodeEmbedding` / `decodeEmbedding`) exported from `src/embeddings/index.ts`.
+
+### Changed
+
+- `RegistryService` constructor no longer eagerly creates the embedding provider — it's lazily resolved via `getEmbeddings()` so the factory's dynamic imports only run when somebody actually saves or searches tools.
+- `saveToolsWithEmbeddings()` returns `{ embedded, skipped, provider }` and tolerates per-tool null embeddings cleanly.
+- `searchToolsHybrid()` awaits the provider, falls back to plain `searchTools()` when `provider.name === 'none'` or the query embedding fails.
+
+## [1.2.0] - 2026-04-09
+
+### Added
+
+- **`find_tool` registry action — single-call tool discovery.** Hybrid BM25 + semantic ranking returns the top match with a confidence label (`high` / `medium` / `low` derived from the score gap to the runner-up), compact `required_args`, and 4 ranked alternatives in `other_matches`. Auto-activates the owning child server so the agent can call the proxied tool immediately on the next turn. Replaces the old multi-call `search → list → activate` flow that took ~16 round-trips per task in the bench baseline.
+- **`find_tools` registry action — batch variant.** Pass `intents: ["intent1", "intent2", …]` to discover N tools in one round-trip for multi-step tasks.
+- **`get_schema` registry action.** Returns the full `input_schema` for a tool already discovered via `find_tool`. Use only when the compact `required_args` summary isn't enough (conditional / polymorphic args). Compact-first delivery cuts `find_tool` result tokens 5–10× on heavy registries.
+- **`proxy_call` registry action.** Invokes a discovered tool **through** agent-discover without exposing it to the host catalog. Combined with `find_tool({auto_activate: false})`, this keeps the host MCP catalog at exactly 5 agent-discover actions regardless of how many tools the registered child servers actually expose — critical at large catalog sizes where firing `notifications/tools/list_changed` would flood the host with thousands of schemas.
+- **`did_you_mean` recovery on tool errors.** When a proxied tool call fails (validation error, missing args, runtime error), the proxy intercepts the response, runs a BM25 search by the failed tool name, and attaches a `did_you_mean` array of similarly-named alternatives. Lets the agent recover from a wrong-tool selection in one extra turn instead of giving up or re-running discovery.
+- **FTS5 + BM25 ranking on `server_tools`** (migration v4). Adds a `server_tools_fts` virtual table with name × 4 / description × 1 column weighting, plus a query preprocessor that expands verb synonyms (`fetch → get`, `cancel → delete`, etc.) and singularizes plurals (`subscriptions → subscription`).
+- **Embedding columns on `server_tools`** (migration v5). `embedding` (TEXT, base64-encoded float32) and `embedding_model` columns for semantic search. Embeddings are optional; tools without one fall back to BM25 ranking only.
+- **Hybrid retrieval (`searchToolsHybrid`).** Brute-force cosine similarity over the entire embedded catalog + BM25 candidate union, scored 70% semantic / 30% lexical. Closes the natural-language gap that pure BM25 misses (e.g. "billing arrangement" → "subscription").
+- **Bench harness** under `bench/` comparing eager tool loading vs deferred discovery. Real Claude Code (`bench/drivers/cli.ts`) and OpenCode (`bench/drivers/opencode.ts`) drivers, isolated bench DB, scoring with `success` / `choice_accuracy` / `distractor_call_rate` / `refusal_rate` metrics, and a standalone `bench/rescore.ts` that re-applies the current scoring logic to captured event streams without spending fresh API tokens. Headline result at N=1000 on OpenCode + gpt-5-mini against an adversarial natural-language verb pack: discover 100% / 100% / 0% vs eager 80% / 80% / 20%, with ~27% lower per-turn token cost. Full results in `bench/README.md`.
+
+## [1.1.4] - 2026-04-09
+
+### Added
+
+- Bench iteration adding `find_tools` (plural) and `did_you_mean` recovery — both later carried forward into v1.2.0. See `bench/README.md` for the historical context.
+
+## [1.1.3] - 2026-04-09
+
+### Added
+
+- Bench iteration adding BM25 + confidence labels + compact-first schema delivery — later carried forward into v1.2.0.
+
 ## [1.1.2] - 2026-04-08
 
 ### Fixed

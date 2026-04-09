@@ -6,24 +6,124 @@ agent-discover exposes **1 action-based MCP tool** (`registry`) plus dynamically
 
 ### registry
 
-Unified server-registry tool. Actions: `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
+Unified server-registry tool. Actions: `find_tool`, `find_tools`, `get_schema`, `proxy_call`, `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
 
 **Parameters:**
 
-| Name             | Type     | Required | Description                                                                            |
-| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------- |
-| `action`         | string   | **yes**  | One of `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`    |
-| `query`          | string   | no       | [list/browse] FTS search query                                                         |
-| `source`         | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`) |
-| `installed_only` | boolean  | no       | [list] Only show installed servers                                                     |
-| `name`           | string   | no       | [install/uninstall/activate/deactivate] Server name                                    |
-| `command`        | string   | no       | [install] Command to start server (required for manual install)                        |
-| `args`           | string[] | no       | [install] Command arguments                                                            |
-| `env`            | object   | no       | [install] Environment variables                                                        |
-| `description`    | string   | no       | [install] Server description                                                           |
-| `tags`           | string[] | no       | [install] Tags for search/filtering                                                    |
-| `limit`          | number   | no       | [browse] Max results (default: 20, max: 100)                                           |
-| `cursor`         | string   | no       | [browse] Pagination cursor from previous response                                      |
+| Name             | Type     | Required | Description                                                                                                                            |
+| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `action`         | string   | **yes**  | One of the actions listed above                                                                                                        |
+| `query`          | string   | no       | [find_tool/list/browse] Intent or FTS search query                                                                                     |
+| `intents`        | string[] | no       | [find_tools] Array of intent strings — one per tool you need to discover in the batch                                                  |
+| `auto_activate`  | boolean  | no       | [find_tool/find_tools] When `false`, do not expose proxied tools to the host. Use `proxy_call` to invoke them instead. Default `true`. |
+| `call_as`        | string   | no       | [get_schema/proxy_call] Fully-qualified `mcp__server__tool` name returned by `find_tool`                                               |
+| `server`         | string   | no       | [proxy_call] Server name (alternative to `call_as`)                                                                                    |
+| `tool`           | string   | no       | [proxy_call] Tool name (alternative to `call_as`)                                                                                      |
+| `arguments`      | object   | no       | [proxy_call] Arguments to pass to the proxied tool                                                                                     |
+| `limit`          | number   | no       | [find_tool/find_tools/browse] Max results per query                                                                                    |
+| `source`         | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`)                                                 |
+| `installed_only` | boolean  | no       | [list] Only show installed servers                                                                                                     |
+| `name`           | string   | no       | [install/uninstall/activate/deactivate] Server name                                                                                    |
+| `command`        | string   | no       | [install] Command to start server (required for manual install)                                                                        |
+| `args`           | string[] | no       | [install] Command arguments                                                                                                            |
+| `env`            | object   | no       | [install] Environment variables                                                                                                        |
+| `description`    | string   | no       | [install] Server description                                                                                                           |
+| `tags`           | string[] | no       | [install] Tags for search/filtering                                                                                                    |
+| `cursor`         | string   | no       | [browse] Pagination cursor from previous response                                                                                      |
+
+---
+
+### registry — find_tool / find_tools / get_schema / proxy_call
+
+Single-call tool discovery. The agent describes what it wants in natural language, agent-discover ranks the entire cross-server tool catalog with hybrid BM25 + semantic retrieval, and returns the best match with a confidence label and the args the agent needs to invoke it. Replaces the multi-step `list → activate → call` dance.
+
+**`find_tool` example (single intent):**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "find_tool",
+    "query": "post a message to a slack channel",
+    "auto_activate": false
+  }
+}
+```
+
+**Returns:**
+
+```json
+{
+  "found": true,
+  "confidence": "high",
+  "score": 0.87,
+  "call_as": "mcp__slack__post_message",
+  "server": "slack",
+  "tool": "post_message",
+  "description": "Post a message to a Slack channel or thread.",
+  "required_args": [
+    { "name": "channel", "type": "string", "description": "Channel ID or name." },
+    { "name": "text", "type": "string", "description": "Message body." }
+  ],
+  "optional_count": 1,
+  "next_step": "invoke call_as directly",
+  "other_matches": [
+    {
+      "call_as": "mcp__slack__list_channels",
+      "tool": "list_channels",
+      "description": "...",
+      "score": 0.42
+    }
+  ]
+}
+```
+
+When the top-result score falls below `0.25` the response is `{ found: false, top_score, hint }` instead — the no-match path.
+
+**`find_tools` example (batch — N intents in one round-trip):**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "find_tools",
+    "intents": ["recent sentry errors for the web project", "create a linear issue"],
+    "auto_activate": false
+  }
+}
+```
+
+Returns one result per intent in the same shape as `find_tool`.
+
+**`get_schema` example (full input_schema for a tool you've already discovered):**
+
+```json
+{
+  "name": "registry",
+  "arguments": { "action": "get_schema", "call_as": "mcp__slack__post_message" }
+}
+```
+
+Use this only when the compact `required_args` summary isn't enough (conditional / polymorphic args). Most tools can be invoked from the `find_tool` response alone.
+
+**`proxy_call` example (invoke a discovered tool through agent-discover):**
+
+```json
+{
+  "name": "registry",
+  "arguments": {
+    "action": "proxy_call",
+    "call_as": "mcp__slack__post_message",
+    "arguments": { "channel": "#releases", "text": "deploy finished" }
+  }
+}
+```
+
+`proxy_call` lets the agent invoke a tool **without** the host having to load that tool into its catalog. Combined with `find_tool({auto_activate: false})`, this keeps the host MCP surface area at exactly 5 agent-discover actions regardless of how many tools the registered child servers actually expose. Critical for very large catalogs (~1k+ tools) where firing `notifications/tools/list_changed` would flood the host with thousands of schemas.
+
+If the proxied tool call fails, the response includes a `did_you_mean` array with similarly-named tools so the agent can recover from a wrong-tool selection in one extra turn.
+
+---
 
 **Example (list):**
 
