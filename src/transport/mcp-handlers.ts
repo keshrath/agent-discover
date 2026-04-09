@@ -49,11 +49,13 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryStatus(ctx, args);
     case 'find_tool':
       return registryFindTool(ctx, args);
+    case 'find_tools':
+      return registryFindTools(ctx, args);
     case 'get_schema':
       return registryGetSchema(ctx, args);
     default:
       throw new ValidationError(
-        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, get_schema`,
+        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, find_tools, get_schema`,
       );
   }
 };
@@ -440,6 +442,70 @@ const registryFindTool: HandlerFn = async (ctx, args) => {
       score: m.score,
     })),
   };
+};
+
+// Multi-intent variant of find_tool. Halves the number of round-trips for
+// tasks that chain N tools (e.g., "query Sentry then create a Linear issue"):
+// the agent submits all intents in one call and gets back N independent
+// results. Each result has the same shape as a single find_tool response.
+const registryFindTools: HandlerFn = async (ctx, args) => {
+  const intents = Array.isArray(args.intents) ? (args.intents as string[]).filter(Boolean) : [];
+  if (intents.length === 0) throw new ValidationError('intents (string[]) is required');
+  if (intents.length > 10) throw new ValidationError('max 10 intents per call');
+  const limit = optNum(args.limit, 5);
+
+  // Run sequentially so we share auto-activation across the batch (the second
+  // intent's owning server may already be active from the first).
+  const results = [];
+  for (const intent of intents) {
+    const matches = ctx.registry.searchTools(intent, limit);
+    if (matches.length === 0) {
+      results.push({ intent, found: false, hint: 'no tools matched' });
+      continue;
+    }
+    const top = matches[0];
+    const confidence = deriveConfidence(matches.map((m) => m.score));
+    if (!ctx.proxy.isActive(top.server_name)) {
+      const server = ctx.registry.getByName(top.server_name);
+      if (
+        server &&
+        (server.command || server.transport === 'sse' || server.transport === 'streamable-http')
+      ) {
+        try {
+          await ctx.proxy.activate({
+            name: server.name,
+            command: server.command ?? undefined,
+            args: server.args,
+            env: server.env,
+            transport: server.transport,
+            url: server.homepage ?? undefined,
+          });
+          ctx.registry.setActive(server.name, true);
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    const compact = compactSchema(top.input_schema);
+    results.push({
+      intent,
+      found: true,
+      confidence,
+      score: top.score,
+      call_as: `mcp__${top.server_name}__${top.name}`,
+      tool: top.name,
+      description: top.description,
+      required_args: compact.required_args,
+      optional_count: compact.optional_count,
+      other_matches: matches.slice(1, 3).map((m) => ({
+        call_as: `mcp__${m.server_name}__${m.name}`,
+        tool: m.name,
+        description: m.description,
+        score: m.score,
+      })),
+    });
+  }
+  return { results };
 };
 
 // Returns the full input_schema for a tool the agent already discovered via

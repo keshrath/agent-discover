@@ -186,6 +186,15 @@ DECISION RULES — follow these literally:
   - found=false         → the tool doesn't exist in the registry. Say so and
                           stop. Do NOT try synonyms.
 
+For multi-tool tasks (e.g., "query Sentry then create a Linear issue"), batch
+discovery in ONE call:
+  mcp__agent-discover__registry({action:"find_tools", intents:["recent sentry errors", "create linear issue"]})
+This returns one result per intent. Then invoke each call_as in turn.
+
+If an invoke FAILS (returns isError or did_you_mean in the result), the result
+includes a "did_you_mean" array of similarly-named tools. Pick the most likely
+one from that list and invoke it directly — do NOT call find_tool again.
+
 If a tool's required_args alone don't tell you how to invoke it (e.g., the
 schema is conditional or polymorphic), call:
   mcp__agent-discover__registry({action:"get_schema", call_as:"<the call_as>"})
@@ -194,7 +203,7 @@ first.
 
 LIMITS:
 - One find_tool per tool you need (not per task).
-- Multi-tool tasks: N find_tools + N invokes. No extra round-trips.
+- Multi-tool tasks: ONE find_tools call + N invokes. Maximum N+1 MCP calls.
 - Never call action:"list", action:"activate", action:"status".
 `.trim();
 

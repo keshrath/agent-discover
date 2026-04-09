@@ -21,7 +21,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'registry',
     description:
-      'MCP server registry. Actions: "find_tool" (single-call tool discovery — BM25-ranked search by intent, returns top match with required args, confidence label, and auto-activates server; PREFER THIS for tool discovery), "get_schema" (full input_schema for a tool already returned by find_tool — only needed for fat schemas with optional/polymorphic args), "list" (search local registry by server), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
+      'MCP server registry. Actions: "find_tool" (single-call tool discovery — BM25-ranked search by intent, returns top match with required args, confidence label, and auto-activates server; PREFER THIS for tool discovery), "find_tools" (batch find_tool — pass intents:[\'intent1\',\'intent2\',...] to discover N tools in ONE round-trip; use for multi-step tasks), "get_schema" (full input_schema for a tool already returned by find_tool — only needed for fat schemas with optional/polymorphic args), "list" (search local registry by server), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -29,6 +29,7 @@ export const tools: ToolDefinition[] = [
           type: 'string',
           enum: [
             'find_tool',
+            'find_tools',
             'get_schema',
             'list',
             'install',
@@ -40,7 +41,15 @@ export const tools: ToolDefinition[] = [
           ],
           description: 'Action to perform',
         },
-        limit: { type: 'number', description: '[find_tool/browse] Max results' },
+        limit: {
+          type: 'number',
+          description: '[find_tool/find_tools/browse] Max results per query',
+        },
+        intents: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '[find_tools] Array of intent strings — one per tool you need to discover',
+        },
         call_as: {
           type: 'string',
           description: '[get_schema] Fully-qualified mcp__server__tool name from find_tool',
@@ -90,10 +99,77 @@ export function createToolHandler(ctx: AppContext): ToolHandler {
 
     const parsed = ctx.proxy.parseToolName(name);
     if (parsed) {
-      return ctx.proxy.callTool(parsed.serverName, parsed.toolName, args);
+      // Wrap proxy calls so failures automatically attach a "did_you_mean"
+      // list of similarly-named tools. This lets the agent recover from a
+      // wrong-tool selection in one extra turn instead of giving up or
+      // re-running discovery from scratch — which the bench identified as
+      // the main reliability gap in the deferred-discovery flow.
+      try {
+        const result = await ctx.proxy.callTool(parsed.serverName, parsed.toolName, args);
+        if (result?.isError) {
+          return attachDidYouMean(ctx, result, parsed.toolName);
+        }
+        return result;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const suggestions = nearestToolSuggestions(ctx, parsed.toolName);
+        if (suggestions.length === 0) throw err;
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text:
+                `Tool call failed: ${errMsg}\n\n` +
+                `did_you_mean: ${suggestions.map((s) => s.call_as).join(', ')}\n` +
+                `Pick the closest match and call it directly — do NOT re-run find_tool.`,
+            },
+          ],
+          did_you_mean: suggestions,
+        };
+      }
     }
 
     throw new RegistryError(`Unknown tool: ${name}`, 'UNKNOWN_TOOL');
+  };
+}
+
+function nearestToolSuggestions(
+  ctx: AppContext,
+  failedToolName: string,
+): Array<{ call_as: string; tool: string; description: string }> {
+  // Search by the failed tool's bare name. If it was wrong, the BM25-ranked
+  // alternatives are usually the right answer.
+  const matches = ctx.registry.searchTools(failedToolName.replace(/_/g, ' '), 4);
+  return matches
+    .filter((m) => m.name !== failedToolName)
+    .slice(0, 3)
+    .map((m) => ({
+      call_as: `mcp__${m.server_name}__${m.name}`,
+      tool: m.name,
+      description: m.description,
+    }));
+}
+
+function attachDidYouMean(
+  ctx: AppContext,
+  result: { content: Array<{ type: string; text: string }>; isError?: boolean },
+  failedToolName: string,
+): unknown {
+  const suggestions = nearestToolSuggestions(ctx, failedToolName);
+  if (suggestions.length === 0) return result;
+  return {
+    ...result,
+    did_you_mean: suggestions,
+    content: [
+      ...result.content,
+      {
+        type: 'text',
+        text:
+          `\ndid_you_mean: ${suggestions.map((s) => s.call_as).join(', ')}\n` +
+          `Pick the closest match and call it directly — do NOT re-run find_tool.`,
+      },
+    ],
   };
 }
 

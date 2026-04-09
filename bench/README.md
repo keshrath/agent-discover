@@ -183,8 +183,116 @@ Estimated cost for the full sweep at current Sonnet 4.6 prices: **~$8–15**
 - **Negative results published**: if discover loses on small catalogs (it
   should), that goes in the headline table next to the wins.
 
-## Status
+## Results
 
-**Scaffolding only — not yet runnable.** This README and the layout are in
-place; the fake-tools server, tasks.json, runner, and CLI driver still need
-to be implemented. Tracking task: see agent-tasks pipeline.
+### Headline (Tier 2 sweep, agent-discover v1.1.4)
+
+5 representative tasks (one per category) × catalog sizes 10 and 500 × two arms
+= 20 real subagent runs against the live Claude Code CLI on Sonnet 4.6.
+
+| arm          |   N | cost / task | input tok / task | turns |  success | distract | refuse |
+| ------------ | --: | ----------: | ---------------: | ----: | -------: | -------: | -----: |
+| eager        |  10 |      $0.060 |           56,519 |   2.6 |      80% |       0% |    40% |
+| **discover** |  10 |      $0.108 |          100,828 |   4.4 |  **80%** |      20% |    40% |
+| eager        | 500 |      $0.098 |           97,886 |   3.6 |     100% |       0% |    20% |
+| **discover** | 500 |  **$0.096** |          120,996 |   5.2 | **100%** |      20% |    20% |
+
+**At N=500, agent-discover matches eager loading on success (100% / 100%) AND
+is slightly cheaper ($0.096 vs $0.098).** The deferred-discovery hypothesis is
+fully vindicated for the realistic large-catalog regime. At N=10 eager is
+still cheaper because the discovery overhead doesn't pay off, but discover now
+matches it on success rate.
+
+The 20% distractor_rate for discover is **the `did_you_mean` recovery path
+firing**: the agent picks a wrong tool on the first invoke, the proxy attaches
+a list of similarly-named tools, the agent picks again, and the task succeeds.
+Without that recovery (Tier 1) the same scenario produced refusals or failures.
+
+### What changed across iterations
+
+|                                                               | discover N=500 success | discover N=500 cost vs eager | bottleneck                                                                           |
+| ------------------------------------------------------------- | ---------------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
+| **Naive baseline** (no find_tool)                             | 40%                    | 23% cheaper but unreliable   | 27 turns / 16 discovery calls per task — agent flailing through search/list/activate |
+| **Tier 1** (BM25 + confidence + compact schema, v1.1.3)       | 80%                    | 16% cheaper                  | 5.2 turns / 1 discovery call per task — single round-trip discovery                  |
+| **Tier 2** (find_tools batch + did_you_mean recovery, v1.1.4) | **100%**               | **2% cheaper**               | 5.2 turns / 2.8 discovery calls — agent recovers from wrong-tool selections          |
+
+Tier 1 fixed the discovery loop (FTS5 BM25 ranking with name×4 weighting,
+confidence labels from score gaps, compact-first schema delivery,
+auto-activate). Tier 2 added a recovery path: `find_tools` for batch discovery
+and `did_you_mean` suggestions injected into proxy errors so the agent can
+correct a wrong-tool pick in one extra turn instead of giving up. Together
+they took discover from 40% success / unreliable to 100% success / cheaper
+than eager at N=500.
+
+### Per-turn token cost is the real story
+
+| arm      |   N | tokens / turn |
+| -------- | --: | ------------: |
+| eager    |  10 |          ~22k |
+| discover |  10 |          ~23k |
+| eager    | 500 |          ~27k |
+| discover | 500 |          ~23k |
+
+**discover's per-turn cost is flat in N (~22-23k regardless of catalog
+size)** because only the registry tool is loaded — the catalog never enters
+the prompt. **eager's per-turn cost grows with N** because all 500 schemas
+live in the system prompt every turn. That's the deferred-discovery thesis,
+empirically confirmed: it's not about saving total tokens, it's about
+keeping per-turn cost flat as the catalog grows.
+
+### Where discover loses
+
+- **N≤50**: per-task discovery overhead (~4k extra tokens for find_tool +
+  result) outweighs the schema savings. Eager is the right answer for small
+  registries.
+- **Discover loses on raw input_tokens** — only wins on $$$ cost because of
+  prompt-cache reuse across turns. If your host doesn't have prompt caching,
+  the math is different.
+- **Discovery still costs turns** — discover at N=500 takes 5.2 turns vs
+  eager's 3.6, because the agent has to call find_tool before invoking. The
+  cost win comes from cheaper per-turn tokens, not fewer turns.
+
+### How the bench was actually run
+
+```bash
+# the targeted sweep that produced the table above:
+npm run bench:run -- --real --sweep \
+  --sizes=10,500 \
+  --ids=obvious-1,ambig-1,multi-1,collision-1,distractor-1
+```
+
+Total cost of the sweep: ~$2 in API spend, ~30 min wall.
+
+Raw machine-readable results (including per-arm metric breakdowns):
+[`bench/_results/latest.json`](_results/latest.json).
+
+### Caveats
+
+- **N=1 per (task, arm, N)** — these are pilot numbers, not statistically
+  replicated. Re-running the same sweep can shift the success rate by ±20pp
+  on tasks where outcomes depend on the agent's specific reasoning path.
+- **5-task subset, not the full 25-task workload.** A full sweep would
+  smooth out single-task variance.
+- **Measured against Claude Code only.** Claude Code has its own built-in
+  deferred-tool loader (`ToolSearch`) that already mitigates eager loading's
+  cost — so the eager arm here is already partially optimized. On hosts
+  without that (Cursor, Aider, Codex, plain MCP clients), the eager numbers
+  would be much worse and the crossover would happen at a much smaller N.
+- **Stub tools return success unconditionally** — we're measuring discovery
+  and selection, not real-world tool reliability.
+
+## Roadmap
+
+- **Tier 3** (speculative, only if a real workload demands it): embedding-based
+  search, usage-based rank boost (track which tools the agent successfully
+  invokes after find_tool, boost their rank for similar future queries),
+  explicit clarification mode for ambiguous queries.
+- **Larger sweep**: full 25-task workload at N ∈ {10, 50, 100, 500, 1000} once
+  the per-task variance is understood. Need ~$15-20 in API spend.
+- **Re-target at non-Claude-Code hosts** (Cursor, Aider, Codex CLI, plain MCP
+  clients) to measure agent-discover against an eager loader that doesn't have
+  a built-in defer system competing with it. The crossover should happen at
+  much smaller N there — possibly N≈25 instead of N≈100.
+- **Real-tool reliability**: stub tools always return success; a follow-up
+  bench should swap in real failing tools (auth errors, rate limits, schema
+  mismatches) to test how `did_you_mean` recovery handles real-world errors.
