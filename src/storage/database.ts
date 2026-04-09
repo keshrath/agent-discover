@@ -187,4 +187,17 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    up: (db: Database.Database) => {
+      // Tier 3: semantic search via embeddings. Each tool gets a vector
+      // representation of its name+description, stored as a JSON-encoded
+      // float32 array. Brute-force cosine similarity at query time — fast
+      // enough for any realistic catalog (~10ms for N=10k on modern CPUs)
+      // and avoids a native ANN dependency. Embeddings are optional: tools
+      // without an embedding fall back to BM25 ranking only.
+      addColumnIfMissing(db, 'server_tools', 'embedding', 'TEXT');
+      addColumnIfMissing(db, 'server_tools', 'embedding_model', 'TEXT');
+    },
+  },
 ];

@@ -25,6 +25,21 @@ const REAL_CATALOG = JSON.parse(readFileSync(path.join(__dirname, 'catalog.json'
 const COUNT = parseInt(process.env.FAKE_TOOL_COUNT ?? '100', 10);
 const SEED = parseInt(process.env.FAKE_TOOL_SEED ?? '1', 10);
 
+// Failure injection. When > 0, the stub returns isError for a deterministic
+// subset of tool calls. Used by the bench to exercise the discover arm's
+// did_you_mean recovery path — without injected failures the unconditionally-
+// successful stubs hide whether the recovery actually fires.
+const ERROR_RATE = parseFloat(process.env.FAKE_TOOL_ERROR_RATE ?? '0');
+
+function shouldFail(toolName) {
+  if (ERROR_RATE <= 0) return false;
+  // Hash tool name to [0,1). Deterministic — same tool always fails or
+  // always succeeds for a given ERROR_RATE, so runs are reproducible.
+  let h = 0;
+  for (let i = 0; i < toolName.length; i++) h = (h * 31 + toolName.charCodeAt(i)) | 0;
+  return (Math.abs(h) % 1000) / 1000 < ERROR_RATE;
+}
+
 // Synthesize filler tools when COUNT exceeds the curated catalog. The filler
 // tools are deterministic (seeded by index) and have realistic-looking names
 // drawn from a service × action × resource matrix, so the discover arm has a
@@ -98,6 +113,22 @@ const RESOURCES = [
   'dashboard',
   'report',
   'token',
+  'campaign',
+  'cart',
+  'order',
+  'payment',
+  'shipment',
+  'discount',
+  'product',
+  'cluster',
+  'node',
+  'volume',
+  'snapshot',
+  'backup',
+  'rule',
+  'audit',
+  'session',
+  'tag',
 ];
 
 function synthTool(idx) {

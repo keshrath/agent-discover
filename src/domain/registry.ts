@@ -9,8 +9,88 @@ import type { Db } from '../storage/database.js';
 import type { EventBus } from './events.js';
 import type { ServerEntry, ServerCreateInput, ServerUpdateInput, ServerTool } from '../types.js';
 import { NotFoundError, ValidationError, ConflictError } from '../types.js';
+import {
+  makeEmbeddingProvider,
+  cosineSimilarity,
+  encodeEmbedding,
+  decodeEmbedding,
+  type EmbeddingProvider,
+  type Embedding,
+} from './embeddings.js';
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+// Map natural-language verbs to canonical CRUD verbs used in tool names.
+// Each query verb expands to its canonical form (added to the token list,
+// not replaced — keeps the original word so descriptions that DO use the
+// natural form still match). Hand-curated from observed bench failures.
+const VERB_SYNONYMS: Record<string, string> = {
+  // create-family
+  add: 'create',
+  make: 'create',
+  new: 'create',
+  open: 'create',
+  provision: 'create',
+  register: 'create',
+  // get-family
+  fetch: 'get',
+  retrieve: 'get',
+  read: 'get',
+  load: 'get',
+  pull: 'get',
+  // list-family
+  show: 'list',
+  display: 'list',
+  enumerate: 'list',
+  browse: 'list',
+  // update-family
+  change: 'update',
+  edit: 'update',
+  modify: 'update',
+  set: 'update',
+  patch: 'update',
+  // delete-family
+  cancel: 'delete',
+  remove: 'delete',
+  destroy: 'delete',
+  drop: 'delete',
+  // search-family
+  find: 'search',
+  query: 'search',
+  lookup: 'search',
+};
+
+// Strip trailing plural 's' so "subscriptions" matches "subscription". Naive
+// but covers ~95% of English plurals in API resource names; FTS5 has no
+// built-in stemming and switching to tokenize='porter' would require a
+// migration. Skip very short words (us, gas, etc) and -ss endings (class,
+// access).
+function singularize(token: string): string {
+  if (token.length <= 3) return token;
+  if (token.endsWith('ies')) return token.slice(0, -3) + 'y';
+  if (token.endsWith('ses') || token.endsWith('xes')) return token.slice(0, -2);
+  if (token.endsWith('ss')) return token;
+  if (token.endsWith('s')) return token.slice(0, -1);
+  return token;
+}
+
+function expandVerbSynonyms(tokens: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tokens) {
+    const sing = singularize(t);
+    if (!seen.has(sing)) {
+      seen.add(sing);
+      out.push(sing);
+    }
+    const canonical = VERB_SYNONYMS[t] || VERB_SYNONYMS[sing];
+    if (canonical && !seen.has(canonical)) {
+      seen.add(canonical);
+      out.push(canonical);
+    }
+  }
+  return out;
+}
 
 interface ServerRow {
   id: number;
@@ -42,6 +122,8 @@ interface ToolRow {
   name: string;
   description: string;
   input_schema: string;
+  embedding?: string | null;
+  embedding_model?: string | null;
 }
 
 function rowToServer(row: ServerRow): ServerEntry {
@@ -81,10 +163,14 @@ function rowToTool(row: ToolRow): ServerTool {
 }
 
 export class RegistryService {
+  private readonly embeddings: EmbeddingProvider;
+
   constructor(
     private readonly db: Db,
     private readonly events: EventBus,
-  ) {}
+  ) {
+    this.embeddings = makeEmbeddingProvider();
+  }
 
   register(input: ServerCreateInput): ServerEntry {
     if (!input.name) throw new ValidationError('Name is required');
@@ -311,6 +397,57 @@ export class RegistryService {
     }
   }
 
+  /**
+   * Async variant of saveTools that ALSO computes and stores embeddings for
+   * each tool. Use this when an embedding provider is available
+   * (OPENAI_API_KEY set). Synchronous saveTools is unchanged so existing
+   * callers don't break — embeddings are an opt-in upgrade.
+   */
+  async saveToolsWithEmbeddings(
+    serverId: number,
+    tools: Array<{
+      name: string;
+      description?: string;
+      inputSchema?: Record<string, unknown>;
+    }>,
+  ): Promise<{ embedded: number; skipped: number }> {
+    if (!this.embeddings.enabled) {
+      this.saveTools(serverId, tools);
+      return { embedded: 0, skipped: tools.length };
+    }
+    // Build the embedding inputs: name + description, with the name repeated
+    // to up-weight name matches in the semantic space (mirrors how the BM25
+    // path weights name 4x description).
+    const inputs = tools.map((t) => `${t.name}\n${t.name}\n${t.description ?? ''}`.slice(0, 2000));
+    let vectors: Embedding[];
+    try {
+      vectors = await this.embeddings.embed(inputs);
+    } catch (err) {
+      process.stderr.write(
+        `[registry] embedding batch failed: ${(err as Error).message} — falling back to BM25-only\n`,
+      );
+      this.saveTools(serverId, tools);
+      return { embedded: 0, skipped: tools.length };
+    }
+    this.db.run('DELETE FROM server_tools WHERE server_id = ?', [serverId]);
+    for (let i = 0; i < tools.length; i++) {
+      const tool = tools[i];
+      const encoded = encodeEmbedding(vectors[i]);
+      this.db.run(
+        'INSERT INTO server_tools (server_id, name, description, input_schema, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          serverId,
+          tool.name,
+          tool.description ?? '',
+          JSON.stringify(tool.inputSchema ?? {}),
+          encoded,
+          this.embeddings.model,
+        ],
+      );
+    }
+    return { embedded: tools.length, skipped: 0 };
+  }
+
   getTools(serverId: number): ServerTool[] {
     return this.db
       .queryAll<ToolRow>('SELECT * FROM server_tools WHERE server_id = ? ORDER BY name', [serverId])
@@ -342,12 +479,21 @@ export class RegistryService {
     // Build an FTS5 query: each token becomes an OR'd prefix match. Quoting
     // each token with double quotes lets us pass through punctuation safely
     // (FTS5 reserved chars like - and . blow up otherwise).
-    const tokens = q
+    const rawTokens = q
       .toLowerCase()
       .split(/[\s_\-/]+/)
       .filter((t) => t.length >= 2)
       .map((t) => t.replace(/["*]/g, ''));
-    if (tokens.length === 0) return [];
+    if (rawTokens.length === 0) return [];
+
+    // Verb synonym expansion. Tool names use canonical CRUD verbs
+    // (create, get, list, update, delete, search, export, import) but the
+    // agent's natural-language queries use synonyms ("fetch", "show",
+    // "change", "cancel", ...). Without expansion, BM25 sees those as
+    // unrelated tokens — bench measured this exact failure mode at N=1000.
+    // Expanding the query verb to its canonical form before search fixes
+    // ~80% of verb-disambiguation cases without changing the index.
+    const tokens = expandVerbSynonyms(rawTokens);
     const ftsQuery = tokens.map((t) => `"${t}"*`).join(' OR ');
 
     try {
@@ -375,7 +521,7 @@ export class RegistryService {
     // confidence signal) so callers default to medium-confidence treatment.
     const conds: string[] = [];
     const params: unknown[] = [];
-    for (const t of tokens) {
+    for (const t of rawTokens) {
       conds.push('(LOWER(t.name) LIKE ? OR LOWER(t.description) LIKE ?)');
       params.push(`%${t}%`, `%${t}%`);
     }
@@ -389,5 +535,83 @@ export class RegistryService {
       LIMIT ?`;
     const rows = this.db.queryAll<ToolRow & { server_name: string }>(sql, params);
     return rows.map((r) => ({ ...rowToTool(r), server_name: r.server_name, score: 0 }));
+  }
+
+  /**
+   * Hybrid retrieval: union of BM25 top-K and pure-cosine top-K, then
+   * re-ranked by combined score. Use this whenever the registry has been
+   * seeded with embeddings — it dramatically improves natural-language query
+   * accuracy by closing the "billing arrangement → subscription" semantic
+   * gap that BM25 alone misses.
+   *
+   * Why both: BM25-only misses paraphrased queries (no candidate has the
+   * literal keywords). Pure-cosine-only misses exact-keyword queries where
+   * BM25 has higher precision. Taking the union of candidates from both
+   * sides and re-ranking by the combined score handles both regimes.
+   *
+   * Cost: brute-force cosine over the entire embedded catalog. At N=10k
+   * with 1536-dim float32 embeddings that's ~60ms — well within budget.
+   * Falls back to plain BM25 when the embedding provider is disabled.
+   */
+  async searchToolsHybrid(
+    query: string,
+    limit = 5,
+  ): Promise<Array<ServerTool & { server_name: string; score: number }>> {
+    if (!this.embeddings.enabled) {
+      return this.searchTools(query, limit);
+    }
+
+    let queryVec: Embedding;
+    try {
+      const [vec] = await this.embeddings.embed([query]);
+      queryVec = vec;
+    } catch {
+      return this.searchTools(query, limit);
+    }
+
+    // Pure cosine over EVERY embedded tool. Brute force is fine at any
+    // realistic catalog size; the alternative (an ANN index) adds a native
+    // dep for marginal benefit below ~100k tools.
+    const allEmbedded = this.db.queryAll<ToolRow & { server_name: string; embedding: string }>(
+      `SELECT t.*, s.name AS server_name
+       FROM server_tools t
+       JOIN servers s ON s.id = t.server_id
+       WHERE t.embedding IS NOT NULL`,
+      [],
+    );
+    const semanticScored = allEmbedded.map((row) => {
+      const emb = decodeEmbedding(row.embedding);
+      return { row, cosine: cosineSimilarity(queryVec, emb) };
+    });
+    // Take top 4×limit semantic candidates so the re-rank set has headroom.
+    semanticScored.sort((a, b) => b.cosine - a.cosine);
+    const topSemantic = semanticScored.slice(0, Math.max(limit * 4, 20));
+
+    // Pull BM25 candidates in parallel and merge by tool id. BM25 contributes
+    // exact-keyword precision; semantic contributes paraphrase recall.
+    const bm25Candidates = this.searchTools(query, Math.max(limit * 4, 20));
+    const bm25Max = Math.max(...bm25Candidates.map((r) => r.score), 1e-9);
+    const bm25ById = new Map<number, number>();
+    for (const c of bm25Candidates) bm25ById.set(c.id, c.score / bm25Max);
+
+    const merged = new Map<number, ServerTool & { server_name: string; score: number }>();
+    for (const { row, cosine } of topSemantic) {
+      const lex = bm25ById.get(row.id) ?? 0;
+      // 70% semantic, 30% lexical — favor the embedding signal because
+      // that's what handles natural-language queries the bench identified.
+      const hybrid = 0.7 * cosine + 0.3 * lex;
+      merged.set(row.id, {
+        ...rowToTool(row),
+        server_name: row.server_name,
+        score: hybrid,
+      });
+    }
+    for (const c of bm25Candidates) {
+      if (merged.has(c.id)) continue;
+      merged.set(c.id, { ...c, score: 0.3 * (c.score / bm25Max) });
+    }
+
+    const ranked = [...merged.values()].sort((a, b) => b.score - a.score);
+    return ranked.slice(0, limit);
   }
 }

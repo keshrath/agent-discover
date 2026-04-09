@@ -31,6 +31,7 @@ export const tools: ToolDefinition[] = [
             'find_tool',
             'find_tools',
             'get_schema',
+            'proxy_call',
             'list',
             'install',
             'uninstall',
@@ -52,7 +53,25 @@ export const tools: ToolDefinition[] = [
         },
         call_as: {
           type: 'string',
-          description: '[get_schema] Fully-qualified mcp__server__tool name from find_tool',
+          description:
+            '[get_schema/proxy_call] Fully-qualified mcp__server__tool name from find_tool',
+        },
+        server: {
+          type: 'string',
+          description: '[proxy_call] Server name (alternative to call_as)',
+        },
+        tool: {
+          type: 'string',
+          description: '[proxy_call] Tool name (alternative to call_as)',
+        },
+        arguments: {
+          type: 'object',
+          description: '[proxy_call] Arguments to pass to the proxied tool',
+        },
+        auto_activate: {
+          type: 'boolean',
+          description:
+            '[find_tool/find_tools] When false (recommended for huge catalogs), do not expose the proxied tools to the host. Use proxy_call to invoke them instead. Default true.',
         },
         query: { type: 'string', description: '[list/browse] Search query' },
         source: { type: 'string', description: '[list] Filter by source' },

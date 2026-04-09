@@ -165,6 +165,68 @@
     "_note": "At high N: stripe has create/list/get/update/delete/search/export/import webhook plus the same set across shopify/twilio/pagerduty. Tests verb disambiguation under tight name collision."
   },
   {
+    "id": "verb-create",
+    "category": "ambiguous",
+    "prompt": "Create a new Stripe subscription for customer cus_42 on price plan price_pro_monthly.",
+    "expected_tools": ["stripe_create_subscription"],
+    "_note": "Verb-disambiguation pack: 5 tasks on the same resource (stripe subscription) with different action verbs. Measures whether the agent picks the RIGHT CRUD verb when 8 near-collision tools exist (create/get/list/update/delete/search/export/import _subscription) at high N."
+  },
+  {
+    "id": "verb-get",
+    "category": "ambiguous",
+    "prompt": "Fetch the Stripe subscription with id sub_1234 and return its current state.",
+    "expected_tools": ["stripe_get_subscription"]
+  },
+  {
+    "id": "verb-list",
+    "category": "ambiguous",
+    "prompt": "Show me all active Stripe subscriptions for customer cus_42.",
+    "expected_tools": ["stripe_list_subscription"]
+  },
+  {
+    "id": "verb-update",
+    "category": "ambiguous",
+    "prompt": "Change the price plan on Stripe subscription sub_1234 to price_enterprise_monthly.",
+    "expected_tools": ["stripe_update_subscription"]
+  },
+  {
+    "id": "verb-delete",
+    "category": "ambiguous",
+    "prompt": "Cancel the Stripe subscription sub_1234 immediately.",
+    "expected_tools": ["stripe_delete_subscription"]
+  },
+  {
+    "id": "adv-create",
+    "category": "ambiguous",
+    "prompt": "Set up a brand new recurring monthly billing arrangement for customer cus_42 on the pro tier price plan price_pro_monthly. The customer just signed up.",
+    "expected_tools": ["stripe_create_subscription"],
+    "_note": "Adversarial verb pack: prompts use inferred natural language, not canonical CRUD verbs. The agent has to map 'set up brand new' -> 'create', 'look up' -> 'get', 'pull all' -> 'list', etc. Tests whether overloaded eager catalogs cause CRUD verb confusion when surface vocabulary doesn't match."
+  },
+  {
+    "id": "adv-get",
+    "category": "ambiguous",
+    "prompt": "I need to look up the current details and state of the recurring billing arrangement with id sub_1234. Just retrieve it as-is.",
+    "expected_tools": ["stripe_get_subscription"]
+  },
+  {
+    "id": "adv-list",
+    "category": "ambiguous",
+    "prompt": "Pull together every recurring billing arrangement attached to customer cus_42 right now so I can review them.",
+    "expected_tools": ["stripe_list_subscription"]
+  },
+  {
+    "id": "adv-update",
+    "category": "ambiguous",
+    "prompt": "I want to move customer cus_42's existing billing arrangement sub_1234 onto the enterprise pricing tier price_enterprise_monthly. The arrangement already exists; just switch the plan.",
+    "expected_tools": ["stripe_update_subscription"]
+  },
+  {
+    "id": "adv-delete",
+    "category": "ambiguous",
+    "prompt": "End the recurring billing on customer cus_42's arrangement sub_1234 immediately. They want it terminated, not paused.",
+    "expected_tools": ["stripe_delete_subscription"]
+  },
+  {
     "id": "distractor-1",
     "category": "distractor",
     "prompt": "Provision a new Kubernetes namespace called 'staging-experimental'.",

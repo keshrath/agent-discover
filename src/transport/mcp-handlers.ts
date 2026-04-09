@@ -53,9 +53,11 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryFindTools(ctx, args);
     case 'get_schema':
       return registryGetSchema(ctx, args);
+    case 'proxy_call':
+      return registryProxyCall(ctx, args);
     default:
       throw new ValidationError(
-        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, find_tools, get_schema`,
+        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, find_tools, get_schema, proxy_call`,
       );
   }
 };
@@ -379,8 +381,21 @@ const registryFindTool: HandlerFn = async (ctx, args) => {
   const query = str(args.query);
   if (!query) throw new ValidationError('query is required');
   const limit = optNum(args.limit, 5);
+  // When auto_activate is true (default), find_tool starts the owning child
+  // server AND emits notifications/tools/list_changed so the host can refetch
+  // the proxied tools and call them directly. This is convenient at small N
+  // but at large N (>1k tools) it causes the host to receive a huge tool
+  // catalog that may not fit in the model context. When false, the server is
+  // started silently and the agent must use action:"proxy_call" to invoke
+  // the tool via agent-discover instead of directly. Use false for huge
+  // catalogs.
+  const autoActivate = args.auto_activate !== false;
 
-  const matches = ctx.registry.searchTools(query, limit);
+  // Prefer hybrid (BM25 + semantic) when embeddings are available — closes
+  // the natural-language gap that pure BM25 misses (e.g., "billing
+  // arrangement" → "subscription"). Falls back to pure BM25 internally if
+  // the embedding provider is disabled.
+  const matches = await ctx.registry.searchToolsHybrid(query, limit);
   if (matches.length === 0) {
     return {
       found: false,
@@ -392,27 +407,32 @@ const registryFindTool: HandlerFn = async (ctx, args) => {
   const top = matches[0];
   const confidence = deriveConfidence(matches.map((m) => m.score));
 
-  // Auto-activate the owning server so the agent can call the proxied tool
-  // immediately on the next turn (no separate activate round-trip).
-  if (!ctx.proxy.isActive(top.server_name)) {
-    const server = ctx.registry.getByName(top.server_name);
-    if (
-      server &&
-      (server.command || server.transport === 'sse' || server.transport === 'streamable-http')
-    ) {
-      try {
-        await ctx.proxy.activate({
-          name: server.name,
-          command: server.command ?? undefined,
-          args: server.args,
-          env: server.env,
-          transport: server.transport,
-          url: server.homepage ?? undefined,
-        });
-        ctx.registry.setActive(server.name, true);
-      } catch {
-        /* fall through — agent can still see the schema summary even if activation failed */
-      }
+  // Activate the owning server so the proxy is connected and ready. When
+  // autoActivate is true, ALL of the server's tools also get exposed to the
+  // host via getToolList — the bloat trigger at large N. When false, we
+  // still spin up the proxy connection (so proxy_call works) but don't mark
+  // the server as "active" in the registry, which keeps getToolList minimal.
+  const server = ctx.registry.getByName(top.server_name);
+  const canActivate =
+    server &&
+    (server.command || server.transport === 'sse' || server.transport === 'streamable-http');
+  if (canActivate && !ctx.proxy.isActive(top.server_name)) {
+    try {
+      await ctx.proxy.activate({
+        name: server.name,
+        command: server.command ?? undefined,
+        args: server.args,
+        env: server.env,
+        transport: server.transport,
+        url: server.homepage ?? undefined,
+      });
+      // Only flip the registry's active flag (which makes getToolList expose
+      // proxied tools to the host) when autoActivate was requested. Otherwise
+      // the proxy is connected behind agent-discover and reachable via
+      // proxy_call without leaking thousands of tool schemas to the host.
+      if (autoActivate) ctx.registry.setActive(server.name, true);
+    } catch {
+      /* fall through — agent can still see the schema summary even if activation failed */
     }
   }
 
@@ -458,7 +478,7 @@ const registryFindTools: HandlerFn = async (ctx, args) => {
   // intent's owning server may already be active from the first).
   const results = [];
   for (const intent of intents) {
-    const matches = ctx.registry.searchTools(intent, limit);
+    const matches = await ctx.registry.searchToolsHybrid(intent, limit);
     if (matches.length === 0) {
       results.push({ intent, found: false, hint: 'no tools matched' });
       continue;
@@ -506,6 +526,86 @@ const registryFindTools: HandlerFn = async (ctx, args) => {
     });
   }
   return { results };
+};
+
+// Invoke a proxied tool through agent-discover WITHOUT exposing it to the
+// host's tool catalog. The agent calls find_tool first (with auto_activate:
+// false), gets a call_as identifier, then uses proxy_call to invoke the tool
+// indirectly. This keeps agent-discover at a constant 5-tool surface area
+// regardless of how many tools its registered child servers actually expose
+// — critical at large catalog sizes where firing notifications/tools/
+// list_changed would flood the host with thousands of schemas.
+const registryProxyCall: HandlerFn = async (ctx, args) => {
+  const callAs = str(args.call_as);
+  const directServer = str(args.server);
+  const directTool = str(args.tool);
+  const toolArgs =
+    typeof args.arguments === 'object' && args.arguments !== null
+      ? (args.arguments as Record<string, unknown>)
+      : {};
+
+  let serverName: string;
+  let toolName: string;
+  if (callAs) {
+    const m = /^mcp__([^_]+(?:[^_]|_(?!_))*)__(.+)$/.exec(callAs);
+    if (!m) {
+      throw new ValidationError(
+        `call_as must be of the form "mcp__<server>__<tool>" — got "${callAs}"`,
+      );
+    }
+    serverName = m[1];
+    toolName = m[2];
+  } else if (directServer && directTool) {
+    serverName = directServer;
+    toolName = directTool;
+  } else {
+    throw new ValidationError('proxy_call requires either call_as or both server+tool');
+  }
+
+  // Auto-spin-up the server if it isn't connected yet (silent — no
+  // list_changed notification, no host catalog reload). Mirrors the
+  // find_tool({auto_activate:false}) path.
+  if (!ctx.proxy.isActive(serverName)) {
+    const server = ctx.registry.getByName(serverName);
+    if (!server) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `unknown server "${serverName}"` }],
+      };
+    }
+    if (!server.command && server.transport !== 'sse' && server.transport !== 'streamable-http') {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `server "${serverName}" has no command` }],
+      };
+    }
+    try {
+      await ctx.proxy.activate({
+        name: server.name,
+        command: server.command ?? undefined,
+        args: server.args,
+        env: server.env,
+        transport: server.transport,
+        url: server.homepage ?? undefined,
+      });
+    } catch (err) {
+      return {
+        isError: true,
+        content: [
+          { type: 'text', text: `failed to activate "${serverName}": ${(err as Error).message}` },
+        ],
+      };
+    }
+  }
+
+  try {
+    return await ctx.proxy.callTool(serverName, toolName, toolArgs);
+  } catch (err) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `tool call failed: ${(err as Error).message}` }],
+    };
+  }
 };
 
 // Returns the full input_schema for a tool the agent already discovered via

@@ -16,6 +16,7 @@
 import * as path from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { makeCliDriver } from './drivers/cli.js';
+import { makeOpencodeDriver } from './drivers/opencode.js';
 import { seedRegistry as seedRegistryInProc } from './fake-tools/seed-registry.js';
 
 // ---------------------------------------------------------------------------
@@ -237,12 +238,12 @@ function persist(reports: ArmReport[]): void {
   writeFileSync(RESULTS_FILE, JSON.stringify(out, null, 2));
 }
 
-function seedRegistry(n: number): void {
+async function seedRegistry(n: number): Promise<void> {
   // In-process call. Earlier we used spawnSync which hung when the runner's
   // stdio was piped through a background task — the child seed-registry
   // process never had its stdio fds drained. Calling inline avoids the
   // child process entirely.
-  const count = seedRegistryInProc(n);
+  const count = await seedRegistryInProc(n);
   console.log(`seeded ${count} tools (N=${n})`);
 }
 
@@ -259,7 +260,7 @@ export async function runPoint(
   if (limit && limit > 0) tasks = tasks.slice(0, limit);
   const reports: ArmReport[] = [];
   for (const arm of ['eager', 'discover'] as const) {
-    if (arm === 'discover' && seed) seedRegistry(n);
+    if (arm === 'discover' && seed) await seedRegistry(n);
     const runs: TaskRun[] = [];
     for (const t of tasks) {
       const raw = await driver.runTask(t, arm, n);
@@ -326,6 +327,9 @@ async function main(): Promise<void> {
   const nArg = args.find((a) => a.startsWith('--n='));
   const idsArg = args.find((a) => a.startsWith('--ids='));
   const sizesArg = args.find((a) => a.startsWith('--sizes='));
+  const budgetArg = args.find((a) => a.startsWith('--budget='));
+  const driverArg = args.find((a) => a.startsWith('--driver='));
+  const modelArg = args.find((a) => a.startsWith('--model='));
   const n = nArg ? parseInt(nArg.slice(4), 10) : 100;
   const limit = smoke ? 1 : undefined;
   const ids = idsArg ? idsArg.slice(6).split(',').filter(Boolean) : undefined;
@@ -335,14 +339,24 @@ async function main(): Promise<void> {
         .split(',')
         .map((s) => parseInt(s, 10))
     : [10, 50, 100, 500];
+  const maxBudgetUsd = budgetArg ? parseFloat(budgetArg.slice(9)) : 0.4;
+  const driverName = driverArg ? driverArg.slice(9) : 'cli';
+  const model = modelArg ? modelArg.slice(8) : undefined;
 
-  const driver = real
-    ? makeCliDriver({
-        fakeToolsServerPath: path.resolve('bench/fake-tools/server.mjs'),
-        discoverDistPath: path.resolve('dist/index.js'),
-        maxBudgetUsd: 0.4,
-      })
-    : mockDriver;
+  const driver: BenchDriver = !real
+    ? mockDriver
+    : driverName === 'opencode'
+      ? makeOpencodeDriver({
+          fakeToolsServerPath: path.resolve('bench/fake-tools/server.mjs'),
+          discoverDistPath: path.resolve('dist/index.js'),
+          maxBudgetUsd,
+          model,
+        })
+      : makeCliDriver({
+          fakeToolsServerPath: path.resolve('bench/fake-tools/server.mjs'),
+          discoverDistPath: path.resolve('dist/index.js'),
+          maxBudgetUsd,
+        });
   const reports = sweep
     ? await runSweep(driver, sizes, real, ids)
     : await runPoint(driver, n, limit, real, ids);
