@@ -10,13 +10,13 @@ import type { EventBus } from './events.js';
 import type { ServerEntry, ServerCreateInput, ServerUpdateInput, ServerTool } from '../types.js';
 import { NotFoundError, ValidationError, ConflictError } from '../types.js';
 import {
-  makeEmbeddingProvider,
+  getEmbeddingProvider,
   cosineSimilarity,
   encodeEmbedding,
   decodeEmbedding,
   type EmbeddingProvider,
   type Embedding,
-} from './embeddings.js';
+} from '../embeddings/index.js';
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
@@ -163,13 +163,19 @@ function rowToTool(row: ToolRow): ServerTool {
 }
 
 export class RegistryService {
-  private readonly embeddings: EmbeddingProvider;
+  // Lazily-resolved embedding provider. Lookup happens on first use so the
+  // factory's dynamic imports don't run at construction time (keeps the
+  // synchronous constructor signature for legacy callers).
+  private embeddingsPromise: Promise<EmbeddingProvider> | null = null;
 
   constructor(
     private readonly db: Db,
     private readonly events: EventBus,
-  ) {
-    this.embeddings = makeEmbeddingProvider();
+  ) {}
+
+  private getEmbeddings(): Promise<EmbeddingProvider> {
+    if (!this.embeddingsPromise) this.embeddingsPromise = getEmbeddingProvider();
+    return this.embeddingsPromise;
   }
 
   register(input: ServerCreateInput): ServerEntry {
@@ -410,29 +416,31 @@ export class RegistryService {
       description?: string;
       inputSchema?: Record<string, unknown>;
     }>,
-  ): Promise<{ embedded: number; skipped: number }> {
-    if (!this.embeddings.enabled) {
+  ): Promise<{ embedded: number; skipped: number; provider: string }> {
+    const embeddings = await this.getEmbeddings();
+    if (embeddings.name === 'none') {
       this.saveTools(serverId, tools);
-      return { embedded: 0, skipped: tools.length };
+      return { embedded: 0, skipped: tools.length, provider: 'none' };
     }
     // Build the embedding inputs: name + description, with the name repeated
     // to up-weight name matches in the semantic space (mirrors how the BM25
     // path weights name 4x description).
     const inputs = tools.map((t) => `${t.name}\n${t.name}\n${t.description ?? ''}`.slice(0, 2000));
-    let vectors: Embedding[];
+    let vectors: number[][];
     try {
-      vectors = await this.embeddings.embed(inputs);
+      vectors = await embeddings.embed(inputs);
     } catch (err) {
       process.stderr.write(
-        `[registry] embedding batch failed: ${(err as Error).message} — falling back to BM25-only\n`,
+        `[registry] embedding batch failed (${embeddings.name}): ${(err as Error).message} — falling back to BM25-only\n`,
       );
       this.saveTools(serverId, tools);
-      return { embedded: 0, skipped: tools.length };
+      return { embedded: 0, skipped: tools.length, provider: embeddings.name };
     }
     this.db.run('DELETE FROM server_tools WHERE server_id = ?', [serverId]);
     for (let i = 0; i < tools.length; i++) {
       const tool = tools[i];
-      const encoded = encodeEmbedding(vectors[i]);
+      const vec = vectors[i];
+      const encoded = vec && vec.length > 0 ? encodeEmbedding(vec) : null;
       this.db.run(
         'INSERT INTO server_tools (server_id, name, description, input_schema, embedding, embedding_model) VALUES (?, ?, ?, ?, ?, ?)',
         [
@@ -441,11 +449,12 @@ export class RegistryService {
           tool.description ?? '',
           JSON.stringify(tool.inputSchema ?? {}),
           encoded,
-          this.embeddings.model,
+          encoded ? embeddings.model : null,
         ],
       );
     }
-    return { embedded: tools.length, skipped: 0 };
+    const embedded = vectors.filter((v) => v && v.length > 0).length;
+    return { embedded, skipped: tools.length - embedded, provider: embeddings.name };
   }
 
   getTools(serverId: number): ServerTool[] {
@@ -557,14 +566,16 @@ export class RegistryService {
     query: string,
     limit = 5,
   ): Promise<Array<ServerTool & { server_name: string; score: number }>> {
-    if (!this.embeddings.enabled) {
+    const embeddings = await this.getEmbeddings();
+    if (embeddings.name === 'none') {
       return this.searchTools(query, limit);
     }
 
     let queryVec: Embedding;
     try {
-      const [vec] = await this.embeddings.embed([query]);
-      queryVec = vec;
+      const [vec] = await embeddings.embed([query]);
+      if (!vec || vec.length === 0) return this.searchTools(query, limit);
+      queryVec = Float32Array.from(vec);
     } catch {
       return this.searchTools(query, limit);
     }

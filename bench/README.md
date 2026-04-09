@@ -185,7 +185,7 @@ Estimated cost for the full sweep at current Sonnet 4.6 prices: **~$8–15**
 
 ## Results
 
-### Headline — agent-discover v1.2.0
+### Headline — agent-discover v1.2.1
 
 **At N=1000 with adversarial natural-language prompts on OpenCode + gpt-5-mini,
 agent-discover hits 100% choice accuracy + 27% lower per-turn cost than eager
@@ -271,9 +271,41 @@ agent-discover handles the new servers internally. For hosts that already
 have built-in defer (Claude Code), this is the unique value-add the built-in
 can't replicate, because it would still need a full catalog reload.
 
+### Configuring embeddings
+
+Embeddings are **opt-in and pluggable**. agent-discover ships with semantic
+search disabled by default (BM25 + verb synonyms only) so existing installs
+keep working with zero configuration. Enable a provider via:
+
+```bash
+# OpenAI text-embedding-3-small (1536 dims) — used for the bench above
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+
+# Local @huggingface/transformers + Xenova/all-MiniLM-L6-v2 (384 dims)
+# requires `npm install @huggingface/transformers` (optional peer dep)
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=local
+
+# Disable explicitly (default)
+export AGENT_DISCOVER_EMBEDDING_PROVIDER=none
+```
+
+Optional knobs:
+
+| env var                                 | meaning                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none` (default) \| `local` \| `openai`                                        |
+| `AGENT_DISCOVER_EMBEDDING_MODEL`        | override the default model id for the chosen provider                          |
+| `AGENT_DISCOVER_EMBEDDING_THREADS`      | local provider only — onnx runtime thread count (default 1)                    |
+| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | local provider only — seconds before unloading the model from RAM (default 60) |
+| `AGENT_DISCOVER_OPENAI_API_KEY`         | overrides `OPENAI_API_KEY` for the embedding call only                         |
+
+The provider interface mirrors `agent-knowledge`'s embedding subsystem so the
+two servers can share an embeddings API key and conventions.
+
 ### Architecture (what's in the box)
 
-agent-discover v1.2.0 exposes a single `registry` MCP tool with these
+agent-discover v1.2.1 exposes a single `registry` MCP tool with these
 actions, each measured by the bench:
 
 | action       | what it does                                                                                                                            |
