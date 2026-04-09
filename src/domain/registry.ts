@@ -320,4 +320,74 @@ export class RegistryService {
   clearTools(serverId: number): void {
     this.db.run('DELETE FROM server_tools WHERE server_id = ?', [serverId]);
   }
+
+  /**
+   * Cross-server tool search using FTS5 + BM25. Tool name is weighted 4×
+   * description so "slack post message" → slack_post_message ranks above any
+   * tool that merely mentions Slack in its description. Returns the score
+   * (BM25, lower = better — we negate so higher = better for callers) so
+   * find_tool can derive a confidence label from the gap between the top two
+   * scores.
+   *
+   * Falls back to LIKE substring search if FTS5 produces zero matches (which
+   * happens for very short queries or pure prefix matches FTS won't index).
+   */
+  searchTools(
+    query: string,
+    limit = 5,
+  ): Array<ServerTool & { server_name: string; score: number }> {
+    if (!query || !query.trim()) return [];
+    const q = query.trim();
+
+    // Build an FTS5 query: each token becomes an OR'd prefix match. Quoting
+    // each token with double quotes lets us pass through punctuation safely
+    // (FTS5 reserved chars like - and . blow up otherwise).
+    const tokens = q
+      .toLowerCase()
+      .split(/[\s_\-/]+/)
+      .filter((t) => t.length >= 2)
+      .map((t) => t.replace(/["*]/g, ''));
+    if (tokens.length === 0) return [];
+    const ftsQuery = tokens.map((t) => `"${t}"*`).join(' OR ');
+
+    try {
+      // bm25(server_tools_fts, name_weight, description_weight) — weighting
+      // name 4× description means a tool whose NAME contains the query terms
+      // ranks above one whose description does.
+      const rows = this.db.queryAll<ToolRow & { server_name: string; score: number }>(
+        `SELECT t.*, s.name AS server_name, -bm25(server_tools_fts, 4.0, 1.0) AS score
+         FROM server_tools_fts
+         JOIN server_tools t ON t.id = server_tools_fts.rowid
+         JOIN servers s ON s.id = t.server_id
+         WHERE server_tools_fts MATCH ?
+         ORDER BY score DESC
+         LIMIT ?`,
+        [ftsQuery, limit],
+      );
+      if (rows.length > 0) {
+        return rows.map((r) => ({ ...rowToTool(r), server_name: r.server_name, score: r.score }));
+      }
+    } catch {
+      /* malformed FTS query — fall through to LIKE */
+    }
+
+    // LIKE fallback for queries FTS5 doesn't handle. Score is 0 (no
+    // confidence signal) so callers default to medium-confidence treatment.
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    for (const t of tokens) {
+      conds.push('(LOWER(t.name) LIKE ? OR LOWER(t.description) LIKE ?)');
+      params.push(`%${t}%`, `%${t}%`);
+    }
+    params.push(limit);
+    const sql = `
+      SELECT t.*, s.name AS server_name
+      FROM server_tools t
+      JOIN servers s ON s.id = t.server_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY length(t.name)
+      LIMIT ?`;
+    const rows = this.db.queryAll<ToolRow & { server_name: string }>(sql, params);
+    return rows.map((r) => ({ ...rowToTool(r), server_name: r.server_name, score: 0 }));
+  }
 }

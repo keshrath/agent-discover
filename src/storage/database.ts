@@ -150,4 +150,41 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 4,
+    up: (db: Database.Database) => {
+      // FTS5 over the per-tool catalog so find_tool can rank with BM25
+      // instead of substring LIKE. Column-weighted: name >> description so
+      // "slack post message" → slack_post_message ranks higher than a tool
+      // that merely mentions Slack in its description. Backfilled from any
+      // existing server_tools rows so existing installs work after migration.
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS server_tools_fts USING fts5(
+          name, description,
+          content=server_tools, content_rowid=id,
+          tokenize='unicode61 remove_diacritics 1'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS server_tools_ai AFTER INSERT ON server_tools BEGIN
+          INSERT INTO server_tools_fts(rowid, name, description)
+          VALUES (new.id, new.name, new.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS server_tools_ad AFTER DELETE ON server_tools BEGIN
+          INSERT INTO server_tools_fts(server_tools_fts, rowid, name, description)
+          VALUES ('delete', old.id, old.name, old.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS server_tools_au AFTER UPDATE ON server_tools BEGIN
+          INSERT INTO server_tools_fts(server_tools_fts, rowid, name, description)
+          VALUES ('delete', old.id, old.name, old.description);
+          INSERT INTO server_tools_fts(rowid, name, description)
+          VALUES (new.id, new.name, new.description);
+        END;
+
+        INSERT INTO server_tools_fts(rowid, name, description)
+        SELECT id, name, description FROM server_tools;
+      `);
+    },
+  },
 ];

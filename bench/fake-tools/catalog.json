@@ -1,0 +1,187 @@
+[
+  {
+    "name": "slack_post_message",
+    "description": "Post a message to a Slack channel or thread.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "channel": { "type": "string", "description": "Channel ID or name." },
+        "text": { "type": "string", "description": "Message body." },
+        "thread_ts": { "type": "string", "description": "Optional parent thread timestamp." }
+      },
+      "required": ["channel", "text"]
+    }
+  },
+  {
+    "name": "slack_list_channels",
+    "description": "List Slack channels visible to the authenticated user.",
+    "inputSchema": { "type": "object", "properties": { "limit": { "type": "number" } } }
+  },
+  {
+    "name": "github_create_issue",
+    "description": "Open a new issue on a GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": { "type": "string" },
+        "repo": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "assignees": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["owner", "repo", "title"]
+    }
+  },
+  {
+    "name": "github_create_pull_request",
+    "description": "Open a pull request between two branches.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": { "type": "string" },
+        "repo": { "type": "string" },
+        "head": { "type": "string" },
+        "base": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "draft": { "type": "boolean" }
+      },
+      "required": ["owner", "repo", "head", "base", "title"]
+    }
+  },
+  {
+    "name": "github_search_code",
+    "description": "Search code across GitHub using a query string.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "q": { "type": "string" }, "per_page": { "type": "number" } },
+      "required": ["q"]
+    }
+  },
+  {
+    "name": "linear_create_issue",
+    "description": "Create a Linear issue in a given team.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "team_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "priority": { "type": "number" }
+      },
+      "required": ["team_id", "title"]
+    }
+  },
+  {
+    "name": "jira_create_ticket",
+    "description": "Create a Jira ticket in a project.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_key": { "type": "string" },
+        "summary": { "type": "string" },
+        "description": { "type": "string" },
+        "issue_type": { "type": "string" }
+      },
+      "required": ["project_key", "summary"]
+    }
+  },
+  {
+    "name": "sentry_list_issues",
+    "description": "List recent unresolved Sentry issues for a project.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "project": { "type": "string" }, "limit": { "type": "number" } },
+      "required": ["project"]
+    }
+  },
+  {
+    "name": "datadog_query_metric",
+    "description": "Run a metric query against Datadog and return time series.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" }
+      },
+      "required": ["query", "from", "to"]
+    }
+  },
+  {
+    "name": "postgres_run_query",
+    "description": "Execute a read-only SQL query against a Postgres database.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "database": { "type": "string" }, "sql": { "type": "string" } },
+      "required": ["database", "sql"]
+    }
+  },
+  {
+    "name": "s3_list_objects",
+    "description": "List objects in an S3 bucket under an optional prefix.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "bucket": { "type": "string" }, "prefix": { "type": "string" } },
+      "required": ["bucket"]
+    }
+  },
+  {
+    "name": "s3_put_object",
+    "description": "Upload an object to an S3 bucket.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "bucket": { "type": "string" },
+        "key": { "type": "string" },
+        "body": { "type": "string" },
+        "content_type": { "type": "string" }
+      },
+      "required": ["bucket", "key", "body"]
+    }
+  },
+  {
+    "name": "gmail_send_email",
+    "description": "Send an email via Gmail.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "cc": { "type": "string" },
+        "bcc": { "type": "string" }
+      },
+      "required": ["to", "subject", "body"]
+    }
+  },
+  {
+    "name": "gcal_create_event",
+    "description": "Create a Google Calendar event.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "calendar_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "start": { "type": "string" },
+        "end": { "type": "string" },
+        "attendees": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["calendar_id", "summary", "start", "end"]
+    }
+  },
+  {
+    "name": "notion_create_page",
+    "description": "Create a Notion page in a given parent.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "parent_id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["parent_id", "title"]
+    }
+  }
+]

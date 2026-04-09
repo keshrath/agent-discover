@@ -21,14 +21,29 @@ export const tools: ToolDefinition[] = [
   {
     name: 'registry',
     description:
-      'MCP server registry. Actions: "list" (search local registry), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
+      'MCP server registry. Actions: "find_tool" (single-call tool discovery — BM25-ranked search by intent, returns top match with required args, confidence label, and auto-activates server; PREFER THIS for tool discovery), "get_schema" (full input_schema for a tool already returned by find_tool — only needed for fat schemas with optional/polymorphic args), "list" (search local registry by server), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'install', 'uninstall', 'activate', 'deactivate', 'browse', 'status'],
+          enum: [
+            'find_tool',
+            'get_schema',
+            'list',
+            'install',
+            'uninstall',
+            'activate',
+            'deactivate',
+            'browse',
+            'status',
+          ],
           description: 'Action to perform',
+        },
+        limit: { type: 'number', description: '[find_tool/browse] Max results' },
+        call_as: {
+          type: 'string',
+          description: '[get_schema] Fully-qualified mcp__server__tool name from find_tool',
         },
         query: { type: 'string', description: '[list/browse] Search query' },
         source: { type: 'string', description: '[list] Filter by source' },
@@ -50,7 +65,6 @@ export const tools: ToolDefinition[] = [
           items: { type: 'string' },
           description: '[install] Tags',
         },
-        limit: { type: 'number', description: '[browse] Max results (default 20)' },
         cursor: { type: 'string', description: '[browse] Pagination cursor' },
       },
       required: ['action'],

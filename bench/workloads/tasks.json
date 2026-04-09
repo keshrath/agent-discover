@@ -1,0 +1,181 @@
+[
+  {
+    "id": "obvious-1",
+    "category": "obvious-name",
+    "prompt": "Post the message 'deploy finished' to the Slack channel #releases.",
+    "expected_tools": ["slack_post_message"],
+    "expected_args": { "slack_post_message": { "channel": "#releases" } }
+  },
+  {
+    "id": "obvious-2",
+    "category": "obvious-name",
+    "prompt": "Open a GitHub issue titled 'Login button broken on Safari' in acme/web.",
+    "expected_tools": ["github_create_issue"],
+    "expected_args": {
+      "github_create_issue": {
+        "owner": "acme",
+        "repo": "web",
+        "title": "Login button broken on Safari"
+      }
+    }
+  },
+  {
+    "id": "obvious-3",
+    "category": "obvious-name",
+    "prompt": "Send an email to alice@example.com with subject 'lunch?' and body 'tomorrow 12:30'.",
+    "expected_tools": ["gmail_send_email"],
+    "expected_args": { "gmail_send_email": { "to": "alice@example.com", "subject": "lunch?" } }
+  },
+  {
+    "id": "obvious-4",
+    "category": "obvious-name",
+    "prompt": "List all objects in the S3 bucket 'prod-uploads' under prefix 'invoices/2026/'.",
+    "expected_tools": ["s3_list_objects"],
+    "expected_args": { "s3_list_objects": { "bucket": "prod-uploads", "prefix": "invoices/2026/" } }
+  },
+  {
+    "id": "obvious-5",
+    "category": "obvious-name",
+    "prompt": "Create a Notion page titled 'Q2 retro' under parent page id 'abc123'.",
+    "expected_tools": ["notion_create_page"]
+  },
+  {
+    "id": "obvious-6",
+    "category": "obvious-name",
+    "prompt": "Run the SQL query 'SELECT count(*) FROM users' against the analytics database.",
+    "expected_tools": ["postgres_run_query"],
+    "expected_args": { "postgres_run_query": { "database": "analytics" } }
+  },
+
+  {
+    "id": "ambig-1",
+    "category": "ambiguous",
+    "prompt": "Let the team know in chat that the staging deploy is done.",
+    "expected_tools": ["slack_post_message"]
+  },
+  {
+    "id": "ambig-2",
+    "category": "ambiguous",
+    "prompt": "File a bug report about the broken Safari login.",
+    "expected_tools": ["github_create_issue", "linear_create_issue", "jira_create_ticket"],
+    "match": "any"
+  },
+  {
+    "id": "ambig-3",
+    "category": "ambiguous",
+    "prompt": "Get the recent crash reports for the mobile app.",
+    "expected_tools": ["sentry_list_issues"]
+  },
+  {
+    "id": "ambig-4",
+    "category": "ambiguous",
+    "prompt": "Schedule a 30-minute meeting with bob@example.com on Friday at 2pm.",
+    "expected_tools": ["gcal_create_event"]
+  },
+  {
+    "id": "ambig-5",
+    "category": "ambiguous",
+    "prompt": "Show me the API request rate for the last hour.",
+    "expected_tools": ["datadog_query_metric"]
+  },
+  {
+    "id": "ambig-6",
+    "category": "ambiguous",
+    "prompt": "Find every place in our code that imports the deprecated 'oldAuth' module.",
+    "expected_tools": ["github_search_code"]
+  },
+
+  {
+    "id": "multi-1",
+    "category": "multi-tool",
+    "prompt": "Find recent Sentry errors for the 'web' project, then open a Linear issue summarizing them.",
+    "expected_tools": ["sentry_list_issues", "linear_create_issue"],
+    "match": "all-in-order"
+  },
+  {
+    "id": "multi-2",
+    "category": "multi-tool",
+    "prompt": "Query Postgres for users created in the last 24h, then post the count to #growth in Slack.",
+    "expected_tools": ["postgres_run_query", "slack_post_message"],
+    "match": "all-in-order"
+  },
+  {
+    "id": "multi-3",
+    "category": "multi-tool",
+    "prompt": "List S3 objects under 'reports/2026-04/', then email the count to ops@example.com.",
+    "expected_tools": ["s3_list_objects", "gmail_send_email"],
+    "match": "all-in-order"
+  },
+  {
+    "id": "multi-4",
+    "category": "multi-tool",
+    "prompt": "Open a GitHub PR from feature/x to main in acme/api, then post a Slack message in #reviews linking it.",
+    "expected_tools": ["github_create_pull_request", "slack_post_message"],
+    "match": "all-in-order"
+  },
+  {
+    "id": "multi-5",
+    "category": "multi-tool",
+    "prompt": "Get the last hour of error rate from Datadog and create a Notion page summarizing the trend.",
+    "expected_tools": ["datadog_query_metric", "notion_create_page"],
+    "match": "all-in-order"
+  },
+  {
+    "id": "multi-6",
+    "category": "multi-tool",
+    "prompt": "Search GitHub code for 'TODO security', then create a Jira ticket per file found (just one ticket is fine).",
+    "expected_tools": ["github_search_code", "jira_create_ticket"],
+    "match": "all-in-order"
+  },
+
+  {
+    "id": "collision-1",
+    "category": "ambiguous",
+    "prompt": "Create a new Stripe subscription for customer cus_42 on price plan price_pro_monthly.",
+    "expected_tools": ["stripe_create_subscription"],
+    "_note": "At high N the catalog also contains stripe_get_subscription, stripe_update_subscription, stripe_list_subscription, stripe_delete_subscription, stripe_export_subscription, stripe_import_subscription, stripe_search_subscription. Tests CRUD-collision disambiguation."
+  },
+  {
+    "id": "collision-2",
+    "category": "ambiguous",
+    "prompt": "Update the email address on Stripe customer cus_99 to new@example.com.",
+    "expected_tools": ["stripe_update_account"],
+    "match": "any",
+    "_note": "Stripe has account/user/record CRUD at high N. Tests resource-name disambiguation: account vs user vs record."
+  },
+  {
+    "id": "collision-3",
+    "category": "ambiguous",
+    "prompt": "Pull the current invoice list from Shopify for store acme.",
+    "expected_tools": ["shopify_list_invoice"],
+    "_note": "At high N: shopify_get_invoice, shopify_list_invoice, shopify_search_invoice, shopify_export_invoice. Tests action verb disambiguation: list vs get vs search."
+  },
+  {
+    "id": "collision-4",
+    "category": "ambiguous",
+    "prompt": "Delete the abandoned PagerDuty alert with id alert_1234.",
+    "expected_tools": ["pagerduty_delete_alert"],
+    "_note": "At high N: pagerduty has CRUD on alert/event/job. Tests verb+resource collision."
+  },
+  {
+    "id": "collision-5",
+    "category": "ambiguous",
+    "prompt": "Create a Stripe webhook pointing at https://hooks.example.com/incoming for the live account.",
+    "expected_tools": ["stripe_create_webhook"],
+    "_note": "At high N: stripe has create/list/get/update/delete/search/export/import webhook plus the same set across shopify/twilio/pagerduty. Tests verb disambiguation under tight name collision."
+  },
+  {
+    "id": "distractor-1",
+    "category": "distractor",
+    "prompt": "Provision a new Kubernetes namespace called 'staging-experimental'.",
+    "expected_tools": [],
+    "expected_outcome": "give-up-cleanly"
+  },
+  {
+    "id": "distractor-2",
+    "category": "distractor",
+    "prompt": "Roll back the last Terraform apply in the prod workspace.",
+    "expected_tools": [],
+    "expected_outcome": "give-up-cleanly"
+  }
+]

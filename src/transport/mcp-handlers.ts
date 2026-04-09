@@ -47,9 +47,13 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryBrowse(ctx, args);
     case 'status':
       return registryStatus(ctx, args);
+    case 'find_tool':
+      return registryFindTool(ctx, args);
+    case 'get_schema':
+      return registryGetSchema(ctx, args);
     default:
       throw new ValidationError(
-        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status`,
+        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, get_schema`,
       );
   }
 };
@@ -316,6 +320,161 @@ const registryStatus: HandlerFn = (ctx) => {
   });
 
   return { active_count: servers.length, servers };
+};
+
+// ---------------------------------------------------------------------------
+// find_tool — single round-trip tool discovery
+// ---------------------------------------------------------------------------
+//
+// Searches the cross-server tool index for the best match, auto-activates the
+// owning server if needed, and returns the tool's full schema + the
+// fully-qualified MCP name the agent should call next. Designed to collapse
+// the typical search → fetch_schema → activate → invoke flow into one round-trip
+// before the actual tool call. Without this, agents do 5–10 round-trips per
+// task on a non-trivial registry.
+
+// Compact tool summary returned by find_tool. Excludes the full input_schema
+// (which can be 1–2k tokens for fat tools like browser_navigate). Required
+// args + their types are usually enough for the agent to either invoke
+// directly or decide it's the wrong tool. If the agent needs the full schema
+// it calls get_schema(call_as) explicitly.
+function compactSchema(schema: Record<string, unknown> | unknown): {
+  required_args: Array<{ name: string; type: string; description?: string }>;
+  optional_count: number;
+} {
+  if (!schema || typeof schema !== 'object') return { required_args: [], optional_count: 0 };
+  const s = schema as {
+    properties?: Record<string, { type?: string; description?: string }>;
+    required?: string[];
+  };
+  const props = s.properties ?? {};
+  const required = s.required ?? [];
+  const required_args = required.map((name) => ({
+    name,
+    type: props[name]?.type ?? 'unknown',
+    description: props[name]?.description,
+  }));
+  const optional_count = Math.max(0, Object.keys(props).length - required.length);
+  return { required_args, optional_count };
+}
+
+// Derive a confidence label from the BM25 score gap. If the top match scores
+// significantly above the runner-up the agent should trust it; if not, the
+// query is genuinely ambiguous and the agent should look at other_matches or
+// ask for disambiguation. Threshold tuned empirically (BM25 differences of
+// >0.5 typically indicate a clearly-better match).
+function deriveConfidence(scores: number[]): 'high' | 'medium' | 'low' {
+  if (scores.length === 0) return 'low';
+  if (scores[0] === 0) return 'medium'; // LIKE fallback — no signal
+  if (scores.length === 1) return 'high';
+  const gap = scores[0] - scores[1];
+  if (gap >= 0.5) return 'high';
+  if (gap >= 0.15) return 'medium';
+  return 'low';
+}
+
+const registryFindTool: HandlerFn = async (ctx, args) => {
+  const query = str(args.query);
+  if (!query) throw new ValidationError('query is required');
+  const limit = optNum(args.limit, 5);
+
+  const matches = ctx.registry.searchTools(query, limit);
+  if (matches.length === 0) {
+    return {
+      found: false,
+      matches: [],
+      hint: 'no tools matched — try different keywords or registry({action:"list"}) to browse',
+    };
+  }
+
+  const top = matches[0];
+  const confidence = deriveConfidence(matches.map((m) => m.score));
+
+  // Auto-activate the owning server so the agent can call the proxied tool
+  // immediately on the next turn (no separate activate round-trip).
+  if (!ctx.proxy.isActive(top.server_name)) {
+    const server = ctx.registry.getByName(top.server_name);
+    if (
+      server &&
+      (server.command || server.transport === 'sse' || server.transport === 'streamable-http')
+    ) {
+      try {
+        await ctx.proxy.activate({
+          name: server.name,
+          command: server.command ?? undefined,
+          args: server.args,
+          env: server.env,
+          transport: server.transport,
+          url: server.homepage ?? undefined,
+        });
+        ctx.registry.setActive(server.name, true);
+      } catch {
+        /* fall through — agent can still see the schema summary even if activation failed */
+      }
+    }
+  }
+
+  const compact = compactSchema(top.input_schema);
+  return {
+    found: true,
+    confidence,
+    score: top.score,
+    call_as: `mcp__${top.server_name}__${top.name}`,
+    server: top.server_name,
+    tool: top.name,
+    description: top.description,
+    required_args: compact.required_args,
+    optional_count: compact.optional_count,
+    // Hint to the agent: if confidence is high, just invoke. If medium, glance
+    // at other_matches first. If low, ask the user.
+    next_step:
+      confidence === 'high'
+        ? 'invoke call_as directly'
+        : confidence === 'medium'
+          ? 'check other_matches; pick one and invoke (without re-searching)'
+          : 'ambiguous — ask the user to disambiguate or pick from other_matches',
+    other_matches: matches.slice(1).map((m) => ({
+      call_as: `mcp__${m.server_name}__${m.name}`,
+      tool: m.name,
+      description: m.description,
+      score: m.score,
+    })),
+  };
+};
+
+// Returns the full input_schema for a tool the agent already discovered via
+// find_tool. Use this only when the compact required_args list isn't enough
+// to invoke the tool (e.g., for tools with conditional or polymorphic args).
+const registryGetSchema: HandlerFn = (ctx, args) => {
+  const callAs = str(args.call_as) || str(args.name);
+  if (!callAs) throw new ValidationError('call_as (or name) is required');
+
+  // Accept both bare tool name and the namespaced "mcp__<server>__<tool>" form.
+  const m = /^mcp__([^_]+(?:[^_]|_(?!_))*)__(.+)$/.exec(callAs);
+  let serverName: string | null = null;
+  let toolName: string;
+  if (m) {
+    serverName = m[1];
+    toolName = m[2];
+  } else {
+    toolName = callAs;
+  }
+
+  // Cross-server lookup. If the agent only gave a bare tool name, scan for it.
+  const matches = ctx.registry
+    .searchTools(toolName, 5)
+    .filter((t) => (serverName ? t.server_name === serverName : true) && t.name === toolName);
+
+  if (matches.length === 0) {
+    return { found: false, hint: `no tool named "${toolName}" — call find_tool first` };
+  }
+  const tool = matches[0];
+  return {
+    found: true,
+    call_as: `mcp__${tool.server_name}__${tool.name}`,
+    description: tool.description,
+    input_schema: tool.input_schema,
+  };
 };
 
 // ---------------------------------------------------------------------------
