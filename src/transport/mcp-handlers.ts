@@ -396,11 +396,20 @@ const registryFindTool: HandlerFn = async (ctx, args) => {
   // arrangement" → "subscription"). Falls back to pure BM25 internally if
   // the embedding provider is disabled.
   const matches = await ctx.registry.searchToolsHybrid(query, limit);
-  if (matches.length === 0) {
+  // No-match detection: hybrid retrieval ALWAYS returns something (cosine
+  // similarity is non-zero for every embedded tool), so an empty array
+  // alone is no longer a reliable signal. Treat the top result as "not
+  // really a match" if its score is below MIN_SCORE_THRESHOLD — that
+  // covers the case where the query is genuinely unrelated to anything
+  // in the catalog. Threshold tuned empirically: hybrid scores for true
+  // matches are typically >0.4, garbage matches sit around 0.05–0.15.
+  const MIN_SCORE_THRESHOLD = 0.25;
+  if (matches.length === 0 || matches[0].score < MIN_SCORE_THRESHOLD) {
     return {
       found: false,
       matches: [],
-      hint: 'no tools matched — try different keywords or registry({action:"list"}) to browse',
+      top_score: matches[0]?.score ?? 0,
+      hint: 'no tools matched with sufficient confidence — try different keywords or registry({action:"list"}) to browse',
     };
   }
 
@@ -476,11 +485,17 @@ const registryFindTools: HandlerFn = async (ctx, args) => {
 
   // Run sequentially so we share auto-activation across the batch (the second
   // intent's owning server may already be active from the first).
+  const MIN_SCORE_THRESHOLD = 0.25;
   const results = [];
   for (const intent of intents) {
     const matches = await ctx.registry.searchToolsHybrid(intent, limit);
-    if (matches.length === 0) {
-      results.push({ intent, found: false, hint: 'no tools matched' });
+    if (matches.length === 0 || matches[0].score < MIN_SCORE_THRESHOLD) {
+      results.push({
+        intent,
+        found: false,
+        top_score: matches[0]?.score ?? 0,
+        hint: 'no tools matched with sufficient confidence',
+      });
       continue;
     }
     const top = matches[0];

@@ -1,36 +1,36 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-04-09T19:38:49.373Z",
+  "generated_at": "2026-04-09T20:51:28.335Z",
   "reports": [
     {
       "arm": "eager",
-      "catalog_size": 1000,
-      "n_tasks": 35,
-      "mean_input_tokens": 60800,
-      "mean_output_tokens": 120,
-      "mean_total_cost_usd": 0.1824000000000001,
-      "mean_wall_seconds": 4.099999999999998,
-      "mean_turns": 1,
+      "catalog_size": 200,
+      "n_tasks": 1,
+      "mean_input_tokens": 39058,
+      "mean_output_tokens": 404,
+      "mean_total_cost_usd": 0.0121949,
+      "mean_wall_seconds": 14.994,
+      "mean_turns": 2,
       "success_rate": 1,
       "choice_accuracy": 1,
       "distractor_call_rate": 0,
-      "refusal_rate": 0.05714285714285714,
+      "refusal_rate": 0,
       "mean_discovery_calls": 0
     },
     {
       "arm": "discover",
-      "catalog_size": 1000,
-      "n_tasks": 35,
-      "mean_input_tokens": 1575,
-      "mean_output_tokens": 220,
-      "mean_total_cost_usd": 0.005663546730357863,
-      "mean_wall_seconds": 5.6999999999999975,
-      "mean_turns": 2.1714285714285713,
+      "catalog_size": 200,
+      "n_tasks": 1,
+      "mean_input_tokens": 50006,
+      "mean_output_tokens": 573,
+      "mean_total_cost_usd": 0.015417100000000001,
+      "mean_wall_seconds": 18.638,
+      "mean_turns": 3,
       "success_rate": 1,
       "choice_accuracy": 1,
       "distractor_call_rate": 0,
-      "refusal_rate": 0.05714285714285714,
-      "mean_discovery_calls": 2.1714285714285713
+      "refusal_rate": 0,
+      "mean_discovery_calls": 1
     }
   ]
 }
