@@ -107,6 +107,11 @@
       document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
     updateThemeIcon(currentTheme);
 
+    // When mounted as an embedded plugin inside agent-desk, the shadow root
+    // may not contain a #theme-toggle element (the host drives theming).
+    // Bail out gracefully instead of throwing on the click wiring.
+    if (!toggle) return;
+
     toggle.addEventListener('click', function () {
       var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
       var next = isDark ? 'light' : 'dark';

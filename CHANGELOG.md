@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-04-11
+
+### Fixed
+
+- **`src/ui/app.js`** `initTheme()`: added a null-guard before attaching the click handler on `#theme-toggle`. The element is absent when agent-discover's UI is mounted as an embedded plugin inside agent-desk's shadow DOM (the host drives theming), and the unguarded `toggle.addEventListener` was throwing `TypeError: Cannot read properties of null` during plugin init. That crash cascaded into (a) the Discover view rendering completely blank in agent-desk, and (b) every view switch firing a renderer pageerror. The sibling `updateThemeIcon` helper already had the guard; `initTheme` just forgot. One-line fix: `if (!toggle) return;` before the listener wiring.
+
 ## [1.2.3] - 2026-04-09
 
 ### Documentation
