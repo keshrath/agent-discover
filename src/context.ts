@@ -48,37 +48,6 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     return server ? server.id : null;
   });
 
-  // Hydrate the in-process proxy from servers marked active in the DB.
-  // Activation lives in McpProxy.activeServers (in-memory) but the DB-backed
-  // active flag is the cross-process source of truth, so each new instance
-  // (e.g. a fresh stdio child spawned by an MCP client) re-establishes its
-  // own proxy connections to the same set of child servers.
-  void (async () => {
-    const activeRows = db.queryAll<{ name: string }>(
-      'SELECT name FROM servers WHERE active = 1 AND installed = 1',
-    );
-    for (const row of activeRows) {
-      const server = registry.getByName(row.name);
-      if (!server) continue;
-      try {
-        await proxy.activate({
-          name: server.name,
-          command: server.command ?? undefined,
-          args: server.args,
-          env: server.env,
-          transport: server.transport,
-          url: server.homepage ?? undefined,
-        });
-      } catch (err) {
-        process.stderr.write(
-          `[agent-discover] failed to hydrate active server "${server.name}": ${err instanceof Error ? err.message : String(err)}\n`,
-        );
-        // Clear the stale active flag so we don't retry forever
-        registry.setActive(server.name, false);
-      }
-    }
-  })();
-
   return {
     db,
     events,
@@ -97,4 +66,45 @@ export function createContext(dbOptions?: DbOptions): AppContext {
       db.close();
     },
   };
+}
+
+// Hydrate the in-process proxy from servers marked active in the DB. The
+// McpProxy.activeServers map is per-process, but the DB-backed `active` flag
+// is the cross-process source of truth, so a fresh process can rebuild its
+// live children by replaying it.
+//
+// Only the primary process (the one that successfully binds the dashboard
+// port) should call this. Running hydrate in every stdio child — which is
+// what happened before v1.2.5 — races on duplicate child spawning, and the
+// losers used to flip the DB flag to 0 on failure, which surfaced as a
+// dashboard server that flickered between Active and Inactive depending on
+// which stdio child ran last.
+//
+// Hydrate failures here are logged but never flip the DB flag. The health
+// probe is the one responsible for surfacing a dead child, and a failed
+// hydrate in a secondary process is informational only — another process
+// may already hold a live bridge.
+export async function hydrateActiveServers(ctx: AppContext): Promise<void> {
+  const activeRows = ctx.db.queryAll<{ name: string }>(
+    'SELECT name FROM servers WHERE active = 1 AND installed = 1',
+  );
+  for (const row of activeRows) {
+    const server = ctx.registry.getByName(row.name);
+    if (!server) continue;
+    if (ctx.proxy.isActive(server.name)) continue;
+    try {
+      await ctx.proxy.activate({
+        name: server.name,
+        command: server.command ?? undefined,
+        args: server.args,
+        env: server.env,
+        transport: server.transport,
+        url: server.homepage ?? undefined,
+      });
+    } catch (err) {
+      process.stderr.write(
+        `[agent-discover] failed to hydrate active server "${server.name}": ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
 }

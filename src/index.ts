@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { startMcpServer } from 'agent-common';
-import { createContext } from './context.js';
+import { createContext, hydrateActiveServers } from './context.js';
 import { readPackageMeta } from './package-meta.js';
 import { createToolHandler, getToolList } from './transport/mcp.js';
 import { startDashboard, type DashboardServer } from './server.js';
@@ -31,6 +31,11 @@ function tryStartDashboard(): void {
   startDashboard(appContext, DASHBOARD_PORT)
     .then((dashboardServer) => {
       dashboard = dashboardServer;
+      // Only the primary process (the one that bound the dashboard port)
+      // re-establishes the proxy map from DB-backed active servers. Secondary
+      // stdio children of subsequent MCP clients skip hydrate so they don't
+      // race on duplicate child spawning.
+      void hydrateActiveServers(appContext);
     })
     .catch(() => {
       process.stderr.write(

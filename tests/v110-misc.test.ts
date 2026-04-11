@@ -1,11 +1,5 @@
 // =============================================================================
 // agent-discover — v1.1.0 misc coverage
-//
-// - Hydration failure path: a row marked active=1 with no usable command
-//   should be cleared on context boot (so we don't retry forever).
-// - /api/prereqs endpoint shape (real spawn against the host).
-// - Registry resilience to malformed args/env JSON in the DB.
-// - Installer: scoped npm names, unicode rejection.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -13,20 +7,15 @@ import { createServer, type Server } from 'http';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { unlinkSync } from 'fs';
-import { createContext, type AppContext } from '../src/context.js';
+import { createContext, hydrateActiveServers, type AppContext } from '../src/context.js';
 import { createRouter } from '../src/transport/rest.js';
 import { createDb } from '../src/storage/database.js';
 import { InstallerService } from '../src/domain/installer.js';
 import { McpProxy } from '../src/domain/proxy.js';
 import { ValidationError } from '../src/types.js';
 
-describe('Hydration failure path', () => {
-  it('clears active=1 for rows that fail to activate on boot', async () => {
-    // Seed a real temp DB with an active+installed server that has NO command.
-    // On context boot, hydration will hit createTransport's "no command" guard,
-    // throw inside activate(), and the catch branch must clear active=0 so we
-    // don't loop forever on every restart. We use a file path (not :memory:)
-    // because seeding and the context need to share the same physical DB.
+describe('hydrateActiveServers failure path (v1.2.5)', () => {
+  it('leaves active=1 intact when hydrate fails — the DB flag is the cross-process source of truth', async () => {
     const path = join(tmpdir(), `agent-discover-hydration-${Date.now()}.db`);
     const seed = createDb({ path });
     seed.run(
@@ -38,17 +27,10 @@ describe('Hydration failure path', () => {
 
     const ctx = createContext({ path });
     try {
-      // Hydration is a fire-and-forget IIFE inside createContext — poll for the
-      // side effect (active flag clears) rather than awaiting an internal promise.
-      const deadline = Date.now() + 3_000;
-      let server = ctx.registry.getByName('stale-active');
-      while (Date.now() < deadline && server && server.active) {
-        await new Promise((r) => setTimeout(r, 50));
-        server = ctx.registry.getByName('stale-active');
-      }
+      await hydrateActiveServers(ctx);
+      const server = ctx.registry.getByName('stale-active');
       expect(server).toBeTruthy();
-      expect(server!.active).toBe(false);
-      // And the in-memory proxy must NOT have a phantom entry for it.
+      expect(server!.active).toBe(true);
       expect(ctx.proxy.isActive('stale-active')).toBe(false);
     } finally {
       ctx.close();

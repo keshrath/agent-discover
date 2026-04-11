@@ -9,7 +9,12 @@ import type { Db } from '../storage/database.js';
 import type { McpProxy } from './proxy.js';
 import type { HealthStatus } from '../types.js';
 
-const HEALTH_CHECK_TIMEOUT_MS = 5_000;
+// Matches ACTIVATE_TIMEOUT_MS in proxy.ts — a health probe that isn't already
+// active spawns a real child (e.g. `npx -y mcp-remote …`) and does the full
+// MCP handshake, which easily exceeds a few seconds on cold start. 5 s was
+// always unhealthy for remote-wrapped servers, causing spurious "unhealthy"
+// flags and a false Inactive status in the dashboard.
+const HEALTH_CHECK_TIMEOUT_MS = 60_000;
 
 export interface HealthCheckResult {
   status: HealthStatus;

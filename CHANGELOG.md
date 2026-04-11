@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.5] - 2026-04-12
+
+### Fixed
+
+- **Multi-process hydrate no longer corrupts `servers.active`.** The per-process `McpProxy.activeServers` map used to be rebuilt on every context creation, so every fresh stdio child (one per connected MCP client) raced to spawn a duplicate child for the same server, and whichever lost the race flipped `active = 0` via `setActive(name, false)` in the `catch` branch of the hydrate IIFE. Real symptom: a server that `registry.activate` had just successfully activated would appear as "Inactive" in the dashboard seconds later, even though the stdio child that ran the activate still had a live bridge. Fix: extracted the hydrate logic into an exported `hydrateActiveServers(ctx)` function, removed the auto-invocation from `createContext`, and only call it from `src/index.ts` after `startDashboard` binds successfully — so only the primary process (the one that owns port 3424) rebuilds the map. Secondary stdio children leave the DB flag alone. Hydrate failures in the primary process are now informational log lines only — they never flip `active = 0`, because a failed hydrate is often a transient spawn race and we should not punish the DB state that the REST + WS dashboard depends on.
+- **`HEALTH_CHECK_TIMEOUT_MS` raised from 5 s to 60 s** (`src/domain/health.ts`). When a health probe arrives for a server that is not currently in the local process's proxy map, the health service runs a full activate / deactivate cycle — which for an `npx -y mcp-remote …` wrapper involves npm cold-start, package download, HTTP handshake with the remote, and `tools/list`. 5 s was never enough; every cold probe returned `{status:"unhealthy", latency_ms:5141, error:"Health check timed out"}` and the dashboard surfaced the server as Unhealthy even when a plain `proxy_call` round-tripped fine. 60 s matches `ACTIVATE_TIMEOUT_MS` in `src/domain/proxy.ts`.
+- **Hydrate is idempotent.** The new `hydrateActiveServers` skips any server where `proxy.isActive(name)` is already true, so calling it twice in the same process (e.g. future use of `hydrateActiveServers` as an imperative refresh) never throws `"Server already active"`.
+
+### Added
+
+- **`tests/domain/hydrate.test.ts`** — unit coverage for `hydrateActiveServers`: empty-DB no-op, does not flip `active = 0` when `proxy.activate` throws, skips already-active servers, and happy-path restores an entry into the in-memory proxy map.
+
 ## [1.2.4] - 2026-04-11
 
 ### Fixed
