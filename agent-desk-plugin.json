@@ -2,7 +2,7 @@
   "id": "agent-discover",
   "name": "Discover",
   "icon": "explore",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "MCP server registry — browse, install, configure, monitor",
   "ui": "./dist/ui/app.js",
   "css": "./dist/ui/styles.css",

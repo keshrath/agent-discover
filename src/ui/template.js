@@ -103,8 +103,11 @@ AD._template = function () {
     '<div class="panel-header">' +
     '<h2 class="section-title">Call Logs</h2>' +
     '<div class="log-filters">' +
+    '<div class="log-filter-search-wrap"><span class="material-symbols-outlined" style="font-size:14px">search</span><input type="text" id="log-filter-search" placeholder="Search logs..." autocomplete="off" /></div>' +
     '<select id="log-filter-server"><option value="">All servers</option></select>' +
     '<select id="log-filter-status"><option value="">All</option><option value="success">Success</option><option value="fail">Failed</option></select>' +
+    '<input type="datetime-local" id="log-filter-from" title="From" />' +
+    '<input type="datetime-local" id="log-filter-to" title="To" />' +
     '<button class="btn-clear-logs" data-action="clear-logs"><span class="material-symbols-outlined" style="font-size:14px">delete_sweep</span> Clear All</button>' +
     '</div>' +
     '</div>' +

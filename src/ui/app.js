@@ -22,7 +22,7 @@
   let openSections = {};
   let prereqs = null;
   let logEntries = [];
-  let logFilter = { server: '', status: '' };
+  let logFilter = { server: '', status: '', search: '', from: '', to: '' };
 
   // -------------------------------------------------------------------------
   // WebSocket
@@ -1211,6 +1211,9 @@
   function initLogFilters() {
     var serverSel = AD._root.getElementById('log-filter-server');
     var statusSel = AD._root.getElementById('log-filter-status');
+    var searchInput = AD._root.getElementById('log-filter-search');
+    var fromInput = AD._root.getElementById('log-filter-from');
+    var toInput = AD._root.getElementById('log-filter-to');
     if (serverSel)
       serverSel.addEventListener('change', function () {
         logFilter.server = this.value;
@@ -1219,6 +1222,21 @@
     if (statusSel)
       statusSel.addEventListener('change', function () {
         logFilter.status = this.value;
+        renderLogs();
+      });
+    if (searchInput)
+      searchInput.addEventListener('input', function () {
+        logFilter.search = this.value;
+        renderLogs();
+      });
+    if (fromInput)
+      fromInput.addEventListener('change', function () {
+        logFilter.from = this.value;
+        renderLogs();
+      });
+    if (toInput)
+      toInput.addEventListener('change', function () {
+        logFilter.to = this.value;
         renderLogs();
       });
   }
@@ -1242,10 +1260,30 @@
     var el = AD._root.getElementById('logs-list');
     if (!el) return;
 
+    var fromTs = logFilter.from ? new Date(logFilter.from).getTime() : 0;
+    var toTs = logFilter.to ? new Date(logFilter.to).getTime() : Infinity;
+    var q = (logFilter.search || '').toLowerCase();
+
     var filtered = logEntries.filter(function (e) {
       if (logFilter.server && e.server !== logFilter.server) return false;
       if (logFilter.status === 'success' && !e.success) return false;
       if (logFilter.status === 'fail' && e.success) return false;
+      if (e.timestamp) {
+        var t = new Date(e.timestamp).getTime();
+        if (t < fromTs || t > toTs) return false;
+      }
+      if (q) {
+        var haystack = (
+          e.server +
+          ' ' +
+          e.tool +
+          ' ' +
+          JSON.stringify(e.args) +
+          ' ' +
+          (e.response || '')
+        ).toLowerCase();
+        if (haystack.indexOf(q) === -1) return false;
+      }
       return true;
     });
 
@@ -1259,7 +1297,22 @@
     var cols = 5;
     var rows = filtered
       .map(function (e) {
-        var ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
+        var ts = '';
+        if (e.timestamp) {
+          var d = new Date(e.timestamp);
+          ts =
+            d.getFullYear() +
+            '-' +
+            String(d.getMonth() + 1).padStart(2, '0') +
+            '-' +
+            String(d.getDate()).padStart(2, '0') +
+            ' ' +
+            String(d.getHours()).padStart(2, '0') +
+            ':' +
+            String(d.getMinutes()).padStart(2, '0') +
+            ':' +
+            String(d.getSeconds()).padStart(2, '0');
+        }
         var badge = e.success
           ? '<span class="log-badge log-success">OK</span>'
           : '<span class="log-badge log-fail">FAIL</span>';

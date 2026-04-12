@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-04-12
+
+### Added
+
+- **Log search** — text input in the Logs tab filter bar. Searches across server name, tool name, args JSON, and response text (case-insensitive substring match).
+- **Log time range filter** — "From" and "To" datetime-local pickers to narrow logs to a specific window.
+
+### Changed
+
+- **Log timestamps now include date** — format changed from `HH:MM:SS` to `YYYY-MM-DD HH:MM:SS` so entries from different days are distinguishable.
+
 ## [1.3.0] - 2026-04-12
 
 ### Added

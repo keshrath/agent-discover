@@ -1115,9 +1115,11 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
-.log-filters select {
+.log-filters select,
+.log-filters input[type='datetime-local'] {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1125,6 +1127,38 @@ body {
   font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text);
+}
+
+.log-filters input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+.log-filter-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.log-filter-search-wrap .material-symbols-outlined {
+  color: var(--text-dim);
+}
+
+.log-filter-search-wrap input {
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  width: 140px;
+}
+
+.log-filter-search-wrap input::placeholder {
+  color: var(--text-dim);
 }
 
 .logs-table {
