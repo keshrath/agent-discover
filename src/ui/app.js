@@ -19,8 +19,10 @@
   let browseResults = [];
   let currentTab = 'installed';
   let searchTimeout = null;
-  let openSections = {}; // track open sections per server: { "serverId-sectionName": true }
-  let prereqs = null; // { npx, uvx, docker, uv } — populated on load
+  let openSections = {};
+  let prereqs = null;
+  let logEntries = [];
+  let logFilter = { server: '', status: '' };
 
   // -------------------------------------------------------------------------
   // WebSocket
@@ -44,6 +46,11 @@
             version: msg.version || state.version,
           };
           render();
+        } else if (msg.type === 'log_entry' && msg.entry) {
+          logEntries.unshift(msg.entry);
+          if (logEntries.length > 500) logEntries.length = 500;
+          updateLogCount();
+          if (currentTab === 'logs') renderLogs();
         }
       } catch (e) {
         console.error('WS parse error:', e);
@@ -87,6 +94,8 @@
           p.classList.remove('active');
         });
         AD._root.getElementById('tab-' + tab).classList.add('active');
+
+        if (tab === 'logs') renderLogs();
       });
     });
   }
@@ -193,8 +202,44 @@
   function render() {
     AD._root.getElementById('version').textContent = 'v' + state.version;
     AD._root.getElementById('installed-count').textContent = String(state.servers.length);
-
+    updateLogCount();
+    updateLogServerFilter();
     renderInstalled();
+  }
+
+  function updateLogCount() {
+    var el = AD._root.getElementById('log-count');
+    if (el) el.textContent = String(logEntries.length);
+  }
+
+  function updateLogServerFilter() {
+    var sel = AD._root.getElementById('log-filter-server');
+    if (!sel) return;
+    var servers = {};
+    logEntries.forEach(function (e) {
+      servers[e.server] = true;
+    });
+    state.servers.forEach(function (s) {
+      servers[s.name] = true;
+    });
+    var names = Object.keys(servers).sort();
+    var current = sel.value;
+    var opts =
+      '<option value="">All servers</option>' +
+      names
+        .map(function (n) {
+          return (
+            '<option value="' +
+            escAttr(n) +
+            '"' +
+            (n === current ? ' selected' : '') +
+            '>' +
+            esc(n) +
+            '</option>'
+          );
+        })
+        .join('');
+    sel.innerHTML = opts;
   }
 
   function renderInstalled() {
@@ -220,14 +265,18 @@
 
         var healthStatus = s.health_status || 'unknown';
 
-        // Error count
         var errorCount =
           s.error_count > 0
             ? '<span class="error-count">' +
               s.error_count +
               ' error' +
               (s.error_count > 1 ? 's' : '') +
-              '</span>'
+              '</span>' +
+              '<button class="btn-clear-errors" data-action="clear-errors" data-id="' +
+              s.id +
+              '" title="Clear errors">' +
+              '<span class="material-symbols-outlined" style="font-size:12px">close</span>' +
+              '</button>'
             : '';
 
         var tags = (s.tags || [])
@@ -1014,6 +1063,259 @@
   }
 
   // -------------------------------------------------------------------------
+  // Clear errors
+  // -------------------------------------------------------------------------
+
+  window.__clearErrors = function (serverId) {
+    AD._fetch('/api/servers/' + serverId + '/reset-errors', { method: 'POST' })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function () {
+        showToast('Errors cleared', 'success');
+      })
+      .catch(function () {
+        showToast('Failed to clear errors', 'error');
+      });
+  };
+
+  function initAddServerForm() {
+    var toggle = AD._root.getElementById('add-server-toggle');
+    var panel = AD._root.getElementById('add-server-panel');
+    var transport = AD._root.getElementById('add-transport');
+    if (!toggle || !panel) return;
+
+    toggle.addEventListener('click', function () {
+      var visible = panel.style.display !== 'none';
+      panel.style.display = visible ? 'none' : 'block';
+    });
+
+    if (transport) {
+      transport.addEventListener('change', function () {
+        var stdio = AD._root.getElementById('add-stdio-fields');
+        var url = AD._root.getElementById('add-url-fields');
+        if (this.value === 'stdio') {
+          if (stdio) stdio.style.display = 'flex';
+          if (url) url.style.display = 'none';
+        } else {
+          if (stdio) stdio.style.display = 'none';
+          if (url) url.style.display = 'flex';
+        }
+      });
+    }
+  }
+
+  window.__submitAddServer = function () {
+    var name = (AD._root.getElementById('add-name') || {}).value || '';
+    var transport = (AD._root.getElementById('add-transport') || {}).value || 'stdio';
+    var command = (AD._root.getElementById('add-command') || {}).value || '';
+    var argsStr = (AD._root.getElementById('add-args') || {}).value || '';
+    var urlVal = (AD._root.getElementById('add-url') || {}).value || '';
+    var desc = (AD._root.getElementById('add-desc') || {}).value || '';
+    var envStr = (AD._root.getElementById('add-env') || {}).value || '';
+    var tagsStr = (AD._root.getElementById('add-tags') || {}).value || '';
+
+    if (!name.trim()) {
+      showToast('Name is required', 'error');
+      return;
+    }
+
+    var args = argsStr
+      .split(',')
+      .map(function (a) {
+        return a.trim();
+      })
+      .filter(Boolean);
+    var env = {};
+    envStr.split('\n').forEach(function (line) {
+      var eq = line.indexOf('=');
+      if (eq > 0) env[line.substring(0, eq).trim()] = line.substring(eq + 1).trim();
+    });
+    var tags = tagsStr
+      .split(',')
+      .map(function (t) {
+        return t.trim();
+      })
+      .filter(Boolean);
+
+    var body = {
+      name: name.trim(),
+      description: desc,
+      transport: transport,
+      source: 'manual',
+      tags: tags,
+      env: env,
+    };
+
+    if (transport === 'stdio') {
+      body.command = command;
+      body.args = args;
+    } else {
+      body.homepage = urlVal;
+    }
+
+    AD._fetch('/api/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        if (!r.ok)
+          return r.json().then(function (d) {
+            throw new Error(d.error || 'Failed');
+          });
+        return r.json();
+      })
+      .then(function () {
+        showToast('Server registered', 'success');
+        var panel = AD._root.getElementById('add-server-panel');
+        if (panel) panel.style.display = 'none';
+        [
+          'add-name',
+          'add-command',
+          'add-args',
+          'add-url',
+          'add-desc',
+          'add-env',
+          'add-tags',
+        ].forEach(function (id) {
+          var el = AD._root.getElementById(id);
+          if (el) el.value = '';
+        });
+      })
+      .catch(function (err) {
+        showToast('Register failed: ' + err.message, 'error');
+      });
+  };
+
+  // -------------------------------------------------------------------------
+  // Logs tab
+  // -------------------------------------------------------------------------
+
+  window.__clearLogs = function () {
+    AD._fetch('/api/logs', { method: 'DELETE' })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function () {
+        logEntries = [];
+        updateLogCount();
+        renderLogs();
+        showToast('Logs cleared', 'success');
+      })
+      .catch(function () {
+        showToast('Failed to clear logs', 'error');
+      });
+  };
+
+  function initLogFilters() {
+    var serverSel = AD._root.getElementById('log-filter-server');
+    var statusSel = AD._root.getElementById('log-filter-status');
+    if (serverSel)
+      serverSel.addEventListener('change', function () {
+        logFilter.server = this.value;
+        renderLogs();
+      });
+    if (statusSel)
+      statusSel.addEventListener('change', function () {
+        logFilter.status = this.value;
+        renderLogs();
+      });
+  }
+
+  function fetchLogs() {
+    AD._fetch('/api/logs?limit=500')
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        logEntries = data.entries || [];
+        updateLogCount();
+        if (currentTab === 'logs') renderLogs();
+      })
+      .catch(function () {
+        /* ignore */
+      });
+  }
+
+  function renderLogs() {
+    var el = AD._root.getElementById('logs-list');
+    if (!el) return;
+
+    var filtered = logEntries.filter(function (e) {
+      if (logFilter.server && e.server !== logFilter.server) return false;
+      if (logFilter.status === 'success' && !e.success) return false;
+      if (logFilter.status === 'fail' && e.success) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      el.innerHTML =
+        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">receipt_long</span>' +
+        '<p>No tool calls logged yet</p><p class="hint">Logs appear when proxied tools are called</p></div>';
+      return;
+    }
+
+    var cols = 5;
+    var rows = filtered
+      .map(function (e) {
+        var ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
+        var badge = e.success
+          ? '<span class="log-badge log-success">OK</span>'
+          : '<span class="log-badge log-fail">FAIL</span>';
+        var argsText = JSON.stringify(e.args || {}, null, 2);
+        var respText = (e.response || '').substring(0, 2000);
+        return (
+          '<tr class="log-row" data-action="toggle-log" data-log-id="' +
+          e.id +
+          '">' +
+          '<td class="log-ts">' +
+          esc(ts) +
+          '</td>' +
+          '<td>' +
+          esc(e.server) +
+          '</td>' +
+          '<td><strong>' +
+          esc(e.tool) +
+          '</strong></td>' +
+          '<td>' +
+          badge +
+          '</td>' +
+          '<td class="log-latency">' +
+          e.latency_ms +
+          'ms</td>' +
+          '</tr>' +
+          '<tr class="log-expand" id="log-expand-' +
+          e.id +
+          '" style="display:none">' +
+          '<td colspan="' +
+          cols +
+          '">' +
+          '<div class="log-expand-content">' +
+          '<div class="log-expand-section"><div class="log-expand-label">Args</div><pre>' +
+          esc(argsText) +
+          '</pre></div>' +
+          '<div class="log-expand-section"><div class="log-expand-label">Response</div><pre>' +
+          esc(respText) +
+          '</pre></div>' +
+          '</div>' +
+          '</td>' +
+          '</tr>'
+        );
+      })
+      .join('');
+
+    var html =
+      '<table class="logs-table">' +
+      '<thead><tr><th>Time</th><th>Server</th><th>Tool</th><th>Status</th><th>Latency</th></tr></thead>' +
+      '<tbody>' +
+      rows +
+      '</tbody></table>';
+
+    morph(el, html);
+  }
+
+  // -------------------------------------------------------------------------
   // Init
   // -------------------------------------------------------------------------
 
@@ -1070,6 +1372,24 @@
             btn.style.display = 'none';
           }
           break;
+        case 'clear-errors':
+          window.__clearErrors(id);
+          break;
+        case 'submit-add-server':
+          window.__submitAddServer();
+          break;
+        case 'clear-logs':
+          window.__clearLogs();
+          break;
+        case 'toggle-log': {
+          var logId = btn.dataset.logId || btn.closest('[data-log-id]')?.dataset?.logId;
+          if (logId) {
+            var expandRow = AD._root.getElementById('log-expand-' + logId);
+            if (expandRow)
+              expandRow.style.display = expandRow.style.display === 'none' ? '' : 'none';
+          }
+          break;
+        }
       }
     });
   }
@@ -1078,10 +1398,13 @@
     initTabs();
     initTheme();
     initSearch();
+    initAddServerForm();
+    initLogFilters();
     _initDelegatedClicks();
     connect();
     initThemeSync();
     fetchPrereqs();
+    fetchLogs();
   }
 
   // -------------------------------------------------------------------------

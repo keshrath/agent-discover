@@ -410,6 +410,17 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
     json(res, result);
   });
 
+  route('POST', '/api/servers/:id/reset-errors', (_req, res, params) => {
+    const id = parseInt(params.id, 10);
+    const server = ctx.registry.getById(id);
+    if (!server) {
+      json(res, { error: 'Not found' }, 404);
+      return;
+    }
+    ctx.registry.resetErrorCount(id);
+    json(res, { status: 'reset' });
+  });
+
   route('GET', '/api/servers/:id/metrics', (_req, res, params) => {
     const id = parseInt(params.id, 10);
     const server = ctx.registry.getById(id);
@@ -424,6 +435,18 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
   route('GET', '/api/metrics', (_req, res) => {
     const overview = ctx.metrics.getOverview();
     json(res, overview);
+  });
+
+  route('GET', '/api/logs', (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10) || 100, 500);
+    const offset = Math.max(parseInt(url.searchParams.get('offset') ?? '0', 10) || 0, 0);
+    json(res, { entries: ctx.logs.list(limit, offset), total: ctx.logs.count() });
+  });
+
+  route('DELETE', '/api/logs', (_req, res) => {
+    ctx.logs.clear();
+    json(res, { status: 'cleared' });
   });
 
   route('GET', '/api/npm-check', async (req, res) => {
@@ -441,6 +464,33 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       json(res, { exists: response.ok });
     } catch {
       json(res, { exists: false });
+    }
+  });
+
+  route('POST', '/api/servers/:id/call', async (req, res, params) => {
+    const id = parseInt(params.id, 10);
+    const server = ctx.registry.getById(id);
+    if (!server) {
+      json(res, { error: 'Not found' }, 404);
+      return;
+    }
+    if (!ctx.proxy.isActive(server.name)) {
+      json(res, { error: 'Server not active' }, 400);
+      return;
+    }
+    const body = await readBody(req);
+    const tool = String(body.tool ?? '');
+    const args = typeof body.args === 'object' ? (body.args as Record<string, unknown>) : {};
+    if (!tool) {
+      json(res, { error: 'tool is required' }, 400);
+      return;
+    }
+    try {
+      const result = await ctx.proxy.callTool(server.name, tool, args);
+      json(res, result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      json(res, { error: message }, 500);
     }
   });
 

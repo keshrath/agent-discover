@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-12
+
+### Added
+
+- **Add Server form** in the Servers tab. Collapsible panel with Name, Transport (Local stdio / Remote URL), Command+Args or URL fields, Description, Env vars, and Tags. Submits via `POST /api/servers`.
+- **Logs tab** — third dashboard tab showing a real-time call log of all proxied MCP tool calls. Click any row to expand full-width Args and Response panels below. Filter by server or success/fail status. "Clear All" button to wipe the log. Badge in sidebar shows entry count.
+- **`LogService`** (`src/domain/log.ts`) — in-memory ring buffer (500 entries, configurable via `AGENT_DISCOVER_LOG_RETENTION_DAYS`, default 30 days auto-prune). New log entries are broadcast to all connected WS clients as `log_entry` messages for real-time streaming.
+- **`POST /api/servers/:id/call`** — REST proxy endpoint to call a tool on an active server without going through MCP stdio. Used by the dashboard for testing and generates log entries.
+- **`POST /api/servers/:id/reset-errors`** — resets a server's error count to 0.
+- **`GET /api/logs`** — returns log entries with pagination (`limit`, `offset`).
+- **`DELETE /api/logs`** — clears all log entries.
+- **Clear errors button** on server cards when error count > 0.
+- **Error count auto-reset** on successful health probe — `HealthService.checkServer()` now sets `error_count = 0` in the healthy branch.
+
+### Changed
+
+- **Logs expand layout** — Args and Response render as stacked full-width panels below the clicked row instead of inline `<details>` elements in table cells.
+- **Styled scrollbars** throughout the Logs tab (thin, themed via `--scrollbar-thumb` CSS variable).
+
 ## [1.2.5] - 2026-04-12
 
 ### Fixed

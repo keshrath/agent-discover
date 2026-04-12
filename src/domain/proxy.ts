@@ -13,6 +13,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { SecretsService } from './secrets.js';
 import type { MetricsService } from './metrics.js';
+import type { LogService } from './log.js';
 import { version } from '../version.js';
 
 const ACTIVATE_TIMEOUT_MS = 60_000;
@@ -82,6 +83,7 @@ export class McpProxy {
   private readonly activating = new Set<string>();
   private secretsService?: SecretsService;
   private metricsService?: MetricsService;
+  private logService?: LogService;
   private serverIdResolver?: (name: string) => number | null;
 
   setSecretsService(secrets: SecretsService): void {
@@ -90,6 +92,10 @@ export class McpProxy {
 
   setMetricsService(metrics: MetricsService): void {
     this.metricsService = metrics;
+  }
+
+  setLogService(logs: LogService): void {
+    this.logService = logs;
   }
 
   setServerIdResolver(resolver: (name: string) => number | null): void {
@@ -186,7 +192,6 @@ export class McpProxy {
     if (!server) throw new Error(`Server "${serverName}" is not active`);
 
     const start = Date.now();
-    let success = true;
 
     try {
       const result = await withTimeout(
@@ -198,20 +203,23 @@ export class McpProxy {
         content: Array<{ type: string; text: string }>;
         isError?: boolean;
       };
-      if (typed.isError) success = false;
+      const latency = Date.now() - start;
+      const success = !typed.isError;
+      const text = (typed.content || []).map((c) => c.text).join('\n');
+      this.recordMetrics(serverName, toolName, latency, success);
+      this.recordLog(serverName, toolName, args ?? {}, text, latency, success);
       return typed;
     } catch (err) {
-      success = false;
+      const latency = Date.now() - start;
       const message = err instanceof Error ? err.message : String(err);
+      this.recordMetrics(serverName, toolName, latency, false);
+      this.recordLog(serverName, toolName, args ?? {}, message, latency, false);
       if (message.includes('timed out')) {
         throw new Error(`Tool call ${serverName}/${toolName} timed out`, {
           cause: err,
         });
       }
       throw err;
-    } finally {
-      const latency = Date.now() - start;
-      this.recordMetrics(serverName, toolName, latency, success);
     }
   }
 
@@ -229,6 +237,22 @@ export class McpProxy {
       }
     } catch {
       /* ignore metrics errors */
+    }
+  }
+
+  private recordLog(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    response: string,
+    latencyMs: number,
+    success: boolean,
+  ): void {
+    if (!this.logService) return;
+    try {
+      this.logService.push(serverName, toolName, args, response, latencyMs, success);
+    } catch {
+      /* ignore */
     }
   }
 

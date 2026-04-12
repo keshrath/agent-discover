@@ -48,8 +48,9 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
   - Cross-source dedupe key is `<source>:<name>` so npm/PyPI name collisions both stay visible.
 - **InstallerService** (`src/domain/installer.ts`): Detects the install method for a package (npm/npx, Python/uvx, Docker) and builds the appropriate command configuration. Validates package names against `^[@a-zA-Z0-9._/-]+$`.
 - **SecretsService** (`src/domain/secrets.ts`): Manages per-server secrets (API keys, tokens). Secrets are stored in the `server_secrets` table. Values are masked in API responses (first 4 chars visible). The `getEnvForServer()` method returns all secrets as a key-value map for env var injection on activation.
-- **HealthService** (`src/domain/health.ts`): Monitors server health. For active servers, checks via `getServerTools()`. For inactive servers with a command, performs a quick activate/deactivate cycle with a 5-second timeout. Updates `health_status`, `last_health_check`, and `error_count` in the database. Has a `checkAll()` method for batch health checks.
+- **HealthService** (`src/domain/health.ts`): Monitors server health. For active servers, checks via `getServerTools()`. For inactive servers with a command, performs a quick activate/deactivate cycle with a 60-second timeout (matching `ACTIVATE_TIMEOUT_MS`). Updates `health_status`, `last_health_check`, and `error_count` in the database. Resets `error_count` to 0 on successful checks. Has a `checkAll()` method for batch health checks.
 - **MetricsService** (`src/domain/metrics.ts`): Tracks per-tool call counts, error counts, and total latency in the `server_metrics` table. Called automatically by the proxy on each tool call. Provides `getServerMetrics()` for per-server detail and `getOverview()` for a cross-server summary.
+- **LogService** (`src/domain/log.ts`): In-memory ring buffer of the last 500 proxied tool calls. Each entry records timestamp, server, tool, args, response text, latency, and success. Auto-prunes entries older than 30 days (configurable via `AGENT_DISCOVER_LOG_RETENTION_DAYS`). Exposes an `onEntry` callback used by the WS transport to broadcast new entries in real time.
 - **EventBus** (`src/domain/events.ts`): In-process pub/sub with typed events and wildcard support. Used internally to emit lifecycle events (`server:registered`, `server:activated`, `server:installed`, etc.).
 - **Embeddings subsystem** (`src/embeddings/`): Pluggable provider for semantic tool search. Mirrors agent-knowledge's pattern. Default provider is `none` (semantic search disabled, BM25-only ranking) so installs without an embedding key keep working unchanged. Selectable via `AGENT_DISCOVER_EMBEDDING_PROVIDER`:
   - **`none`** (`src/embeddings/none.ts`) — `NoopEmbeddingProvider`. Reports unavailable so callers fall back to BM25.
@@ -90,11 +91,12 @@ interface AppContext {
   readonly secrets: SecretsService;
   readonly health: HealthService;
   readonly metrics: MetricsService;
+  readonly logs: LogService;
   close(): void;
 }
 ```
 
-The proxy receives references to `SecretsService` and `MetricsService` via setter methods, plus a `serverIdResolver` function that maps server names to database IDs via the registry.
+The proxy receives references to `SecretsService`, `MetricsService`, and `LogService` via setter methods, plus a `serverIdResolver` function that maps server names to database IDs via the registry.
 
 Every layer receives its dependencies explicitly. No global state, no singletons.
 

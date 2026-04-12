@@ -12,11 +12,16 @@ The dashboard provides a visual interface for managing MCP servers. It connects 
 
 The default view. Shows all MCP servers registered in the local database as cards. This is a merged view -- both installed and active servers appear together with their current status.
 
+An **Add Server** button in the panel header opens a collapsible form for manual server registration. The form adapts to the selected transport:
+
+- **Local (stdio)**: Name, Command, Args (comma-separated), Description, Env vars, Tags.
+- **Remote URL**: Name, URL, Description, Env vars, Tags.
+
 Each server card displays:
 
 - **Server name**.
 - **Health dot** indicating the server's health status (green for healthy, red for unhealthy, gray for unknown).
-- **Error count** (if greater than 0), shown as a badge.
+- **Error count** (if greater than 0), shown as a badge with a clear button (x) to reset via `POST /api/servers/:id/reset-errors`. Error count also auto-resets on a successful health probe.
 - **Active/Inactive status indicator** (green/gray dot with label).
 - **Description** and **tags** as small badges.
 - **Source** (local, registry, smithery, manual) and **transport** (stdio, sse, streamable-http).
@@ -46,12 +51,23 @@ A **prereqs banner** is rendered above the result list when a package manager th
 
 Installing a server from Browse adds it to the Servers tab.
 
+### Logs
+
+Real-time call log of all proxied MCP tool calls. Each row shows timestamp, server name, tool name, success/fail badge, and latency.
+
+- **Click any row** to expand full-width Args and Response panels below it (stacked vertically).
+- **Filter bar**: dropdown to filter by server, dropdown for success/fail status.
+- **Clear All** button removes all log entries (calls `DELETE /api/logs`).
+- **Real-time**: new entries stream in via WebSocket (`log_entry` messages) without page refresh.
+- **Badge**: sidebar navigation shows the current log entry count.
+- **Retention**: entries older than 30 days are auto-pruned (configurable via `AGENT_DISCOVER_LOG_RETENTION_DAYS` env var). In-memory ring buffer capped at 500 entries.
+
 ## Sidebar
 
 The sidebar contains:
 
 - **Header**: Widgets icon (Material Symbols `widgets`) and "agent-discover" title with version number.
-- **Navigation**: Two tab buttons -- Servers (with count badge) and Browse.
+- **Navigation**: Three tab buttons -- Servers (with count badge), Browse, and Logs (with count badge).
 - **Footer**: Theme toggle button (moon/sun icon).
 
 ## Favicon

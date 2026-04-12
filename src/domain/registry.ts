@@ -375,6 +375,12 @@ export class RegistryService {
     );
   }
 
+  resetErrorCount(id: number): void {
+    this.db.run("UPDATE servers SET error_count = 0, updated_at = datetime('now') WHERE id = ?", [
+      id,
+    ]);
+  }
+
   setInstalled(name: string, installed: boolean): void {
     this.db.run("UPDATE servers SET installed = ?, updated_at = datetime('now') WHERE name = ?", [
       installed ? 1 : 0,

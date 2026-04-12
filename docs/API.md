@@ -552,6 +552,70 @@ Same-source version duplicates are collapsed by name (highest semver wins). Cros
 
 ---
 
+### POST /api/servers/:id/reset-errors
+
+Reset a server's error count to 0.
+
+**Response:**
+
+```json
+{ "status": "reset" }
+```
+
+### POST /api/servers/:id/call
+
+Call a tool on an active server via REST (proxy). Generates a log entry.
+
+**Request body:**
+
+| Field  | Type   | Required | Description                    |
+| ------ | ------ | -------- | ------------------------------ |
+| `tool` | string | **yes**  | Tool name (e.g. `search_read`) |
+| `args` | object | no       | Arguments to pass to the tool  |
+
+**Response:** The tool's MCP result (content array).
+
+### GET /api/logs
+
+Return recent call log entries (newest first).
+
+**Query parameters:**
+
+| Param    | Type   | Default | Description             |
+| -------- | ------ | ------- | ----------------------- |
+| `limit`  | number | 100     | Max entries (up to 500) |
+| `offset` | number | 0       | Skip first N entries    |
+
+**Response:**
+
+```json
+{
+  "entries": [
+    {
+      "id": 3,
+      "timestamp": "2026-04-12T08:26:35.123Z",
+      "server": "lastloop-odoo",
+      "tool": "search_read",
+      "args": { "model": "res.partner" },
+      "response": "[{\"id\": 1, \"name\": \"...\"}]",
+      "latency_ms": 414,
+      "success": true
+    }
+  ],
+  "total": 3
+}
+```
+
+### DELETE /api/logs
+
+Clear all log entries.
+
+**Response:**
+
+```json
+{ "status": "cleared" }
+```
+
 ### GET /api/status
 
 Show active server summary.
@@ -610,10 +674,11 @@ The server polls the database every 2 seconds. When changes are detected (via a 
 
 ### Server Messages
 
-| Message         | Description                        |
-| --------------- | ---------------------------------- |
-| `type: "state"` | Full state snapshot                |
-| `type: "error"` | Error message (invalid JSON, etc.) |
+| Message             | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `type: "state"`     | Full state snapshot                                          |
+| `type: "log_entry"` | Real-time tool call log entry (see GET /api/logs for schema) |
+| `type: "error"`     | Error message (invalid JSON, etc.)                           |
 
 ### Connection Limits
 

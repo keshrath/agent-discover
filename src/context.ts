@@ -14,6 +14,7 @@ import { InstallerService } from './domain/installer.js';
 import { SecretsService } from './domain/secrets.js';
 import { HealthService } from './domain/health.js';
 import { MetricsService } from './domain/metrics.js';
+import { LogService } from './domain/log.js';
 
 export interface AppContext {
   readonly db: Db;
@@ -25,6 +26,7 @@ export interface AppContext {
   readonly secrets: SecretsService;
   readonly health: HealthService;
   readonly metrics: MetricsService;
+  readonly logs: LogService;
   close(): void;
 }
 
@@ -40,9 +42,11 @@ export function createContext(dbOptions?: DbOptions): AppContext {
   const secrets = new SecretsService(db);
   const metrics = new MetricsService(db);
   const health = new HealthService(db, proxy);
+  const logs = new LogService();
 
   proxy.setSecretsService(secrets);
   proxy.setMetricsService(metrics);
+  proxy.setLogService(logs);
   proxy.setServerIdResolver((name: string) => {
     const server = registry.getByName(name);
     return server ? server.id : null;
@@ -58,6 +62,7 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     secrets,
     health,
     metrics,
+    logs,
     close() {
       if (closed) return;
       closed = true;

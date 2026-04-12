@@ -998,3 +998,296 @@ body {
     transform: translateY(0);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Add Server form
+   --------------------------------------------------------------------------- */
+
+.btn-add-server {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-add-server:hover {
+  background: var(--accent-hover);
+}
+
+.add-server-panel {
+  margin-bottom: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.add-server-form .form-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.add-server-form .form-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.add-server-form label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.add-server-form input,
+.add-server-form textarea,
+.add-server-form select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.add-server-form input:focus,
+.add-server-form textarea:focus,
+.add-server-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.btn-submit-server {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.btn-submit-server:hover {
+  background: var(--accent-hover);
+}
+
+/* ---------------------------------------------------------------------------
+   Clear errors button
+   --------------------------------------------------------------------------- */
+
+.btn-clear-errors {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 2px;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.btn-clear-errors:hover {
+  color: var(--red);
+}
+
+/* ---------------------------------------------------------------------------
+   Logs tab
+   --------------------------------------------------------------------------- */
+
+.log-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.log-filters select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.logs-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+.logs-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+  max-width: 300px;
+  word-break: break-word;
+}
+
+.log-row {
+  cursor: pointer;
+}
+
+.log-row:hover {
+  background: var(--bg-hover);
+}
+
+.log-ts {
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.log-latency {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.log-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.log-success {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.log-fail {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.log-expand {
+  background: var(--bg-surface);
+}
+
+.log-expand td {
+  padding: 10px 10px 12px;
+  border-bottom: 2px solid var(--border);
+}
+
+.log-expand-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.log-expand-section {
+  min-width: 0;
+}
+
+.log-expand-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-family: var(--font-sans);
+}
+
+.log-expand-section pre {
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 11px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.log-expand-section pre::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.log-expand-section pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-expand-section pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.logs-table-wrap {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.logs-table-wrap::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.logs-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.logs-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.btn-clear-logs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-clear-logs:hover {
+  border-color: var(--red);
+  color: var(--red);
+}

@@ -25,8 +25,8 @@ src/
 - **Design tokens**: CSS custom properties (`--bg`, `--accent`, `--border`, `--shadow-*`, etc.)
 - **Accent color**: `#5d8da8`
 - **Port**: 3424 (configurable via `AGENT_DISCOVER_PORT`)
-- **Tabs**: 2 tabs — Servers (merged installed+active) and Browse (marketplace)
-- **Server cards**: health dots, error counts, expandable Secrets/Metrics/Config sections
+- **Tabs**: 3 tabs — Servers (with Add Server form, merged installed+active), Browse (marketplace), Logs (real-time call log with click-to-expand, filters, clear)
+- **Server cards**: health dots, error counts (with clear button), expandable Secrets/Metrics/Config sections
 - **Theme sync**: Supports agent-desk postMessage theme injection + reverse sync
 
 ## Code Style
@@ -50,8 +50,8 @@ npm run check      # typecheck + lint + format + test
 
 ## Key APIs
 
-- **REST**: `GET /health`, `GET /api/servers`, `GET /api/servers/:id`, `POST /api/servers`, `PUT /api/servers/:id`, `DELETE /api/servers/:id`, `POST /api/servers/:id/activate`, `POST /api/servers/:id/deactivate`, `GET /api/servers/:id/secrets`, `PUT /api/servers/:id/secrets/:key`, `DELETE /api/servers/:id/secrets/:key`, `POST /api/servers/:id/health`, `GET /api/servers/:id/metrics`, `GET /api/metrics`, `GET /api/browse`, `GET /api/status`
-- **WebSocket**: Full state on connect, delta updates via DB polling
+- **REST**: `GET /health`, `GET /api/servers`, `GET /api/servers/:id`, `POST /api/servers`, `PUT /api/servers/:id`, `DELETE /api/servers/:id`, `POST /api/servers/:id/activate`, `POST /api/servers/:id/deactivate`, `POST /api/servers/:id/call`, `POST /api/servers/:id/reset-errors`, `GET /api/servers/:id/secrets`, `PUT /api/servers/:id/secrets/:key`, `DELETE /api/servers/:id/secrets/:key`, `POST /api/servers/:id/health`, `GET /api/servers/:id/metrics`, `GET /api/metrics`, `GET /api/logs`, `DELETE /api/logs`, `GET /api/browse`, `GET /api/status`
+- **WebSocket**: Full state on connect, delta updates via DB polling, `log_entry` messages for real-time call logs
 - **MCP**: 1 action-based tool — `registry` (actions: list/install/uninstall/activate/deactivate/browse/status) + proxied tools from active servers
 
 ## DB
@@ -65,12 +65,13 @@ npm run check      # typecheck + lint + format + test
 ## Domain Services
 
 - **RegistryService** -- Server CRUD, FTS search, tool metadata storage
-- **McpProxy** -- Child MCP server lifecycle, tool proxying with namespace, secrets merge on activation, metrics recording on tool calls
+- **McpProxy** -- Child MCP server lifecycle, tool proxying with namespace, secrets merge on activation, metrics + log recording on tool calls
 - **MarketplaceClient** -- Official MCP registry API client (search, browse)
 - **InstallerService** -- Install method detection (npm/npx, Python/uvx, Docker) with package name validation
 - **SecretsService** -- Per-server secret storage, masked listing, env var generation for activation
-- **HealthService** -- Health probes (connect/disconnect for inactive, tool list check for active), error count tracking
+- **HealthService** -- Health probes (connect/disconnect for inactive, tool list check for active), error count tracking with auto-reset on healthy
 - **MetricsService** -- Per-tool call/error/latency recording, server-level and global overview queries
+- **LogService** -- In-memory ring buffer (500 entries) of proxied tool calls with real-time WS broadcast and configurable retention (`AGENT_DISCOVER_LOG_RETENTION_DAYS`)
 - **EventBus** -- In-process pub/sub with typed events and wildcard support
 
 ## Proxy Pattern

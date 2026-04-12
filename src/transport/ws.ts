@@ -14,7 +14,7 @@ import { version } from '../version.js';
 export type WebSocketHandle = WsHandle;
 
 export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHandle {
-  return setupKitWebSocket({
+  const handle = setupKitWebSocket({
     httpServer,
     getFingerprints: () => {
       const row = ctx.db.queryOne<{ fp: string }>(
@@ -35,6 +35,16 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
         '[agent-discover] WS error: ' + (err instanceof Error ? err.message : String(err)) + '\n',
       ),
   });
+
+  ctx.logs.onEntry = (entry) => {
+    try {
+      handle.broadcast(JSON.stringify({ type: 'log_entry', entry }));
+    } catch {
+      /* ignore broadcast errors */
+    }
+  };
+
+  return handle;
 }
 
 function buildStatePayload(ctx: AppContext): Record<string, unknown> {

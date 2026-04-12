@@ -120,7 +120,7 @@ export class HealthService {
     } else {
       this.db.run(
         `UPDATE servers SET health_status = ?, last_health_check = datetime('now'),
-         updated_at = datetime('now') WHERE id = ?`,
+         error_count = 0, updated_at = datetime('now') WHERE id = ?`,
         [result.status, serverId],
       );
     }

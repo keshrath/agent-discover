@@ -6,12 +6,12 @@
     "url": "https://github.com/keshrath/agent-discover",
     "source": "github"
   },
-  "version": "1.2.5",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "agent-discover",
-      "version": "1.2.5",
+      "version": "1.3.0",
       "transport": {
         "type": "stdio"
       }
