@@ -1111,54 +1111,207 @@ body {
    Logs tab
    --------------------------------------------------------------------------- */
 
-.log-filters {
+.log-header {
+  padding: 16px 24px 12px;
+}
+
+.log-header-top {
   display: flex;
-  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
-}
-
-.log-filters select,
-.log-filters input[type='datetime-local'] {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  color: var(--text);
-}
-
-.log-filters input[type='datetime-local']::-webkit-calendar-picker-indicator {
-  filter: invert(0.7);
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
 
 .log-filter-search-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 0 10px;
+  height: 36px;
+  margin-bottom: 8px;
 }
 
 .log-filter-search-wrap .material-symbols-outlined {
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .log-filter-search-wrap input {
   background: none;
   border: none;
   outline: none;
-  font-size: 12px;
+  font-size: 13px;
   font-family: var(--font-mono);
   color: var(--text);
-  width: 140px;
+  width: 100%;
 }
 
 .log-filter-search-wrap input::placeholder {
   color: var(--text-dim);
+}
+
+.log-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.log-filters select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  height: 32px;
+}
+
+.log-time-picker {
+  position: relative;
+}
+
+.log-time-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 10px;
+  height: 32px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.log-time-btn:hover {
+  border-color: var(--accent);
+}
+
+.log-time-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  z-index: 100;
+  min-width: 220px;
+  overflow: hidden;
+}
+
+.log-time-dropdown.open {
+  display: block;
+}
+
+.log-time-presets {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.log-time-presets button {
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.log-time-presets button:hover {
+  background: var(--bg-hover);
+}
+
+.log-time-presets button.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.log-time-custom {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+}
+
+.log-time-custom-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  font-family: var(--font-sans);
+}
+
+.log-time-custom-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.log-time-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-time-field label {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 34px;
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+}
+
+.log-time-field input {
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.log-time-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.log-time-field input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+.log-time-apply {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.log-time-apply:hover {
+  background: var(--accent-hover);
 }
 
 .logs-table {

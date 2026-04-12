@@ -154,18 +154,24 @@
         </section>
 
         <section class="tab-panel" id="tab-logs">
-          <div class="panel-header">
-            <h2 class="section-title">Call Logs</h2>
+          <div class="log-header">
+            <div class="log-header-top">
+              <h2 class="section-title">Call Logs</h2>
+              <button class="btn-clear-logs" data-action="clear-logs">
+                <span class="material-symbols-outlined" style="font-size: 14px">delete_sweep</span>
+                Clear All
+              </button>
+            </div>
+            <div class="log-filter-search-wrap">
+              <span class="material-symbols-outlined" style="font-size: 16px">search</span>
+              <input
+                type="text"
+                id="log-filter-search"
+                placeholder="Search server, tool, args, response..."
+                autocomplete="off"
+              />
+            </div>
             <div class="log-filters">
-              <div class="log-filter-search-wrap">
-                <span class="material-symbols-outlined" style="font-size: 14px">search</span>
-                <input
-                  type="text"
-                  id="log-filter-search"
-                  placeholder="Search logs..."
-                  autocomplete="off"
-                />
-              </div>
               <select id="log-filter-server">
                 <option value="">All servers</option>
               </select>
@@ -174,12 +180,38 @@
                 <option value="success">Success</option>
                 <option value="fail">Failed</option>
               </select>
-              <input type="datetime-local" id="log-filter-from" title="From" />
-              <input type="datetime-local" id="log-filter-to" title="To" />
-              <button class="btn-clear-logs" data-action="clear-logs">
-                <span class="material-symbols-outlined" style="font-size: 14px">delete_sweep</span>
-                Clear All
-              </button>
+              <div class="log-time-picker" id="log-time-picker">
+                <button class="log-time-btn" id="log-time-btn">
+                  <span class="material-symbols-outlined" style="font-size: 14px">schedule</span>
+                  <span id="log-time-label">All time</span>
+                  <span class="material-symbols-outlined" style="font-size: 14px">expand_more</span>
+                </button>
+                <div class="log-time-dropdown" id="log-time-dropdown">
+                  <div class="log-time-presets">
+                    <button data-minutes="15">Last 15 min</button>
+                    <button data-minutes="60">Last 1 hour</button>
+                    <button data-minutes="360">Last 6 hours</button>
+                    <button data-minutes="1440">Last 24 hours</button>
+                    <button data-minutes="10080">Last 7 days</button>
+                    <button data-minutes="43200">Last 30 days</button>
+                    <button data-minutes="0" class="active">All time</button>
+                  </div>
+                  <div class="log-time-custom">
+                    <div class="log-time-custom-label">Custom range</div>
+                    <div class="log-time-custom-fields">
+                      <div class="log-time-field">
+                        <label>From</label>
+                        <input type="datetime-local" id="log-time-from" />
+                      </div>
+                      <div class="log-time-field">
+                        <label>To</label>
+                        <input type="datetime-local" id="log-time-to" />
+                      </div>
+                      <button class="log-time-apply" id="log-time-apply">Apply</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div id="logs-list" class="logs-table-wrap">

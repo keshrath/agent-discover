@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-04-12
+
+### Changed
+
+- **Time picker redesigned** — replaced native `datetime-local` inputs in the filter bar with a popover dropdown. Default view shows preset time ranges (Last 15 min, 1h, 6h, 24h, 7d, 30d, All time). "Custom range" section at the bottom opens labeled From/To datetime pickers inside the popover. The button label updates to show the selected range (e.g. "Last 1 hour" or "2026-04-12 10:00 – 14:00").
+- **Filter bar layout** — search bar is now full-width on its own row with descriptive placeholder. Server, status, and time picker sit on the second row. Title + Clear All on top row.
+- **Hash-based tab routing** — active tab is persisted in the URL hash (`#servers`, `#browse`, `#logs`). Refreshing the page restores the last-viewed tab.
+
 ## [1.3.1] - 2026-04-12
 
 ### Added

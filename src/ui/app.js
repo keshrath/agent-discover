@@ -78,26 +78,37 @@
   // Tab navigation
   // -------------------------------------------------------------------------
 
+  function switchTab(tab) {
+    currentTab = tab;
+    var navItems = AD._root.querySelectorAll('.nav-item');
+    navItems.forEach(function (n) {
+      n.classList.remove('active');
+      if (n.dataset.tab === tab) n.classList.add('active');
+    });
+    AD._root.querySelectorAll('.tab-panel').forEach(function (p) {
+      p.classList.remove('active');
+    });
+    AD._root.getElementById('tab-' + tab).classList.add('active');
+    if (tab === 'logs') renderLogs();
+    try {
+      history.replaceState(null, '', '#' + tab);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   function initTabs() {
     var navItems = AD._root.querySelectorAll('.nav-item');
     navItems.forEach(function (item) {
       item.addEventListener('click', function () {
-        var tab = this.dataset.tab;
-        currentTab = tab;
-
-        navItems.forEach(function (n) {
-          n.classList.remove('active');
-        });
-        this.classList.add('active');
-
-        AD._root.querySelectorAll('.tab-panel').forEach(function (p) {
-          p.classList.remove('active');
-        });
-        AD._root.getElementById('tab-' + tab).classList.add('active');
-
-        if (tab === 'logs') renderLogs();
+        switchTab(this.dataset.tab);
       });
     });
+
+    var hash = location.hash.replace('#', '');
+    if (hash && AD._root.getElementById('tab-' + hash)) {
+      switchTab(hash);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1212,8 +1223,7 @@
     var serverSel = AD._root.getElementById('log-filter-server');
     var statusSel = AD._root.getElementById('log-filter-status');
     var searchInput = AD._root.getElementById('log-filter-search');
-    var fromInput = AD._root.getElementById('log-filter-from');
-    var toInput = AD._root.getElementById('log-filter-to');
+
     if (serverSel)
       serverSel.addEventListener('change', function () {
         logFilter.server = this.value;
@@ -1229,16 +1239,84 @@
         logFilter.search = this.value;
         renderLogs();
       });
-    if (fromInput)
-      fromInput.addEventListener('change', function () {
-        logFilter.from = this.value;
+
+    initTimePicker();
+  }
+
+  function initTimePicker() {
+    var btn = AD._root.getElementById('log-time-btn');
+    var dropdown = AD._root.getElementById('log-time-dropdown');
+    var label = AD._root.getElementById('log-time-label');
+    var applyBtn = AD._root.getElementById('log-time-apply');
+    var fromInput = AD._root.getElementById('log-time-from');
+    var toInput = AD._root.getElementById('log-time-to');
+    if (!btn || !dropdown) return;
+
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      dropdown.classList.toggle('open');
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!dropdown.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+        dropdown.classList.remove('open');
+      }
+    });
+
+    var presetBtns = dropdown.querySelectorAll('.log-time-presets button');
+    presetBtns.forEach(function (pb) {
+      pb.addEventListener('click', function () {
+        var minutes = parseInt(this.dataset.minutes, 10);
+        presetBtns.forEach(function (b) {
+          b.classList.remove('active');
+        });
+        this.classList.add('active');
+        if (minutes === 0) {
+          logFilter.from = '';
+          logFilter.to = '';
+          if (label) label.textContent = 'All time';
+        } else {
+          logFilter.from = new Date(Date.now() - minutes * 60000).toISOString();
+          logFilter.to = '';
+          if (label) label.textContent = this.textContent;
+        }
+        if (fromInput) fromInput.value = '';
+        if (toInput) toInput.value = '';
+        dropdown.classList.remove('open');
         renderLogs();
       });
-    if (toInput)
-      toInput.addEventListener('change', function () {
-        logFilter.to = this.value;
+    });
+
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        var f = fromInput ? fromInput.value : '';
+        var t = toInput ? toInput.value : '';
+        var fd = f ? new Date(f) : null;
+        var td = t ? new Date(t) : null;
+        logFilter.from = fd ? fd.toISOString() : '';
+        logFilter.to = td ? td.toISOString() : '';
+        presetBtns.forEach(function (b) {
+          b.classList.remove('active');
+        });
+        function fmtShort(d) {
+          return (
+            d.getFullYear() +
+            '-' +
+            String(d.getMonth() + 1).padStart(2, '0') +
+            '-' +
+            String(d.getDate()).padStart(2, '0') +
+            ' ' +
+            String(d.getHours()).padStart(2, '0') +
+            ':' +
+            String(d.getMinutes()).padStart(2, '0')
+          );
+        }
+        var rangeLabel = (fd ? fmtShort(fd) : '...') + ' \u2013 ' + (td ? fmtShort(td) : 'now');
+        if (label) label.textContent = rangeLabel;
+        dropdown.classList.remove('open');
         renderLogs();
       });
+    }
   }
 
   function fetchLogs() {
