@@ -35,7 +35,7 @@ function tryStartDashboard(): void {
       // re-establishes the proxy map from DB-backed active servers. Secondary
       // stdio children of subsequent MCP clients skip hydrate so they don't
       // race on duplicate child spawning.
-      void hydrateActiveServers(appContext);
+      void hydrateActiveServers(appContext).then(() => appContext.syncSetup());
     })
     .catch(() => {
       process.stderr.write(

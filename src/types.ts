@@ -6,7 +6,7 @@
 // Server Registry
 // ---------------------------------------------------------------------------
 
-export type ServerSource = 'local' | 'registry' | 'smithery' | 'manual';
+export type ServerSource = 'local' | 'registry' | 'smithery' | 'manual' | 'setup-file';
 export type ServerTransport = 'stdio' | 'sse' | 'streamable-http';
 export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 

@@ -494,6 +494,11 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
     }
   });
 
+  route('POST', '/api/sync', async (_req, res) => {
+    const result = await ctx.syncSetup();
+    json(res, result);
+  });
+
   route('GET', '/api/status', (_req, res) => {
     const activeNames = ctx.proxy.getActiveServerNames();
     const servers = activeNames.map((name) => {

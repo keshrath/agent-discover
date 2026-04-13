@@ -47,6 +47,8 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryBrowse(ctx, args);
     case 'status':
       return registryStatus(ctx, args);
+    case 'sync':
+      return registrySync(ctx, args);
     case 'find_tool':
       return registryFindTool(ctx, args);
     case 'find_tools':
@@ -57,7 +59,7 @@ const handleRegistry: HandlerFn = async (ctx, args) => {
       return registryProxyCall(ctx, args);
     default:
       throw new ValidationError(
-        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, find_tool, find_tools, get_schema, proxy_call`,
+        `Unknown registry action: "${action}". Valid: list, install, uninstall, activate, deactivate, browse, status, sync, find_tool, find_tools, get_schema, proxy_call`,
       );
   }
 };
@@ -324,6 +326,16 @@ const registryStatus: HandlerFn = (ctx) => {
   });
 
   return { active_count: servers.length, servers };
+};
+
+// ---------------------------------------------------------------------------
+// sync — re-read declarative setup file
+// ---------------------------------------------------------------------------
+
+const registrySync: HandlerFn = async (ctx, args) => {
+  const filePath = optStr(args.file);
+  const result = await ctx.syncSetup(filePath ?? undefined);
+  return result;
 };
 
 // ---------------------------------------------------------------------------

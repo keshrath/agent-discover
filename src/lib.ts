@@ -47,5 +47,9 @@ export type {
   ToolDefinition,
 } from './types.js';
 
+// Setup file
+export { syncSetupFile, readSetupFile, getSetupFilePath } from './domain/setup.js';
+export type { SetupFile, SetupServerEntry, SyncResult } from './domain/setup.js';
+
 // Error classes
 export { RegistryError, NotFoundError, ValidationError, ConflictError } from './types.js';

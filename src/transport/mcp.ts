@@ -21,7 +21,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'registry',
     description:
-      'MCP server registry. Actions: "find_tool" (single-call tool discovery — BM25-ranked search by intent, returns top match with required args, confidence label, and auto-activates server; PREFER THIS for tool discovery), "find_tools" (batch find_tool — pass intents:[\'intent1\',\'intent2\',...] to discover N tools in ONE round-trip; use for multi-step tasks), "get_schema" (full input_schema for a tool already returned by find_tool — only needed for fat schemas with optional/polymorphic args), "list" (search local registry by server), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools).',
+      'MCP server registry. Actions: "find_tool" (single-call tool discovery — BM25-ranked search by intent, returns top match with required args, confidence label, and auto-activates server; PREFER THIS for tool discovery), "find_tools" (batch find_tool — pass intents:[\'intent1\',\'intent2\',...] to discover N tools in ONE round-trip; use for multi-step tasks), "get_schema" (full input_schema for a tool already returned by find_tool — only needed for fat schemas with optional/polymorphic args), "list" (search local registry by server), "install" (add server from marketplace or manual config), "uninstall" (remove server), "activate" / "deactivate" (start/stop server and expose/hide its tools), "browse" (search official MCP registry), "status" (show active servers and tools), "sync" (re-read AGENT_DISCOVER_SETUP_FILE and ensure listed servers are registered; optional "file" param to override path).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -39,6 +39,7 @@ export const tools: ToolDefinition[] = [
             'deactivate',
             'browse',
             'status',
+            'sync',
           ],
           description: 'Action to perform',
         },

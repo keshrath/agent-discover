@@ -15,6 +15,7 @@ import { SecretsService } from './domain/secrets.js';
 import { HealthService } from './domain/health.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
+import { syncSetupFile, type SyncResult } from './domain/setup.js';
 
 export interface AppContext {
   readonly db: Db;
@@ -27,6 +28,7 @@ export interface AppContext {
   readonly health: HealthService;
   readonly metrics: MetricsService;
   readonly logs: LogService;
+  syncSetup(filePath?: string): Promise<SyncResult>;
   close(): void;
 }
 
@@ -63,6 +65,9 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     health,
     metrics,
     logs,
+    syncSetup(filePath?: string) {
+      return syncSetupFile(registry, secrets, proxy, filePath);
+    },
     close() {
       if (closed) return;
       closed = true;
