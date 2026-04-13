@@ -1478,3 +1478,130 @@ body {
   border-color: var(--red);
   color: var(--red);
 }
+
+/* --------------------------------------------------------------------------
+   Mobile Responsive (768px)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    padding: 0;
+    z-index: 100;
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+  .sidebar-header {
+    display: none;
+  }
+  .sidebar-nav {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    gap: 0;
+    padding: 0;
+    justify-content: space-around;
+  }
+  .nav-item {
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 4px;
+    font-size: 10px;
+    border-radius: 0;
+    flex: 1;
+    justify-content: center;
+    align-items: center;
+  }
+  .nav-item .material-symbols-outlined {
+    font-size: 20px;
+  }
+  .nav-item .badge {
+    display: none;
+  }
+  .sidebar-footer {
+    display: none;
+  }
+  .content {
+    margin-left: 0;
+    padding: 16px 12px 72px;
+  }
+  .panel-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .section-title {
+    font-size: 12px;
+  }
+  .server-grid {
+    grid-template-columns: 1fr;
+  }
+  .form-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .form-field {
+    flex: 1 1 100% !important;
+  }
+  .add-server-form {
+    padding: 12px;
+  }
+  .search-bar {
+    max-width: 100%;
+  }
+  .search-bar input {
+    max-width: 100%;
+  }
+  .log-filters {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .log-filters select {
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+  }
+  .log-time-picker {
+    flex: 1 1 100%;
+  }
+  .log-time-dropdown {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+  .log-time-custom-fields {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .log-filter-search-wrap {
+    max-width: 100%;
+  }
+  .log-filter-search-wrap input {
+    max-width: 100%;
+  }
+  .server-card-header {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .server-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .empty-state {
+    padding: 32px 16px;
+  }
+  .btn-add-server {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
