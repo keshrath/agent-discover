@@ -1542,8 +1542,30 @@ body {
     gap: 8px;
   }
   .section-title {
-    font-size: 12px;
+    font-size: 16px;
   }
+
+  /* -- Tool list: stack vertically on mobile -- */
+  .tool-list {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .tool-name {
+    white-space: normal;
+    padding-top: 8px;
+    border-bottom: none;
+  }
+  .tool-desc {
+    padding-top: 2px;
+    padding-bottom: 8px;
+  }
+
+  /* -- Nav item touch targets -- */
+  .nav-item {
+    min-height: 48px;
+    position: relative;
+  }
+
   .server-grid {
     grid-template-columns: 1fr;
   }
