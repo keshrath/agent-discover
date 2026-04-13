@@ -139,6 +139,58 @@ AGENT_DISCOVER_EMBEDDING_PROVIDER=openai OPENAI_API_KEY=sk-... node dist/index.j
 AGENT_DISCOVER_EMBEDDING_PROVIDER=local node dist/index.js
 ```
 
+#### Declarative Setup File
+
+| Variable                    | Default | Description                                              |
+| --------------------------- | ------- | -------------------------------------------------------- |
+| `AGENT_DISCOVER_SETUP_FILE` | —       | Path to a JSON file listing servers to ensure-registered |
+
+On startup, if this env var is set, agent-discover reads the file and registers any servers not yet in the DB. A `.local.json` variant is automatically read too (e.g. if the env var points to `discover-setup.json`, the file `discover-setup.local.json` in the same directory is also read if it exists). The base file is meant to be committed (shared servers, no secrets); the `.local.json` variant is meant to be gitignored (machine-specific servers with secrets).
+
+**Setup file format:**
+
+```json
+{
+  "servers": [
+    {
+      "name": "context7",
+      "description": "Live library docs for 9,000+ packages",
+      "transport": "streamable-http",
+      "url": "https://mcp.context7.com/mcp",
+      "tags": ["docs", "libraries"],
+      "auto_activate": false
+    },
+    {
+      "name": "my-local-server",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["path/to/server.js"],
+      "env": { "API_KEY": "$MY_API_KEY" },
+      "secrets": { "TOKEN": "direct-value-or-$ENV_REF" },
+      "tags": ["local"],
+      "auto_activate": true
+    }
+  ]
+}
+```
+
+**Fields per server:**
+
+| Field           | Type     | Required | Description                                                        |
+| --------------- | -------- | -------- | ------------------------------------------------------------------ |
+| `name`          | string   | Yes      | Server name (alphanumeric, dash, underscore, dot)                  |
+| `description`   | string   | No       | Human-readable description                                         |
+| `transport`     | string   | No       | `stdio` (default), `sse`, or `streamable-http`                     |
+| `command`       | string   | No       | Command to run (stdio transport)                                   |
+| `args`          | string[] | No       | Command arguments                                                  |
+| `env`           | object   | No       | Environment variables. Values with `$VAR` are resolved from env.   |
+| `url`           | string   | No       | Server URL (sse/streamable-http transport)                         |
+| `tags`          | string[] | No       | Tags for search                                                    |
+| `secrets`       | object   | No       | Key-value secrets stored via SecretsService. `$VAR` refs resolved. |
+| `auto_activate` | boolean  | No       | Activate immediately after registration (default: false)           |
+
+Sync is idempotent — existing servers are skipped. Re-read on demand via `registry({ action: "sync" })` or `POST /api/sync`.
+
 ### Claude Code Setup
 
 Add agent-discover to your Claude Code MCP configuration in `~/.claude.json`:

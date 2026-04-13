@@ -59,6 +59,7 @@ Static MCP configs mean every server is always running, even when unused. Adding
 - **Pre-download** -- fire-and-forget `npm cache add` (npx servers) or `uv tool install` (uvx servers) on registration, plus a dedicated `/preinstall` endpoint
 - **Real-time dashboard** -- web UI at http://localhost:3424 with Servers and Browse tabs, dark/light theme, WebSocket updates
 - **3 transport layers** -- MCP (stdio), REST API (HTTP), WebSocket (real-time events)
+- **Declarative setup file** -- set `AGENT_DISCOVER_SETUP_FILE` to a JSON file listing servers to ensure-registered on startup. Idempotent (skips existing). Supports `auto_activate`, env var secret refs (`$VAR`), and tags. Automatically also reads a `.local.json` variant (e.g. `discover-setup.local.json`) for machine-specific servers with secrets. New `registry({ action: "sync" })` MCP action and `POST /api/sync` REST endpoint for on-demand re-read.
 - **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real Claude Code and OpenCode hosts. Headline result at N=1000 against an adversarial natural-language verb pack: discover 100% accuracy + 27% lower per-turn token cost vs eager 80% accuracy. See [`bench/README.md`](bench/README.md).
 
 ---
