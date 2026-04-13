@@ -74,15 +74,19 @@ export interface SyncResult {
   errors: Array<{ name: string; error: string }>;
 }
 
-export async function syncSetupFile(
+function mergeResults(target: SyncResult, source: SyncResult): void {
+  target.registered.push(...source.registered);
+  target.activated.push(...source.activated);
+  target.skipped.push(...source.skipped);
+  target.errors.push(...source.errors);
+}
+
+async function syncSingleFile(
   registry: RegistryService,
   secrets: SecretsService,
   proxy: McpProxy,
-  filePath?: string,
+  path: string,
 ): Promise<SyncResult> {
-  const path = filePath ?? getSetupFilePath();
-  if (!path) return { registered: [], activated: [], skipped: [], errors: [] };
-
   const setup = readSetupFile(path);
   if (!setup) return { registered: [], activated: [], skipped: [], errors: [] };
 
@@ -161,8 +165,29 @@ export async function syncSetupFile(
 
   if (result.registered.length > 0 || result.activated.length > 0 || result.errors.length > 0) {
     process.stderr.write(
-      `[agent-discover] setup sync: ${result.registered.length} registered, ${result.activated.length} activated, ${result.skipped.length} skipped, ${result.errors.length} errors\n`,
+      `[agent-discover] setup sync (${path}): ${result.registered.length} registered, ${result.activated.length} activated, ${result.skipped.length} skipped, ${result.errors.length} errors\n`,
     );
+  }
+
+  return result;
+}
+
+export async function syncSetupFile(
+  registry: RegistryService,
+  secrets: SecretsService,
+  proxy: McpProxy,
+  filePath?: string,
+): Promise<SyncResult> {
+  const basePath = filePath ?? getSetupFilePath();
+  if (!basePath) return { registered: [], activated: [], skipped: [], errors: [] };
+
+  const result = await syncSingleFile(registry, secrets, proxy, basePath);
+
+  // Auto-read .local variant (gitignored, machine-specific servers with secrets)
+  const localPath = basePath.replace(/\.json$/, '.local.json');
+  if (localPath !== basePath && existsSync(localPath)) {
+    const localResult = await syncSingleFile(registry, secrets, proxy, localPath);
+    mergeResults(result, localResult);
   }
 
   return result;
