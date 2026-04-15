@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-discover": {
+      "command": "npx",
+      "args": ["-y", "agent-discover@^1.3.7"]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "agent-discover",
+  "description": "MCP server registry and marketplace. Discover, install, activate, and proxy stdio/HTTP MCP servers on-demand with namespaced tool proxying.",
+  "version": "1.3.7",
+  "author": {
+    "name": "keshrath"
+  },
+  "homepage": "https://github.com/keshrath/agent-discover",
+  "repository": "https://github.com/keshrath/agent-discover",
+  "license": "MIT",
+  "keywords": ["mcp", "registry", "marketplace", "proxy", "claude-code"]
+}
