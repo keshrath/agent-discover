@@ -147,19 +147,13 @@ describe('REST API Error Cases', () => {
 
   describe('GET /api/browse — limit parameter handling', () => {
     it('should use default limit for non-numeric value', async () => {
-      // This should not crash; the handler parses and falls back to 20
-      // We can't easily assert the limit was 20 without mocking marketplace,
-      // but we can verify it doesn't 500
       try {
         const res = await request('/api/browse?limit=abc');
-        // Marketplace call will likely fail (no network in test), but the
-        // limit parsing should not cause a crash on its own
-        // Any status is fine as long as it doesn't hang
         expect(res.status).toBeDefined();
       } catch {
         // Fetch error from marketplace is acceptable
       }
-    });
+    }, 30000);
   });
 
   describe('Path traversal protection', () => {

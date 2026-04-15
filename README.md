@@ -9,6 +9,8 @@
 
 **MCP server registry and marketplace.** Discover, install, activate, and manage MCP tools on demand. Acts as a dynamic proxy -- activated servers have their tools merged into the registry's own tool list, so agents can use them without restarting.
 
+> **Every MCP client today — Claude Code, Cursor, Codex CLI, Aider, Continue, plain MCP clients — requires a full agent-session restart to pick up a newly registered MCP server.** The tool catalog is frozen at startup. agent-discover is the only path to register a new server and have it become discoverable in the same running session. This is the one differentiator that survives against every host, even those with their own built-in deferred-tool loaders.
+
 Search spans the **official MCP registry**, **npm**, and **PyPI** in one query, so popular servers that aren't in the official index (Microsoft `@playwright/mcp`, `@modelcontextprotocol/server-*`, `mcp-server-fetch`, `mcp-server-git`, …) all show up.
 
 Built for AI coding agents (Claude Code, Codex CLI, Gemini CLI, Aider) but works equally well with any MCP client, REST consumer, or WebSocket listener.
@@ -60,7 +62,7 @@ Static MCP configs mean every server is always running, even when unused. Adding
 - **Real-time dashboard** -- web UI at http://localhost:3424 with Servers and Browse tabs, dark/light theme, WebSocket updates
 - **3 transport layers** -- MCP (stdio), REST API (HTTP), WebSocket (real-time events)
 - **Declarative setup file** -- set `AGENT_DISCOVER_SETUP_FILE` to a JSON file listing servers to ensure-registered on startup. Idempotent (skips existing). Supports `auto_activate`, env var secret refs (`$VAR`), and tags. Automatically also reads a `.local.json` variant (e.g. `discover-setup.local.json`) for machine-specific servers with secrets. New `registry({ action: "sync" })` MCP action and `POST /api/sync` REST endpoint for on-demand re-read.
-- **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real Claude Code and OpenCode hosts. Headline result at N=1000 against an adversarial natural-language verb pack: discover 100% accuracy + 27% lower per-turn token cost vs eager 80% accuracy. See [`bench/README.md`](bench/README.md).
+- **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real OpenCode + gpt-5-mini. Reproducible structural result: discover's first-turn input tokens are flat in N (~20.8k across N ∈ {10, 100, 1000, 3000}); eager's grow linearly (20.9k → 32.4k → 160.9k → context overflow at N=3000). End-to-end accuracy and multi-turn cost numbers are noisier and model-dependent — see [`bench/README.md`](bench/README.md) for what reproduces and what doesn't.
 
 ---
 

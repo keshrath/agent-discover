@@ -1,36 +1,36 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-04-09T20:51:28.335Z",
+  "generated_at": "2026-04-15T17:24:19.693Z",
   "reports": [
     {
       "arm": "eager",
-      "catalog_size": 200,
-      "n_tasks": 1,
-      "mean_input_tokens": 39058,
-      "mean_output_tokens": 404,
-      "mean_total_cost_usd": 0.0121949,
-      "mean_wall_seconds": 14.994,
-      "mean_turns": 2,
-      "success_rate": 1,
-      "choice_accuracy": 1,
+      "catalog_size": 1000,
+      "n_tasks": 5,
+      "mean_input_tokens": 0,
+      "mean_output_tokens": 0,
+      "mean_total_cost_usd": 0,
+      "mean_wall_seconds": 15.8686,
+      "mean_turns": 0,
+      "success_rate": 0,
+      "choice_accuracy": 0,
       "distractor_call_rate": 0,
-      "refusal_rate": 0,
+      "refusal_rate": 1,
       "mean_discovery_calls": 0
     },
     {
       "arm": "discover",
-      "catalog_size": 200,
-      "n_tasks": 1,
-      "mean_input_tokens": 50006,
-      "mean_output_tokens": 573,
-      "mean_total_cost_usd": 0.015417100000000001,
-      "mean_wall_seconds": 18.638,
-      "mean_turns": 3,
-      "success_rate": 1,
-      "choice_accuracy": 1,
+      "catalog_size": 1000,
+      "n_tasks": 5,
+      "mean_input_tokens": 21868.2,
+      "mean_output_tokens": 57.6,
+      "mean_total_cost_usd": 0.00331479,
+      "mean_wall_seconds": 21.643,
+      "mean_turns": 1,
+      "success_rate": 0,
+      "choice_accuracy": 0,
       "distractor_call_rate": 0,
-      "refusal_rate": 0,
-      "mean_discovery_calls": 1
+      "refusal_rate": 1,
+      "mean_discovery_calls": 1.6
     }
   ]
 }

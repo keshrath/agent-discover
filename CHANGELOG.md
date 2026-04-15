@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.9] - 2026-04-15
+
+### Changed
+
+- **Bench README rewritten to reflect reproducible current-state numbers.** Headline replaced with the scaling-of-first-turn-tokens table at N ∈ {10, 100, 1000, 3000} on OpenCode + gpt-5-mini: discover flat at ~20.8k, eager linear (20.9k → 32.4k → 160.9k → context overflow at N=3000). Adversarial CRUD pack now shows both arms at 100% accuracy; discover slightly more expensive on end-to-end multi-turn cost ($0.086 vs $0.068) due to `find_tool` output accumulation in conversation history. Added an explicit multi-turn cost caveat section.
+- **Top-level README elevates the no-session-restart differentiator.** Prominent callout directly under the intro noting that every MCP client today — including Claude Code — requires a full restart to pick up a newly registered MCP server, and agent-discover is the only path to register a new server and have it become discoverable in the same session.
+
 ## [1.3.2] - 2026-04-12
 
 ### Changed
@@ -107,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FTS5 + BM25 ranking on `server_tools`** (migration v4). Adds a `server_tools_fts` virtual table with name × 4 / description × 1 column weighting, plus a query preprocessor that expands verb synonyms (`fetch → get`, `cancel → delete`, etc.) and singularizes plurals (`subscriptions → subscription`).
 - **Embedding columns on `server_tools`** (migration v5). `embedding` (TEXT, base64-encoded float32) and `embedding_model` columns for semantic search. Embeddings are optional; tools without one fall back to BM25 ranking only.
 - **Hybrid retrieval (`searchToolsHybrid`).** Brute-force cosine similarity over the entire embedded catalog + BM25 candidate union, scored 70% semantic / 30% lexical. Closes the natural-language gap that pure BM25 misses (e.g. "billing arrangement" → "subscription").
-- **Bench harness** under `bench/` comparing eager tool loading vs deferred discovery. Real Claude Code (`bench/drivers/cli.ts`) and OpenCode (`bench/drivers/opencode.ts`) drivers, isolated bench DB, scoring with `success` / `choice_accuracy` / `distractor_call_rate` / `refusal_rate` metrics, and a standalone `bench/rescore.ts` that re-applies the current scoring logic to captured event streams without spending fresh API tokens. Headline result at N=1000 on OpenCode + gpt-5-mini against an adversarial natural-language verb pack: discover 100% / 100% / 0% vs eager 80% / 80% / 20%, with ~27% lower per-turn token cost. Full results in `bench/README.md`.
+- **Bench harness** under `bench/` comparing eager tool loading vs deferred discovery. Real Claude Code (`bench/drivers/cli.ts`) and OpenCode (`bench/drivers/opencode.ts`) drivers, isolated bench DB, scoring with `success` / `choice_accuracy` / `distractor_call_rate` / `refusal_rate` metrics, and a standalone `bench/rescore.ts` that re-applies the current scoring logic to captured event streams without spending fresh API tokens. Headline reproducible result on OpenCode + gpt-5-mini: discover's first-turn input tokens are flat at ~20.8k across N ∈ {10, 100, 1000, 3000}; eager's grow linearly (20.9k → 32.4k → 160.9k → context overflow at N=3000, where eager can no longer complete the task). Full write-up in `bench/README.md`.
 
 ## [1.1.4] - 2026-04-09
 

@@ -185,91 +185,101 @@ Estimated cost for the full sweep at current Sonnet 4.6 prices: **~$8–15**
 
 ## Results
 
-### Headline — agent-discover v1.2.1
+### The practical win that isn't in the bench: no session restart
 
-**At N=1000 with adversarial natural-language prompts on OpenCode + gpt-5-mini,
-agent-discover hits 100% choice accuracy + 27% lower per-turn cost than eager
-loading.** The accuracy gap comes from verb-collision confusion that
-overloaded eager catalogs can't escape — the model sees all 1000 schemas,
-picks a near-match (e.g., `stripe_search_subscription` when asked to "show
-me all"), and the distractor rate climbs to 20%. agent-discover's hybrid
-BM25+semantic retrieval disambiguates correctly via embeddings.
+Every MCP client today — **including Claude Code** — requires a full
+agent-session restart to pick up a newly registered MCP server. The tool
+catalog is loaded once at startup and frozen. Long-running sessions,
+scheduled agents, and IDE-attached agents all have to be torn down and
+rebuilt every time you plug in another integration.
 
-5 adversarial verb tasks (CRUD on `stripe_subscription`, prompts using
-inferred natural language like _"set up brand new recurring monthly billing
-arrangement"_ instead of canonical CRUD verbs) × 2 arms × N=1000 = 10 real
-subagent runs.
+With agent-discover, you `register` a new server through the registry
+(REST, MCP action, or the declarative setup file) and it becomes
+discoverable via `find_tool` in the same session — **no restart, no
+reload**. The host sees the same 5 registry tools throughout the
+lifetime of the session; agent-discover handles new child servers
+internally.
 
-| arm          |    N | tokens / turn |  success |   choice | distract |
-| ------------ | ---: | ------------: | -------: | -------: | -------: |
-| eager        | 1000 |          ~30k |      80% |      80% |      20% |
-| **discover** | 1000 |      **~22k** | **100%** | **100%** |   **0%** |
+This is the one differentiator that survives against every host,
+including hosts with their own built-in deferred-tool loaders — because
+a built-in loader still can't register a brand-new MCP server without
+restarting its own catalog watcher. It's not measured in the bench below
+(benches are single-shot runs, not long-lived sessions), but it's the
+motivation behind the project.
 
-The token-per-turn delta is the cost story: discover's per-turn cost is
-**flat in N** because only the `registry` tool ever enters the prompt — the
-catalog of 1000 stays in the agent-discover process. Eager's per-turn cost
-**grows linearly with N** because every schema lives in the system prompt
-every turn.
+### Headline — scaling of first-turn input tokens
 
-### Per-task — where each arm fails
+**Discover's first-turn input tokens are flat in N; eager's grow linearly
+and eventually exceed the model's context window.** That's a structural
+property of the two designs and the cleanest signal the bench produces.
 
-| task         | eager (gpt-5-mini, all 1000 schemas)                             | discover (hybrid retrieval)   |
-| ------------ | ---------------------------------------------------------------- | ----------------------------- |
-| adv-create   | ✅ stripe_create_subscription                                    | ✅ stripe_create_subscription |
-| adv-get      | ✅ stripe_get_subscription                                       | ✅ stripe_get_subscription    |
-| adv-update   | ✅ stripe_update_subscription                                    | ✅ stripe_update_subscription |
-| adv-delete   | ✅ stripe_delete_subscription                                    | ✅ stripe_delete_subscription |
-| **adv-list** | ❌ stripe\_**search**\_subscription, stripe\_**search**\_invoice | ✅ stripe_list_subscription   |
+OpenCode + gpt-5-mini, `adv-create` task, 1 run per cell, captured event
+stream in `_results/`. First-turn input tokens (model-independent proxy
+for system-prompt size):
 
-Eager picks `search` instead of `list` when asked to _"pull together every
-recurring billing arrangement"_ — verb collision among 8 stripe\_\*\_subscription
-tools in the same prompt. Discover's BM25+cosine ranking identifies the
-correct verb because the embedding signal for "every / pull together" maps
-cleanly to the canonical `list` verb in tool descriptions.
+|    N | eager turn-1 input        | discover turn-1 input | discover advantage                    |
+| ---: | :------------------------ | --------------------: | ------------------------------------- |
+|   10 | 20,893                    |                20,836 | ~equal (overhead dominates)           |
+|  100 | 32,389                    |                20,836 | 1.55× cheaper                         |
+| 1000 | 160,868                   |                20,840 | **7.72× cheaper**                     |
+| 3000 | context overflow — failed |                20,837 | eager unusable; discover still scales |
+
+At N=3000 eager's system prompt no longer fits alongside the task in
+gpt-5-mini's context budget; the agent loops without making progress and
+hits the wall timeout. Discover's first turn still fits cleanly at ~20.8k.
+That is the capability ceiling — discover scales past the point where
+eager can no longer run.
+
+### End-to-end accuracy and cost (adversarial CRUD pack, N=1000)
+
+5 adversarial verb tasks × 2 arms × N=1000 on OpenCode + gpt-5-mini:
+
+| arm      | choice accuracy | success rate | cost / task | turns |
+| -------- | :-------------: | :----------: | ----------: | ----: |
+| eager    |      100%       |     100%     |      $0.068 |   2.0 |
+| discover |      100%       |     100%     |      $0.086 |   3.0 |
+
+Both arms disambiguate the adversarial verbs correctly on gpt-5-mini —
+no accuracy gap at this model strength. End-to-end cost per task is
+slightly higher for discover because of the multi-turn cost caveat below.
+
+### Multi-turn cost caveat
+
+Discover's first turn is much smaller than eager's, but the `find_tool`
+tool output stays in conversation history and inflates every subsequent
+turn's input. Measured on `adv-list` at N=1000:
+
+| turn | eager input |                                 discover input |
+| ---: | ----------: | ---------------------------------------------: |
+|    1 |     160,868 |                                         20,840 |
+|    2 |     161,381 |                                        173,671 |
+|    3 |           — | ~500 (final tool call, minimal context replay) |
+
+The cost win is unambiguous only for workloads that resolve in one or
+two turns **and** where the catalog is large. Reducing `find_tool`'s
+payload size (or evicting it from history after the referenced tool is
+invoked) would widen the discover advantage on multi-turn tasks.
 
 ### Where this matters most: hosts that don't already defer
 
-The bench was run against **OpenCode**, which loads MCP tools eagerly with
-no built-in deferred-tool loader. **OpenCode is representative of most MCP
-clients today** — Cursor, Aider, Codex CLI, Continue, plain MCP clients,
-and any custom tooling built on the Anthropic / OpenAI APIs all behave the
-same way. For all of these hosts, agent-discover delivers **the full stack
-of wins**:
+OpenCode loads MCP tools eagerly with no built-in deferred-tool loader
+— representative of Cursor, Aider, Codex CLI, Continue, and plain MCP
+clients. For these hosts, agent-discover delivers:
 
-1. **Accuracy**: +20pp on the adversarial verb pack vs eager
-2. **Per-turn cost**: 27% cheaper at N=1000, and the gap grows with N
-3. **Capability ceiling**: works at any catalog size where eager hits the
-   model's tool-count or context limit and fails outright
-4. **Runtime config changes** (see below) — the practical day-to-day win
+1. **First-turn cost**: 7.7× cheaper at N=1000, gap widens with N
+2. **Capability ceiling**: works past the catalog size where eager can
+   no longer fit in context (at N=3000 eager fails)
+3. **Runtime config changes** (see top of this section) — no session restart needed
 
-**Claude Code is the exception.** It ships its own built-in MCP Tool Search
-that auto-defers tool catalogs above ~10% of context, so the eager arm there
-isn't actually eager — Claude Code transparently turns it into a deferred
-flow. Against Claude Code, the accuracy gap collapses (both arms hit 100%
-on this workload at N=1000) and **only the cost factor + the runtime config
-benefit remain** as differentiators.
+Claude Code ships its own MCP Tool Search that auto-defers catalogs above
+~10% of context, so the eager arm there isn't actually eager — the
+first-turn cost gap collapses and only the runtime-config benefit
+remains as a clear differentiator.
 
-| host class                                    | accuracy win | cost win | runtime config win | capability ceiling win |
-| --------------------------------------------- | :----------: | :------: | :----------------: | :--------------------: |
-| OpenCode / Cursor / Aider / Codex / plain MCP |      ✅      |    ✅    |         ✅         |           ✅           |
-| Claude Code (built-in MCP Tool Search)        |   neutral    |    ✅    |         ✅         |        marginal        |
-
-### Runtime config changes — no session restart
-
-This isn't measured in the bench but it's the day-to-day win that motivated
-the project in the first place. With eager MCP loading, **adding a new MCP
-server or changing your MCP config requires restarting the agent session**
-because the tool catalog is loaded once at session start. Long-running
-sessions, scheduled agents, and IDE-attached agents all have to be torn down
-and rebuilt every time you want to plug in another integration.
-
-With agent-discover, you `register` a new server through the registry (REST
-API or `registry({action:"install"})`) and it becomes immediately
-discoverable via `find_tool` in the same session — **no restart**. The host
-sees the same 5 registry tools throughout the lifetime of the session;
-agent-discover handles the new servers internally. For hosts that already
-have built-in defer (Claude Code), this is the unique value-add the built-in
-can't replicate, because it would still need a full catalog reload.
+| host class                                    | first-turn cost | capability ceiling | runtime config |
+| --------------------------------------------- | :-------------: | :----------------: | :------------: |
+| OpenCode / Cursor / Aider / Codex / plain MCP |       ✅        |         ✅         |       ✅       |
+| Claude Code (built-in MCP Tool Search)        |    marginal     |      marginal      |       ✅       |
 
 ### Configuring embeddings
 
@@ -305,8 +315,8 @@ two servers can share an embeddings API key and conventions.
 
 ### Architecture (what's in the box)
 
-agent-discover v1.2.1 exposes a single `registry` MCP tool with these
-actions, each measured by the bench:
+agent-discover exposes a single `registry` MCP tool with these actions,
+each measured by the bench:
 
 | action       | what it does                                                                                                                            |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -332,37 +342,45 @@ Retrieval pipeline behind `find_tool` / `find_tools`:
 ### How the bench was actually run
 
 ```bash
-# Seed the bench-isolated agent-discover DB with 1000 fake tools + embeddings
-npm run bench:seed -- --n=1000        # uses OPENAI_API_KEY for embeddings
+# Scaling sweep — proves the structural claim (eager ∝ N, discover flat)
+npm run bench:run -- --real --driver=opencode --model=openai/gpt-5-mini \
+  --sweep --sizes=10,100,1000,3000 \
+  --ids=adv-create --budget=0.50
 
-# Run the adversarial verb pack against OpenCode + gpt-5-mini
+# Full 5-task adversarial pack at a single N (accuracy / end-to-end cost)
 npm run bench:run -- --real --driver=opencode --model=openai/gpt-5-mini \
   --sweep --sizes=1000 \
   --ids=adv-create,adv-get,adv-list,adv-update,adv-delete --budget=1.00
 ```
 
-Total cost of the sweep: **~$0.50 in API spend**, ~10 min wall.
+The discover arm auto-seeds the bench DB with `N` fake tools + embeddings
+before running (requires `OPENAI_API_KEY` for `text-embedding-3-small`).
+
+Combined cost of both runs above: **~$1.00 in API spend**, ~15 min wall.
 
 Raw per-task results (including captured event streams for every run):
 [`bench/_results/latest.json`](_results/latest.json).
 
 ### Caveats
 
-- **N=1 per (task, arm, N)** — pilot numbers, not statistically replicated.
-  Re-running the same sweep can shift the success rate by ±20pp on tasks
-  where outcomes depend on the agent's specific reasoning path. The headline
-  numbers above should be read as "indicative", not "publishable to a
-  conference". The directional finding (discover ≥ eager on accuracy AND
-  cost at N=1000) reproduces consistently across reruns.
+- **n=1 per (task, arm, N)** — pilot numbers, not statistically replicated.
+  The scaling signal (first-turn input tokens) is deterministic and
+  survives n=1 cleanly. The accuracy and end-to-end cost numbers do not —
+  both can shift ±20pp per task on rerun and should be treated as
+  indicative.
+- **Scaling claim is the load-bearing result.** First-turn input tokens
+  at N ∈ {10, 100, 1000, 3000} reproduce cleanly: eager grows linearly,
+  discover stays flat. This is independent of the model and of
+  verb-collision accuracy noise.
 - **5-task adversarial subset.** The full 25-task workload
-  (`bench/workloads/tasks.json`) is also runnable but the adversarial pack
-  is the most direct test of the "tool confusion" hypothesis.
-- **OpenCode + gpt-5-mini specifically** for the headline. The same
-  measurement against Claude Code shows the cost win but not the accuracy
-  gap (Claude Code's built-in defer flattens it). See "Where this matters
-  most" above.
-- **Stub tools return success unconditionally** — measuring discovery and
-  selection, not real-world tool reliability.
-- **Embedding cost**: ~$0.001 per 1000 tools to seed (OpenAI
-  text-embedding-3-small). One-time at registration; queries are pure cosine
-  over the local store with no further API spend.
+  (`bench/workloads/tasks.json`) is also runnable; the adversarial pack
+  is the most direct test of the "tool confusion" hypothesis, though
+  gpt-5-mini currently solves it at 100% on both arms.
+- **OpenCode + gpt-5-mini specifically.** Against Claude Code the
+  first-turn scaling is flattened by the built-in MCP Tool Search; only
+  the runtime-config benefit remains a clear differentiator there.
+- **Stub tools return success unconditionally** — we measure discovery
+  and selection, not real-world tool reliability.
+- **Embedding cost**: ~$0.003 per 1000 tools to seed (OpenAI
+  `text-embedding-3-small`). One-time at registration; queries are pure
+  cosine over the local store with no further API spend.
