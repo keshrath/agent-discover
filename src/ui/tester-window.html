@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Tester</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, system-ui, sans-serif;
+      }
+      .tw-root {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      .tw-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-alt);
+      }
+      .tw-name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .tw-meta {
+        color: var(--text-muted);
+        font-size: 12px;
+      }
+      .tw-theme {
+        margin-left: auto;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      .tw-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 14px 18px;
+      }
+      .tw-body .tester-shell {
+        padding: 0;
+      }
+      .tw-body .tester-list {
+        max-height: none;
+      }
+      .tw-body .tester-popout {
+        display: none;
+      }
+      .tw-conn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+      .tw-conn::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #888;
+      }
+      .tw-conn.connected::before {
+        background: #27ae60;
+      }
+      .tw-conn.disconnected::before {
+        background: #c9394b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tw-root">
+      <div class="tw-head">
+        <span class="material-symbols-outlined" style="color: var(--accent)">bug_report</span>
+        <div>
+          <div class="tw-name" id="tw-name">Loading…</div>
+          <div class="tw-meta" id="tw-meta"></div>
+        </div>
+        <span class="tw-conn" id="tw-conn">connecting</span>
+        <button class="tw-theme" id="tw-theme" title="Toggle theme">
+          <span class="material-symbols-outlined" style="font-size: 14px">dark_mode</span>
+        </button>
+      </div>
+      <div class="tw-body" id="tw-body">
+        <div class="hint">Connecting…</div>
+      </div>
+    </div>
+
+    <script src="/morphdom.min.js"></script>
+    <script src="/markdown.js"></script>
+    <script src="/schema-form.js"></script>
+    <script src="/tester.js"></script>
+    <script src="/tester-window.js"></script>
+  </body>
+</html>

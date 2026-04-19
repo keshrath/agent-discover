@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-1-purple)]()
 [![Registry Actions](https://img.shields.io/badge/registry%20actions-11-blueviolet)]()
-[![REST Endpoints](https://img.shields.io/badge/REST-19%20endpoints-orange)]()
+[![REST Endpoints](https://img.shields.io/badge/REST-33%20endpoints-orange)]()
 
 **MCP server registry and marketplace.** Discover, install, activate, and manage MCP tools on demand. Acts as a dynamic proxy -- activated servers have their tools merged into the registry's own tool list, so agents can use them without restarting.
 
@@ -60,6 +60,7 @@ Static MCP configs mean every server is always running, even when unused. Adding
 - **Full-text search** -- FTS5 search across server names, descriptions, and tags + cross-server tool index for `find_tool`
 - **Pre-download** -- fire-and-forget `npm cache add` (npx servers) or `uv tool install` (uvx servers) on registration, plus a dedicated `/preinstall` endpoint
 - **Real-time dashboard** -- web UI at http://localhost:3424 with Servers and Browse tabs, dark/light theme, WebSocket updates
+- **MCP Inspector-grade Test panel** -- every active server card grows a Test drawer with seven subtabs (Tools / Info / Resources / Prompts / Events / Export / Diagnostics). Schema-driven form renderer, Pretty/Raw JSON/cURL result modes, live notification + progress streaming, localStorage presets, pop-out floating panel for side-by-side debugging, and a `Test ad-hoc` button that spins up a throwaway (never-registered) server with a 15-minute TTL. Covers the same surface as upstream `@modelcontextprotocol/inspector` without a second process or second port.
 - **3 transport layers** -- MCP (stdio), REST API (HTTP), WebSocket (real-time events)
 - **Declarative setup file** -- set `AGENT_DISCOVER_SETUP_FILE` to a JSON file listing servers to ensure-registered on startup. Idempotent (skips existing). Supports `auto_activate`, env var secret refs (`$VAR`), and tags. Automatically also reads a `.local.json` variant (e.g. `discover-setup.local.json`) for machine-specific servers with secrets. New `registry({ action: "sync" })` MCP action and `POST /api/sync` REST endpoint for on-demand re-read.
 - **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real OpenCode + gpt-5-mini. Reproducible structural result: discover's first-turn input tokens are flat in N (~20.8k across N ∈ {10, 100, 1000, 3000}); eager's grow linearly (20.9k → 32.4k → 160.9k → context overflow at N=3000). End-to-end accuracy and multi-turn cost numbers are noisier and model-dependent — see [`bench/README.md`](bench/README.md) for what reproduces and what doesn't.
@@ -138,7 +139,7 @@ When `find_tool` is called with `auto_activate: false` (recommended for catalogs
 
 ---
 
-## REST API (19 endpoints)
+## REST API (33 endpoints)
 
 All endpoints return JSON. CORS enabled.
 
@@ -162,6 +163,27 @@ GET    /api/metrics                       Metrics overview across all servers
 GET    /api/browse                        Federated search: official registry + npm + PyPI (?query=, ?limit=, ?cursor=)
 GET    /api/npm-check                     Check if an npm package exists (?package=)
 GET    /api/status                        Active servers summary (names, tool counts, tool lists)
+
+Tester surface (MCP Inspector parity — localhost-only unless AGENT_DISCOVER_ALLOW_REMOTE_TEST=1):
+GET    /api/servers/:id/info               Server name, version, capabilities, instructions
+GET    /api/servers/:id/tools               Live tools (bypasses activation cache)
+POST   /api/servers/:id/call                Call a tool
+GET    /api/servers/:id/resources           List resources (?cursor=...)
+GET    /api/servers/:id/resource-templates  List resource templates
+POST   /api/servers/:id/resource/read       Read a resource
+POST   /api/servers/:id/resource/subscribe  Subscribe to resource updates
+POST   /api/servers/:id/resource/unsubscribe  Unsubscribe
+GET    /api/servers/:id/prompts             List prompts (?cursor=...)
+POST   /api/servers/:id/prompt/get          Get a prompt with args
+POST   /api/servers/:id/ping                Ping — returns { ok, rtt_ms }
+POST   /api/servers/:id/logging-level       Set server logging level
+GET    /api/servers/:id/export              Export config (?format=mcp-json|claude-code|cursor|agent-discover)
+POST   /api/transient                        Activate an ad-hoc server (returns { handle, ... })
+DELETE /api/transient/:handle                Release transient server
+GET    /api/transient/:handle/*              Same tester surface, keyed by handle
+GET    /api/roots                            Configured client roots (AGENT_DISCOVER_ROOTS)
+GET    /api/logs/notifications               Notification log entries
+GET    /api/logs/progress                    Progress log entries
 ```
 
 ---
@@ -194,10 +216,12 @@ npm run test:e2e:ui   # Playwright dashboard smoke tests
 
 ### Core
 
-| Variable              | Default                       | Description          |
-| --------------------- | ----------------------------- | -------------------- |
-| `AGENT_DISCOVER_PORT` | `3424`                        | Dashboard HTTP port  |
-| `AGENT_DISCOVER_DB`   | `~/.claude/agent-discover.db` | SQLite database path |
+| Variable                           | Default                       | Description                                                                                                 |
+| ---------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `AGENT_DISCOVER_PORT`              | `3424`                        | Dashboard HTTP port                                                                                         |
+| `AGENT_DISCOVER_DB`                | `~/.claude/agent-discover.db` | SQLite database path                                                                                        |
+| `AGENT_DISCOVER_ROOTS`             | —                             | Comma-separated root URIs advertised to child servers (e.g. `file:///Users/me/repo,file:///Users/me/data`)  |
+| `AGENT_DISCOVER_ALLOW_REMOTE_TEST` | `0`                           | Set to `1` to allow the Test panel endpoints from non-loopback origins. **Not recommended** — see Security. |
 
 ### Embeddings (semantic search for `find_tool`)
 

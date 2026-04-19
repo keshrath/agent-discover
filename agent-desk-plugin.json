@@ -2,10 +2,17 @@
   "id": "agent-discover",
   "name": "Discover",
   "icon": "explore",
-  "version": "1.3.9",
-  "description": "MCP server registry — browse, install, configure, monitor",
+  "version": "1.4.0",
+  "description": "MCP server registry — browse, install, configure, monitor, test",
   "ui": "./dist/ui/app.js",
   "css": "./dist/ui/styles.css",
-  "uiFiles": ["morphdom.min.js", "template.js", "app.js"],
+  "uiFiles": [
+    "morphdom.min.js",
+    "template.js",
+    "markdown.js",
+    "schema-form.js",
+    "tester.js",
+    "app.js"
+  ],
   "position": 4
 }

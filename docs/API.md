@@ -674,11 +674,17 @@ The server polls the database every 2 seconds. When changes are detected (via a 
 
 ### Server Messages
 
-| Message             | Description                                                  |
-| ------------------- | ------------------------------------------------------------ |
-| `type: "state"`     | Full state snapshot                                          |
-| `type: "log_entry"` | Real-time tool call log entry (see GET /api/logs for schema) |
-| `type: "error"`     | Error message (invalid JSON, etc.)                           |
+| Message                | Description                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type: "state"`        | Full state snapshot                                                                                                                                           |
+| `type: "log_entry"`    | Real-time tool call log entry (see GET /api/logs for schema). `entry.kind` is `call` / `ping` / `resource-read` / `prompt-get` / `notification` / `progress`. |
+| `type: "notification"` | Mirrors a log entry with `kind: "notification"` — `{ serverName, method, params, ts }`.                                                                       |
+| `type: "progress"`     | Mirrors a log entry with `kind: "progress"` — `{ serverName, payload: { token, progress, total, message }, ts }`.                                             |
+| `type: "error"`        | Error message (invalid JSON, etc.)                                                                                                                            |
+
+### Tester API
+
+The 14 new tester endpoints under `/api/servers/:id/*` and `/api/transient/:handle/*` (also mirrored as `GET /api/roots`, `GET /api/logs/notifications`, `GET /api/logs/progress`) are documented in [DASHBOARD.md → Test Panel](./DASHBOARD.md#test-panel) and the top-level `README.md` endpoint table. All are gated on loopback access unless `AGENT_DISCOVER_ALLOW_REMOTE_TEST=1` is set.
 
 ### Connection Limits
 

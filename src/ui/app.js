@@ -51,6 +51,11 @@
           if (logEntries.length > 500) logEntries.length = 500;
           updateLogCount();
           if (currentTab === 'logs') renderLogs();
+          if (AD.onTesterLogEntry) AD.onTesterLogEntry(msg.entry);
+        } else if ((msg.type === 'notification' || msg.type === 'progress') && AD.onTesterEvent) {
+          AD.onTesterEvent(msg);
+        } else if (msg.type === 'elicitation_request' && AD.onElicitationRequest) {
+          AD.onElicitationRequest(msg);
         }
       } catch (e) {
         console.error('WS parse error:', e);
@@ -341,6 +346,16 @@
         // Expandable sections
         var secretsSection = renderSection(s.id, 'secrets', 'Secrets', renderSecretsContent(s));
         var metricsSection = renderSection(s.id, 'metrics', 'Metrics', renderMetricsContent(s));
+        var testerSection = s.active
+          ? renderSection(
+              s.id,
+              'tester',
+              'Test',
+              AD.renderTesterShell
+                ? AD.renderTesterShell(s)
+                : '<div class="hint">tester unavailable</div>',
+            )
+          : '';
         var configSection = renderSection(s.id, 'config', 'Config', renderConfigContent(s));
 
         return (
@@ -382,6 +397,7 @@
           '</div>' +
           toolSection +
           actionsSection +
+          testerSection +
           secretsSection +
           metricsSection +
           configSection +

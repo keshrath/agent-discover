@@ -5,6 +5,16 @@
 const DEFAULT_MAX = 500;
 const DEFAULT_RETENTION_DAYS = 30;
 
+export type LogKind =
+  | 'call'
+  | 'ping'
+  | 'resource-read'
+  | 'prompt-get'
+  | 'notification'
+  | 'progress'
+  | 'elicitation'
+  | 'sampling';
+
 export interface LogEntry {
   id: number;
   timestamp: string;
@@ -14,6 +24,7 @@ export interface LogEntry {
   response: string;
   latency_ms: number;
   success: boolean;
+  kind: LogKind;
 }
 
 export class LogService {
@@ -38,6 +49,7 @@ export class LogService {
     response: string,
     latencyMs: number,
     success: boolean,
+    kind: LogKind = 'call',
   ): LogEntry {
     this.pruneExpired();
     const entry: LogEntry = {
@@ -49,11 +61,34 @@ export class LogService {
       response,
       latency_ms: latencyMs,
       success,
+      kind,
     };
     this.buffer.push(entry);
     if (this.buffer.length > this.max) this.buffer.shift();
     if (this.onEntry) this.onEntry(entry);
     return entry;
+  }
+
+  pushNotification(server: string, method: string, payload: Record<string, unknown>): LogEntry {
+    return this.push(server, method, payload, JSON.stringify(payload), 0, true, 'notification');
+  }
+
+  pushProgress(
+    server: string,
+    token: string | number,
+    progress: number,
+    total: number | undefined,
+    message: string | undefined,
+  ): LogEntry {
+    return this.push(
+      server,
+      'progress',
+      { token, progress, total, message },
+      message ?? '',
+      0,
+      true,
+      'progress',
+    );
   }
 
   private pruneExpired(): void {
@@ -63,13 +98,15 @@ export class LogService {
     }
   }
 
-  list(limit = 100, offset = 0): LogEntry[] {
-    const reversed = [...this.buffer].reverse();
+  list(limit = 100, offset = 0, kind?: LogKind): LogEntry[] {
+    const filtered = kind ? this.buffer.filter((e) => e.kind === kind) : this.buffer;
+    const reversed = [...filtered].reverse();
     return reversed.slice(offset, offset + limit);
   }
 
-  count(): number {
-    return this.buffer.length;
+  count(kind?: LogKind): number {
+    if (!kind) return this.buffer.length;
+    return this.buffer.reduce((n, e) => n + (e.kind === kind ? 1 : 0), 0);
   }
 
   clear(): void {

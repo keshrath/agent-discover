@@ -200,4 +200,25 @@ const migrations: Migration[] = [
       addColumnIfMissing(db, 'server_tools', 'embedding_model', 'TEXT');
     },
   },
+  {
+    version: 6,
+    up: (db: Database.Database) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS test_presets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          target_name TEXT NOT NULL,
+          preset_name TEXT NOT NULL,
+          payload TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(server_name, kind, target_name, preset_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_test_presets_lookup
+          ON test_presets(server_name, kind, target_name);
+      `);
+    },
+  },
 ];

@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-19
+
+### Added
+
+- **MCP Inspector-grade Test panel in the dashboard.** Every active server grows a new **Test** section on its card with seven subtabs — Tools, Info, Resources, Prompts, Events, Export, Diagnostics — covering the same debugging surface the upstream `@modelcontextprotocol/inspector` exposes, without launching a second process or second port.
+  - **Tools**: schema-driven form renderer (string/number/integer/boolean/enum/array/object + `oneOf`/`anyOf` raw-JSON fallback, format-aware inputs for `date`/`date-time`/`email`/`uri`), three result modes (Pretty / Raw JSON / cURL), latency pill, success/fail badge, "save as preset" + preset dropdown backed by `localStorage`.
+  - **Info**: server name, version, instructions (rendered as markdown), advertised capabilities dump.
+  - **Resources**: paginated list (Load more cursor), Read / Subscribe / Unsubscribe buttons, live refresh via WS `resources/updated` notifications.
+  - **Prompts**: paginated list, argument form, rendered message chain (user/assistant roles, markdown body).
+  - **Events**: live stream of server-sent `notifications/*` and `notifications/progress` scoped to the selected server.
+  - **Export**: segmented toggle between `mcp.json` (generic MCP client shape — Claude Desktop, Claude Code, Cursor, Windsurf all consume this) and `agent-discover` (declarative setup-file format). Auto-rendered JSON + one-click Copy.
+  - **Diagnostics**: `ping` round-trip, `logging/setLevel`.
+- **Pop-out drawer → dedicated browser window.** Each Test drawer has a pop-out button that calls `window.open('/tester/:id', ...)`, spawning a real OS window (resizable, movable, second-monitor-capable) with its own WS connection. Matches Chrome DevTools undock / upstream Inspector UX — no in-page modals. New route `GET /tester/:id` (and `/tester/transient/:handle`) serves a minimal HTML shell that mounts only the tester UI.
+- **Transient (ad-hoc) servers.** New `Test ad-hoc` button in the Servers header spins up a throwaway MCP server by pasted command/args/env (or URL). The child is never written to the registry, gets a 15-minute TTL, auto-disconnects on release, and its tools are invisible to the host MCP catalog — matching Inspector's "test without installing" flow.
+- **14 new REST endpoints** under `/api/servers/:id/*` and `/api/transient/:handle/*`: `info`, `tools` (live), `resources`, `resource-templates`, `resource/read`, `resource/subscribe`, `resource/unsubscribe`, `prompts`, `prompt/get`, `ping`, `logging-level`, `export`, plus `POST /api/transient`, `DELETE /api/transient/:handle`, `GET /api/roots`, `GET /api/logs/notifications`, `GET /api/logs/progress`.
+- **New WebSocket message types.** `notification` and `progress` are broadcast alongside the existing `log_entry` stream so the tester can render events in real time.
+- **Roots capability.** agent-discover now advertises `roots/listChanged` toward every child server; the list is configurable via `AGENT_DISCOVER_ROOTS=file:///path1,file:///path2`.
+- **Elicitation capability.** agent-discover advertises the `elicitation` client capability at activation time so servers that need user-confirmation round-trips are no longer blocked (UI plumbing is v1.5 scope).
+- **`LogKind` taxonomy.** `LogService` entries are now tagged as `call | ping | resource-read | prompt-get | notification | progress | elicitation | sampling` and can be listed / counted per-kind.
+- **Elicitation UI (`elicitation/create`)** — when a transient (ad-hoc) MCP server issues an elicitation request from inside a tool call, agent-discover surfaces it as a modal in the dashboard with a schema-driven form (`requestedSchema` rendered via the existing `schema-form.js`). User picks **Accept** / **Decline** / **Cancel**; the tool call resumes with the response. 2-minute server-side timeout auto-cancels stale requests. New REST endpoints: `GET /api/elicitations`, `POST /api/elicitations/:id/respond`. New WS message type: `elicitation_request`.
+- **Sampling (`sampling/createMessage`) — OpenAI-backed.** Transient servers that call back into an LLM via MCP sampling are routed to OpenAI Chat Completions using `AGENT_DISCOVER_OPENAI_API_KEY` (falls back to `OPENAI_API_KEY`). Model controlled by `AGENT_DISCOVER_SAMPLING_MODEL` (default `gpt-5-mini`), base URL overridable via `AGENT_DISCOVER_OPENAI_BASE_URL`. Every sampling round-trip logged with `kind: "sampling"`. Without a key, the handler declines cleanly so the server can surface the error. `sampling: {}` capability is advertised only on interactive (transient) connections.
+- **Interactive-vs-proxy boundary** — `activate()` threads an `interactive` flag through `ActiveServer`. Elicitation + sampling handlers are registered **only** on `interactive` connections (today: transient only). Registered-active servers stay non-interactive to avoid hijacking the host agent's conversation (documented tradeoff).
+- **SQLite-backed presets (schema V6).** New table `test_presets` persists Test-panel tool/prompt presets cross-browser. REST: `GET /api/presets`, `POST /api/presets`, `DELETE /api/presets/:id`. `tester.js` reads/writes via REST. One-shot migration of legacy `localStorage` presets happens on first load after upgrade.
+
+### Security
+
+- **Tester API is localhost-only by default.** The 14 new tester endpoints reject non-loopback request origins with 403. Override with `AGENT_DISCOVER_ALLOW_REMOTE_TEST=1` plus a visible warning.
+- **DNS-rebinding protection.** Origin header is validated on all POST/PUT/DELETE tester requests.
+- **Transient command allowlist.** The `command` field passed to `/api/transient` is rejected if it contains unsafe characters. `env` values with CR/LF are stripped to prevent header injection.
+
+### Internal
+
+- `McpProxy` grows methods for `getServerInfo`, `listToolsLive`, `listResources`, `listResourceTemplates`, `readResource`, `subscribeResource`, `unsubscribeResource`, `listPrompts`, `getPrompt`, `ping`, `setLoggingLevel`, `exportConfig`, plus `activateTransient` / `releaseTransient` / `resolveTransient` and a pluggable `setRootsProvider`.
+- 20 new tests across `tests/proxy-tester.test.ts`, `tests/rest-tester.test.ts`, `tests/log-kinds.test.ts`.
+- New UI modules: `src/ui/schema-form.js`, `src/ui/markdown.js`, `src/ui/tester.js`. Zero new npm dependencies.
+
 ## [1.3.9] - 2026-04-15
 
 ### Changed

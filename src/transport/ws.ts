@@ -36,9 +36,46 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
       ),
   });
 
+  ctx.proxy.setElicitationListener((pending) => {
+    try {
+      handle.broadcast(
+        JSON.stringify({
+          type: 'elicitation_request',
+          id: pending.id,
+          serverName: pending.serverName,
+          message: pending.message,
+          requestedSchema: pending.requestedSchema,
+          ts: new Date(pending.createdAt).toISOString(),
+        }),
+      );
+    } catch {
+      /* ignore broadcast errors */
+    }
+  });
+
   ctx.logs.onEntry = (entry) => {
     try {
       handle.broadcast(JSON.stringify({ type: 'log_entry', entry }));
+      if (entry.kind === 'notification') {
+        handle.broadcast(
+          JSON.stringify({
+            type: 'notification',
+            serverName: entry.server,
+            method: entry.tool,
+            params: entry.args,
+            ts: entry.timestamp,
+          }),
+        );
+      } else if (entry.kind === 'progress') {
+        handle.broadcast(
+          JSON.stringify({
+            type: 'progress',
+            serverName: entry.server,
+            payload: entry.args,
+            ts: entry.timestamp,
+          }),
+        );
+      }
     } catch {
       /* ignore broadcast errors */
     }

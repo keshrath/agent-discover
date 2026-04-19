@@ -15,6 +15,8 @@ import { SecretsService } from './domain/secrets.js';
 import { HealthService } from './domain/health.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
+import { PresetsService } from './domain/presets.js';
+import { maybeCreateDefaultSamplingProvider } from './domain/sampling.js';
 import { syncSetupFile, type SyncResult } from './domain/setup.js';
 
 export interface AppContext {
@@ -28,6 +30,7 @@ export interface AppContext {
   readonly health: HealthService;
   readonly metrics: MetricsService;
   readonly logs: LogService;
+  readonly presets: PresetsService;
   syncSetup(filePath?: string): Promise<SyncResult>;
   close(): void;
 }
@@ -45,6 +48,7 @@ export function createContext(dbOptions?: DbOptions): AppContext {
   const metrics = new MetricsService(db);
   const health = new HealthService(db, proxy);
   const logs = new LogService();
+  const presets = new PresetsService(db);
 
   proxy.setSecretsService(secrets);
   proxy.setMetricsService(metrics);
@@ -53,6 +57,16 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     const server = registry.getByName(name);
     return server ? server.id : null;
   });
+  proxy.setRootsProvider(() => {
+    const raw = process.env.AGENT_DISCOVER_ROOTS ?? '';
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((uri) => ({ uri, name: uri }));
+  });
+  const samplingProvider = maybeCreateDefaultSamplingProvider();
+  if (samplingProvider) proxy.setSamplingProvider(samplingProvider);
 
   return {
     db,
@@ -65,6 +79,7 @@ export function createContext(dbOptions?: DbOptions): AppContext {
     health,
     metrics,
     logs,
+    presets,
     syncSetup(filePath?: string) {
       return syncSetupFile(registry, secrets, proxy, filePath);
     },
