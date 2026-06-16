@@ -1,0 +1,15 @@
+{
+  "servers": [
+    {
+      "name": "xquik",
+      "description": "X data platform MCP server",
+      "transport": "streamable-http",
+      "url": "https://xquik.com/mcp",
+      "tags": ["x", "social", "data"],
+      "secrets": {
+        "X-API-Key": "$XQUIK_API_KEY"
+      },
+      "auto_activate": false
+    }
+  ]
+}
