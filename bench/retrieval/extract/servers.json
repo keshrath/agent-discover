@@ -1,0 +1,500 @@
+[
+  {
+    "id": "github",
+    "package": "github.com/github/github-mcp-server",
+    "runtime": "go",
+    "command": "${GOBIN}/github-mcp-server",
+    "args": ["stdio", "--toolsets", "all"],
+    "env": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_dummy"
+    }
+  },
+  {
+    "id": "grafana",
+    "package": "github.com/grafana/mcp-grafana",
+    "runtime": "go",
+    "command": "${GOBIN}/mcp-grafana",
+    "args": [
+      "--enabled-tools",
+      "search,datasource,incident,prometheus,loki,alerting,dashboard,folder,oncall,asserts,sift,admin,pyroscope,navigation"
+    ],
+    "env": {
+      "GRAFANA_URL": "http://localhost:3000",
+      "GRAFANA_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "git",
+    "package": "mcp-server-git",
+    "runtime": "pip",
+    "command": "${PY}/mcp-server-git",
+    "args": ["--repository", "${TMP}"]
+  },
+  {
+    "id": "fetch",
+    "package": "mcp-server-fetch",
+    "runtime": "pip",
+    "command": "${PY}/mcp-server-fetch"
+  },
+  {
+    "id": "time",
+    "package": "mcp-server-time",
+    "runtime": "pip",
+    "command": "${PY}/mcp-server-time"
+  },
+  {
+    "id": "sqlite",
+    "package": "mcp-server-sqlite",
+    "runtime": "pip",
+    "command": "${PY}/mcp-server-sqlite",
+    "args": ["--db-path", "${TMP}/bench.db"]
+  },
+  {
+    "id": "atlassian",
+    "package": "mcp-atlassian",
+    "runtime": "pip",
+    "command": "${PY}/mcp-atlassian",
+    "env": {
+      "JIRA_URL": "https://example.atlassian.net",
+      "JIRA_USERNAME": "a@example.com",
+      "JIRA_API_TOKEN": "dummy",
+      "CONFLUENCE_URL": "https://example.atlassian.net/wiki",
+      "CONFLUENCE_USERNAME": "a@example.com",
+      "CONFLUENCE_API_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "filesystem",
+    "package": "@modelcontextprotocol/server-filesystem",
+    "runtime": "npm",
+    "args": ["${TMP}"]
+  },
+  {
+    "id": "memory",
+    "package": "@modelcontextprotocol/server-memory",
+    "runtime": "npm",
+    "env": {
+      "MEMORY_FILE_PATH": "${TMP}/memory.json"
+    }
+  },
+  {
+    "id": "sequential-thinking",
+    "package": "@modelcontextprotocol/server-sequential-thinking",
+    "runtime": "npm"
+  },
+  {
+    "id": "everything",
+    "package": "@modelcontextprotocol/server-everything",
+    "runtime": "npm",
+    "args": ["stdio"]
+  },
+  {
+    "id": "gitlab",
+    "package": "@modelcontextprotocol/server-gitlab",
+    "runtime": "npm",
+    "env": {
+      "GITLAB_PERSONAL_ACCESS_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "slack",
+    "package": "@modelcontextprotocol/server-slack",
+    "runtime": "npm",
+    "env": {
+      "SLACK_BOT_TOKEN": "xoxb-dummy",
+      "SLACK_TEAM_ID": "T000"
+    }
+  },
+  {
+    "id": "postgres",
+    "package": "@modelcontextprotocol/server-postgres",
+    "runtime": "npm",
+    "args": ["postgresql://localhost/dummy"]
+  },
+  {
+    "id": "puppeteer",
+    "package": "@modelcontextprotocol/server-puppeteer",
+    "runtime": "npm"
+  },
+  {
+    "id": "brave-search",
+    "package": "@modelcontextprotocol/server-brave-search",
+    "runtime": "npm",
+    "env": {
+      "BRAVE_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "google-maps",
+    "package": "@modelcontextprotocol/server-google-maps",
+    "runtime": "npm",
+    "env": {
+      "GOOGLE_MAPS_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "redis",
+    "package": "@modelcontextprotocol/server-redis",
+    "runtime": "npm",
+    "args": ["redis://localhost:6379"]
+  },
+  {
+    "id": "aws-kb-retrieval",
+    "package": "@modelcontextprotocol/server-aws-kb-retrieval",
+    "runtime": "npm",
+    "env": {
+      "AWS_ACCESS_KEY_ID": "dummy",
+      "AWS_SECRET_ACCESS_KEY": "dummy",
+      "AWS_REGION": "us-east-1"
+    }
+  },
+  {
+    "id": "everart",
+    "package": "@modelcontextprotocol/server-everart",
+    "runtime": "npm",
+    "env": {
+      "EVERART_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "playwright",
+    "package": "@playwright/mcp",
+    "runtime": "npm"
+  },
+  {
+    "id": "notion",
+    "package": "@notionhq/notion-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "NOTION_TOKEN": "ntn_dummy"
+    }
+  },
+  {
+    "id": "sentry",
+    "package": "@sentry/mcp-server",
+    "runtime": "npm",
+    "args": ["--access-token=dummy"]
+  },
+  {
+    "id": "stripe",
+    "package": "@stripe/mcp",
+    "runtime": "npm",
+    "args": ["--tools=all", "--api-key=sk_test_dummy"],
+    "env": {
+      "STRIPE_SECRET_KEY": "sk_test_dummy"
+    }
+  },
+  {
+    "id": "supabase",
+    "package": "@supabase/mcp-server-supabase",
+    "runtime": "npm",
+    "args": ["--access-token=dummy"]
+  },
+  {
+    "id": "context7",
+    "package": "@upstash/context7-mcp",
+    "runtime": "npm"
+  },
+  {
+    "id": "firecrawl",
+    "package": "firecrawl-mcp",
+    "runtime": "npm",
+    "env": {
+      "FIRECRAWL_API_KEY": "fc-dummy"
+    }
+  },
+  {
+    "id": "browserbase",
+    "package": "@browserbasehq/mcp",
+    "runtime": "npm",
+    "env": {
+      "BROWSERBASE_API_KEY": "dummy",
+      "BROWSERBASE_PROJECT_ID": "dummy"
+    }
+  },
+  {
+    "id": "tavily",
+    "package": "tavily-mcp",
+    "runtime": "npm",
+    "env": {
+      "TAVILY_API_KEY": "tvly-dummy"
+    }
+  },
+  {
+    "id": "exa",
+    "package": "exa-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "EXA_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "heroku",
+    "package": "@heroku/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "HEROKU_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "kubernetes",
+    "package": "mcp-server-kubernetes",
+    "runtime": "npm"
+  },
+  {
+    "id": "hubspot",
+    "package": "@hubspot/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "PRIVATE_APP_ACCESS_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "circleci",
+    "package": "@circleci/mcp-server-circleci",
+    "runtime": "npm",
+    "env": {
+      "CIRCLECI_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "shopify-dev",
+    "package": "@shopify/dev-mcp",
+    "runtime": "npm"
+  },
+  {
+    "id": "neon",
+    "package": "@neondatabase/mcp-server-neon",
+    "runtime": "npm",
+    "args": ["start", "dummy"]
+  },
+  {
+    "id": "mongodb",
+    "package": "mongodb-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "MDB_MCP_CONNECTION_STRING": "mongodb://localhost:27017"
+    }
+  },
+  {
+    "id": "elasticsearch",
+    "package": "@elastic/mcp-server-elasticsearch",
+    "runtime": "npm",
+    "env": {
+      "ES_URL": "http://localhost:9200",
+      "ES_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "twilio",
+    "package": "@twilio-alpha/mcp",
+    "runtime": "npm",
+    "args": ["ACdummy/SKdummy:secret"]
+  },
+  {
+    "id": "paypal",
+    "package": "@paypal/mcp",
+    "runtime": "npm",
+    "args": ["--tools=all"],
+    "env": {
+      "PAYPAL_ACCESS_TOKEN": "dummy",
+      "PAYPAL_ENVIRONMENT": "SANDBOX"
+    }
+  },
+  {
+    "id": "desktop-commander",
+    "package": "@wonderwhy-er/desktop-commander",
+    "runtime": "npm"
+  },
+  {
+    "id": "chrome-devtools",
+    "package": "chrome-devtools-mcp",
+    "runtime": "npm"
+  },
+  {
+    "id": "figma",
+    "package": "figma-developer-mcp",
+    "runtime": "npm",
+    "args": ["--figma-api-key=dummy", "--stdio"]
+  },
+  {
+    "id": "linear",
+    "package": "@tacticlaunch/mcp-linear",
+    "runtime": "npm",
+    "env": {
+      "LINEAR_API_TOKEN": "lin_api_dummy"
+    }
+  },
+  {
+    "id": "azure-devops",
+    "package": "@azure-devops/mcp",
+    "runtime": "npm",
+    "args": ["dummyorg"]
+  },
+  {
+    "id": "youtube-transcript",
+    "package": "@kimtaeyoon83/mcp-server-youtube-transcript",
+    "runtime": "npm"
+  },
+  {
+    "id": "todoist",
+    "package": "todoist-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "TODOIST_API_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "google-calendar",
+    "package": "@cocal/google-calendar-mcp",
+    "runtime": "npm",
+    "env": {
+      "GOOGLE_OAUTH_CREDENTIALS": "${TMP}/gcp-oauth.keys.json"
+    }
+  },
+  {
+    "id": "railway",
+    "package": "@railway/mcp-server",
+    "runtime": "npm"
+  },
+  {
+    "id": "netlify",
+    "package": "@netlify/mcp",
+    "runtime": "npm"
+  },
+  {
+    "id": "pinecone",
+    "package": "@pinecone-database/mcp",
+    "runtime": "npm",
+    "env": {
+      "PINECONE_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "apify",
+    "package": "@apify/actors-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "APIFY_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "airtable",
+    "package": "airtable-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "AIRTABLE_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "mysql",
+    "package": "@benborla29/mcp-server-mysql",
+    "runtime": "npm",
+    "env": {
+      "MYSQL_HOST": "127.0.0.1",
+      "MYSQL_PORT": "3306",
+      "MYSQL_USER": "root",
+      "MYSQL_PASS": "dummy",
+      "MYSQL_DB": "dummy"
+    }
+  },
+  {
+    "id": "mailgun",
+    "package": "@mailgun/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "MAILGUN_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "digitalocean",
+    "package": "@digitalocean/mcp",
+    "runtime": "npm",
+    "env": {
+      "DIGITALOCEAN_API_TOKEN": "dummy"
+    }
+  },
+  {
+    "id": "launchdarkly",
+    "package": "@launchdarkly/mcp-server",
+    "runtime": "npm",
+    "args": ["start", "--api-key", "api-dummy"]
+  },
+  {
+    "id": "auth0",
+    "package": "@auth0/auth0-mcp-server",
+    "runtime": "npm",
+    "args": ["run"]
+  },
+  {
+    "id": "contentful",
+    "package": "@contentful/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "CONTENTFUL_MANAGEMENT_ACCESS_TOKEN": "dummy",
+      "SPACE_ID": "dummy"
+    }
+  },
+  {
+    "id": "postman",
+    "package": "@postman/postman-mcp-server",
+    "runtime": "npm",
+    "args": ["--full"],
+    "env": {
+      "POSTMAN_API_KEY": "PMAK-dummy"
+    }
+  },
+  {
+    "id": "dynatrace",
+    "package": "@dynatrace-oss/dynatrace-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "DT_ENVIRONMENT": "https://abc12345.apps.dynatrace.com"
+    }
+  },
+  {
+    "id": "mapbox",
+    "package": "@mapbox/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "MAPBOX_ACCESS_TOKEN": "pk.dummy"
+    }
+  },
+  {
+    "id": "obsidian",
+    "package": "obsidian-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "OBSIDIAN_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "clickup",
+    "package": "clickup-mcp-server",
+    "runtime": "npm",
+    "env": {
+      "CLICKUP_API_KEY": "dummy",
+      "CLICKUP_TEAM_ID": "1"
+    }
+  },
+  {
+    "id": "monday",
+    "package": "@mondaydotcomorg/monday-api-mcp",
+    "runtime": "npm",
+    "args": ["-t", "dummy"]
+  },
+  {
+    "id": "perplexity",
+    "package": "@perplexity-ai/mcp-server",
+    "runtime": "npm",
+    "env": {
+      "PERPLEXITY_API_KEY": "dummy"
+    }
+  },
+  {
+    "id": "cloudflare",
+    "package": "@cloudflare/mcp-server-cloudflare",
+    "runtime": "npm",
+    "args": ["run", "dummyaccount"]
+  }
+]
