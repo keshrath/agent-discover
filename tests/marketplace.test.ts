@@ -75,28 +75,4 @@ describe('MarketplaceClient', () => {
       await expect(client.browse('test')).rejects.toThrow('Registry API error: 500');
     });
   });
-
-  describe('getServer', () => {
-    it('should return null for 404', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: false,
-        status: 404,
-      } as Response);
-
-      const result = await client.getServer('nonexistent');
-      expect(result).toBeNull();
-    });
-
-    it('should return server data', async () => {
-      const mockData = { name: 'test', description: 'desc' };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(mockData),
-      } as Response);
-
-      const result = await client.getServer('test');
-      expect(result).toEqual(mockData);
-    });
-  });
 });

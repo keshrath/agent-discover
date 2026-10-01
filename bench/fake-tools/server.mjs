@@ -196,6 +196,10 @@ function handle(req) {
           capabilities: { tools: {} },
         },
       });
+    case 'ping':
+      return send({ jsonrpc: '2.0', id, result: {} });
+    case 'notifications/initialized':
+      return;
     case 'tools/list':
       return send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
     case 'tools/call': {

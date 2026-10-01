@@ -57,7 +57,7 @@ function resolveDbPath(path?: string): string {
 // that legacy pragma-user_version code already touched.
 // ---------------------------------------------------------------------------
 
-const migrations: Migration[] = [
+export const migrations: Migration[] = [
   {
     version: 1,
     up: (db: Database.Database) => {
@@ -253,7 +253,8 @@ const migrations: Migration[] = [
         `);
         db.exec('ALTER TABLE servers DROP COLUMN active');
       }
-      if (hasColumn(db, 'servers', 'installed')) db.exec('ALTER TABLE servers DROP COLUMN installed');
+      if (hasColumn(db, 'servers', 'installed'))
+        db.exec('ALTER TABLE servers DROP COLUMN installed');
       if (hasColumn(db, 'servers', 'latest_version')) {
         db.exec('ALTER TABLE servers DROP COLUMN latest_version');
       }
@@ -264,7 +265,9 @@ const migrations: Migration[] = [
       addColumnIfMissing(db, 'server_tools', 'tool_hash', "TEXT NOT NULL DEFAULT ''");
 
       const rows = db
-        .prepare("SELECT id, name, description, input_schema FROM server_tools WHERE tool_hash = ''")
+        .prepare(
+          "SELECT id, name, description, input_schema FROM server_tools WHERE tool_hash = ''",
+        )
         .all() as Array<{ id: number; name: string; description: string; input_schema: string }>;
       const update = db.prepare('UPDATE server_tools SET tool_hash = ? WHERE id = ?');
       for (const row of rows) {
@@ -274,10 +277,7 @@ const migrations: Migration[] = [
         } catch {
           /* keep {} for unparseable legacy rows */
         }
-        update.run(
-          toolHash({ name: row.name, description: row.description, inputSchema }),
-          row.id,
-        );
+        update.run(toolHash({ name: row.name, description: row.description, inputSchema }), row.id);
       }
     },
   },
