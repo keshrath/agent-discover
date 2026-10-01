@@ -173,7 +173,7 @@
     "id": "stripe",
     "package": "@stripe/agent-toolkit",
     "runtime": "npm",
-    "launcher": "launchers/stripe-agent-toolkit.cjs",
+    "launcher": "launchers/stripe-agent-toolkit.ts",
     "deps": ["@modelcontextprotocol/sdk@1", "stripe", "zod@3"],
     "version": "0.7.9"
   },

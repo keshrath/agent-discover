@@ -18,6 +18,7 @@ import { toolKey } from './types.js';
 import { Bm25Ranker } from './baselines/bm25.js';
 import { RegexRanker } from './baselines/regex.js';
 import { AgentDiscoverV1Ranker } from './baselines/agent-discover-v1.js';
+import { toJson } from './json.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const K = 10;
@@ -191,7 +192,7 @@ async function main() {
     const make = RANKERS[name];
     if (!make) throw new Error(`unknown ranker "${name}" (have: ${Object.keys(RANKERS)})`);
     const r = await evaluate(make(), tools, queries);
-    writeFileSync(path.join(outDir, `${name}.json`), JSON.stringify(r, null, 2) + '\n');
+    writeFileSync(path.join(outDir, `${name}.json`), toJson(r));
     results.push(r);
   }
 

@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { z } from 'zod';
+import { toJson } from '../json.js';
 
 // Lenient tools/list shape: some servers (e.g. server-gitlab) emit schemas the
 // SDK's strict ListToolsResultSchema rejects; we only need name/desc/schema.
@@ -123,7 +124,8 @@ async function npmInstall(
     });
   }
   if (spec.launcher) {
-    return [process.execPath, [path.join(HERE, spec.launcher)], { W1_PKG_DIR: dir }];
+    const launcher = path.join(HERE, spec.launcher);
+    return [process.execPath, ['--import', 'tsx', launcher], { W1_PKG_DIR: dir }];
   }
   const meta = JSON.parse(readFileSync(pj, 'utf8')) as { bin?: string | Record<string, string> };
   const bin = typeof meta.bin === 'string' ? meta.bin : Object.values(meta.bin ?? {})[0];
@@ -245,7 +247,7 @@ async function main() {
       .filter((s) => wanted.has(s.server))
       .sort((a, b) => a.server.localeCompare(b.server))
       .map((s) => ({ ...s, tools: [...s.tools].sort((a, b) => a.name.localeCompare(b.name)) }));
-    writeFileSync(OUT, JSON.stringify({ version: 1, servers }, null, 2) + '\n');
+    writeFileSync(OUT, toJson({ version: 1, servers }));
     return servers;
   };
 

@@ -1,0 +1,3634 @@
+{
+  "version": 1,
+  "devFraction": 0.4,
+  "queries": [
+    {
+      "id": "paraphrase-001",
+      "query": "which PRs are waiting for review on GitHub",
+      "category": "paraphrase",
+      "targets": [["github/list_pull_requests", "github/search_pull_requests"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-002",
+      "query": "propose my feature branch changes for review on GitHub",
+      "category": "paraphrase",
+      "targets": [["github/create_pull_request"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-003",
+      "query": "land an approved GitHub PR into main",
+      "category": "paraphrase",
+      "targets": [["github/merge_pull_request"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-004",
+      "query": "copy someone else's GitHub repo into my own account",
+      "category": "paraphrase",
+      "targets": [["github/fork_repository"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-005",
+      "query": "favourite a GitHub project so it shows on my profile",
+      "category": "paraphrase",
+      "targets": [["github/star_repository"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-006",
+      "query": "show what's inside src/index.ts in a GitHub repo",
+      "category": "paraphrase",
+      "targets": [["github/get_file_contents"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-007",
+      "query": "reply on GitHub bug report #12",
+      "category": "paraphrase",
+      "targets": [["github/add_issue_comment"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-008",
+      "query": "which lines of development exist in the GitHub repo",
+      "category": "paraphrase",
+      "targets": [["github/list_branches"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-009",
+      "query": "what's the newest published version of a GitHub project",
+      "category": "paraphrase",
+      "targets": [["github/get_latest_release", "github/list_releases"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-010",
+      "query": "grep across all public GitHub repos for a function",
+      "category": "paraphrase",
+      "targets": [["github/search_code"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-011",
+      "query": "vulnerable dependency warnings for my GitHub repo",
+      "category": "paraphrase",
+      "targets": [["github/list_dependabot_alerts"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-012",
+      "query": "what's new in my GitHub inbox",
+      "category": "paraphrase",
+      "targets": [["github/list_notifications"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-013",
+      "query": "share a code snippet as a GitHub paste",
+      "category": "paraphrase",
+      "targets": [["github/create_gist"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-014",
+      "query": "print the output of a GitHub Actions run step",
+      "category": "paraphrase",
+      "targets": [["github/get_job_logs"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-015",
+      "query": "clear my whole GitHub inbox",
+      "category": "paraphrase",
+      "targets": [["github/mark_all_notifications_read"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-016",
+      "query": "have an AI reviewer look at my PR",
+      "category": "paraphrase",
+      "targets": [["github/request_copilot_review"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-017",
+      "query": "propose changes for review in GitLab",
+      "category": "paraphrase",
+      "targets": [["gitlab/create_merge_request"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-018",
+      "query": "look for GitLab projects by name",
+      "category": "paraphrase",
+      "targets": [["gitlab/search_repositories"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-019",
+      "query": "file a new Jira ticket",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_create_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-020",
+      "query": "move PROJ-12 to In Review",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_transition_issue", "atlassian/jira_update_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-021",
+      "query": "find tickets with JQL project = WEB AND status = Open",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_search"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-022",
+      "query": "book 3 hours of effort against PROJ-55",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_add_worklog"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-023",
+      "query": "pull PROJ-1 and PROJ-2 into the running iteration",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_add_issues_to_sprint"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-024",
+      "query": "write a new article in our Atlassian wiki space",
+      "category": "paraphrase",
+      "targets": [
+        ["atlassian/confluence_create_page", "atlassian/confluence_create_page_from_template"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-025",
+      "query": "look through the Atlassian wiki for 'deployment'",
+      "category": "paraphrase",
+      "targets": [["atlassian/confluence_search"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-026",
+      "query": "put a PDF onto a wiki article in our Atlassian space",
+      "category": "paraphrase",
+      "targets": [
+        ["atlassian/confluence_upload_attachment", "atlassian/confluence_upload_attachments"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-027",
+      "query": "what changed between revision 3 and 5 of the wiki article",
+      "category": "paraphrase",
+      "targets": [["atlassian/confluence_get_page_diff"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-028",
+      "query": "put PROJ-9 under the payments epic",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_link_to_epic", "atlassian/jira_update_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-029",
+      "query": "make Maria responsible for PROJ-31",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_assign_issue", "atlassian/jira_update_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-030",
+      "query": "subscribe me to updates on PROJ-31",
+      "category": "paraphrase",
+      "targets": [["atlassian/jira_add_watcher"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-031",
+      "query": "show the contents of notes.txt on my disk",
+      "category": "paraphrase",
+      "targets": [["filesystem/read_text_file", "filesystem/read_file"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-032",
+      "query": "save this text to disk as output.md",
+      "category": "paraphrase",
+      "targets": [["filesystem/write_file"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-033",
+      "query": "make a folder named build on disk",
+      "category": "paraphrase",
+      "targets": [["filesystem/create_directory"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-034",
+      "query": "rename report.txt to report-old.txt",
+      "category": "paraphrase",
+      "targets": [["filesystem/move_file"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-035",
+      "query": "show the nested structure of this project folder as JSON",
+      "category": "paraphrase",
+      "targets": [["filesystem/directory_tree"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-036",
+      "query": "how big is each item in the downloads folder",
+      "category": "paraphrase",
+      "targets": [["filesystem/list_directory_with_sizes"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-037",
+      "query": "when was report.pdf last modified and how large is it",
+      "category": "paraphrase",
+      "targets": [["filesystem/get_file_info"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-038",
+      "query": "which files are modified or untracked in my local checkout",
+      "category": "paraphrase",
+      "targets": [["git/git_status"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-039",
+      "query": "put README.md in the index so it's included next time I record changes",
+      "category": "paraphrase",
+      "targets": [["git/git_add"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-040",
+      "query": "record the staged changes locally with message 'fix typo'",
+      "category": "paraphrase",
+      "targets": [["git/git_commit"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-041",
+      "query": "history of recorded changes in my local checkout",
+      "category": "paraphrase",
+      "targets": [["git/git_log"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-042",
+      "query": "edits in my working copy that I haven't put in the index yet",
+      "category": "paraphrase",
+      "targets": [["git/git_diff_unstaged"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-043",
+      "query": "jump to the release-1.2 line of development locally",
+      "category": "paraphrase",
+      "targets": [["git/git_checkout"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-044",
+      "query": "start a separate local line of work called feature-x from main",
+      "category": "paraphrase",
+      "targets": [["git/git_create_branch"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-045",
+      "query": "store Alice and Bob as nodes in the knowledge graph",
+      "category": "paraphrase",
+      "targets": [["memory/create_entities"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-046",
+      "query": "record that Alice manages Bob in the knowledge graph",
+      "category": "paraphrase",
+      "targets": [["memory/create_relations"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-047",
+      "query": "dump every stored fact and connection from long-term memory",
+      "category": "paraphrase",
+      "targets": [["memory/read_graph"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-048",
+      "query": "say hi to the team in #random",
+      "category": "paraphrase",
+      "targets": [["slack/slack_post_message", "dynatrace/send_slack_message"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-049",
+      "query": "respond underneath a message in #random so it stays threaded",
+      "category": "paraphrase",
+      "targets": [["slack/slack_reply_to_thread"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-050",
+      "query": "which chat rooms exist in our workspace",
+      "category": "paraphrase",
+      "targets": [["slack/slack_list_channels"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-051",
+      "query": "put a thumbs-up emoji on that chat message",
+      "category": "paraphrase",
+      "targets": [["slack/slack_add_reaction"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-052",
+      "query": "send Playwright to https://example.com",
+      "category": "paraphrase",
+      "targets": [["playwright/browser_navigate"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-053",
+      "query": "capture an image of the page with Puppeteer",
+      "category": "paraphrase",
+      "targets": [["puppeteer/puppeteer_screenshot"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-054",
+      "query": "score my page for performance, SEO and best practices",
+      "category": "paraphrase",
+      "targets": [["chrome-devtools/lighthouse_audit"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-055",
+      "query": "begin profiling page load in Chrome DevTools",
+      "category": "paraphrase",
+      "targets": [["chrome-devtools/performance_start_trace"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-056",
+      "query": "dump the JS memory heap of the tab",
+      "category": "paraphrase",
+      "targets": [["chrome-devtools/take_heapsnapshot"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-057",
+      "query": "dismiss the confirm() popup in Playwright",
+      "category": "paraphrase",
+      "targets": [["playwright/browser_handle_dialog"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-058",
+      "query": "run a PromQL expression for the request rate",
+      "category": "paraphrase",
+      "targets": [["grafana/query_prometheus"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-059",
+      "query": "fetch log lines with a LogQL selector",
+      "category": "paraphrase",
+      "targets": [["grafana/query_loki_logs"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-060",
+      "query": "find the Grafana board about checkout latency",
+      "category": "paraphrase",
+      "targets": [["grafana/search_dashboards"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-061",
+      "query": "declare an outage in Grafana",
+      "category": "paraphrase",
+      "targets": [["grafana/create_incident"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-062",
+      "query": "show the pager rotations configured in Grafana",
+      "category": "paraphrase",
+      "targets": [["grafana/list_oncall_schedules"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-063",
+      "query": "mute notifications for the disk-full rule for two hours",
+      "category": "paraphrase",
+      "targets": [["grafana/alerting_manage_silences"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-064",
+      "query": "what data connections are configured in Grafana",
+      "category": "paraphrase",
+      "targets": [["grafana/list_datasources"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-065",
+      "query": "run a DDL schema change on my Supabase Postgres",
+      "category": "paraphrase",
+      "targets": [["supabase/apply_migration"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-066",
+      "query": "ship a serverless Deno handler to Supabase",
+      "category": "paraphrase",
+      "targets": [["supabase/deploy_edge_function"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-067",
+      "query": "produce TS typings from my Supabase schema",
+      "category": "paraphrase",
+      "targets": [["supabase/generate_typescript_types"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-068",
+      "query": "temporarily suspend my Supabase instance",
+      "category": "paraphrase",
+      "targets": [["supabase/pause_project"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-069",
+      "query": "what relations exist in the local .db file",
+      "category": "paraphrase",
+      "targets": [["sqlite/list_tables"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-070",
+      "query": "SELECT the ten newest orders from the local SQLite file",
+      "category": "paraphrase",
+      "targets": [["sqlite/read_query"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-071",
+      "query": "what columns does the orders relation have in SQLite",
+      "category": "paraphrase",
+      "targets": [["sqlite/describe_table"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-072",
+      "query": "run SELECT count(*) on the Postgres users relation",
+      "category": "paraphrase",
+      "targets": [["postgres/query"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-073",
+      "query": "turn '10 Downing Street, London' into lat/lng with Google",
+      "category": "paraphrase",
+      "targets": [["google-maps/maps_geocode"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-074",
+      "query": "route from Paris to Lyon by car via Google",
+      "category": "paraphrase",
+      "targets": [["google-maps/maps_directions"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-075",
+      "query": "how many meters above sea level is the summit of Mount Rainier",
+      "category": "paraphrase",
+      "targets": [["google-maps/maps_elevation"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-076",
+      "query": "what's the clock reading in Sydney right now",
+      "category": "paraphrase",
+      "targets": [["time/get_current_time"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-077",
+      "query": "what is 9am PST expressed in CET",
+      "category": "paraphrase",
+      "targets": [["time/convert_time"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-078",
+      "query": "add a new doc to my Notion workspace",
+      "category": "paraphrase",
+      "targets": [["notion/API-post-page"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-079",
+      "query": "look up Notion docs whose title contains roadmap",
+      "category": "paraphrase",
+      "targets": [["notion/API-post-search"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-080",
+      "query": "filter rows of a Notion table where Status is Done",
+      "category": "paraphrase",
+      "targets": [["notion/API-query-data-source", "notion/API-retrieve-a-database"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-081",
+      "query": "append a bulleted list to the end of a Notion doc",
+      "category": "paraphrase",
+      "targets": [["notion/API-patch-block-children"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-082",
+      "query": "export a Notion doc as md text",
+      "category": "paraphrase",
+      "targets": [["notion/API-retrieve-page-markdown"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-083",
+      "query": "filter CRM contacts by lifecycle stage in HubSpot",
+      "category": "paraphrase",
+      "targets": [["hubspot/hubspot-search-objects"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-084",
+      "query": "show HubSpot automations",
+      "category": "paraphrase",
+      "targets": [["hubspot/hubspot-list-workflows"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-085",
+      "query": "add a new toggle called new-checkout in LaunchDarkly",
+      "category": "paraphrase",
+      "targets": [["launchdarkly/create-feature-flag"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-086",
+      "query": "where in our repos is the new-checkout toggle used",
+      "category": "paraphrase",
+      "targets": [["launchdarkly/get-code-references"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-087",
+      "query": "run a Grail query in Dynatrace",
+      "category": "paraphrase",
+      "targets": [["dynatrace/execute_dql"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-088",
+      "query": "what issues has Davis detected in Dynatrace",
+      "category": "paraphrase",
+      "targets": [["dynatrace/list_problems"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-089",
+      "query": "provision a new VM on DigitalOcean",
+      "category": "paraphrase",
+      "targets": [["digitalocean/droplet-create"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-090",
+      "query": "show my managed k8s on DigitalOcean",
+      "category": "paraphrase",
+      "targets": [["digitalocean/doks-list-clusters"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-091",
+      "query": "add a CNAME for www on my DigitalOcean zone",
+      "category": "paraphrase",
+      "targets": [["digitalocean/domain-record-create"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-092",
+      "query": "grow my block storage disk to 200GB on DigitalOcean",
+      "category": "paraphrase",
+      "targets": [["digitalocean/volume-resize"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-093",
+      "query": "put a traffic balancer in front of my DigitalOcean VMs",
+      "category": "paraphrase",
+      "targets": [["digitalocean/lb-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-094",
+      "query": "look something up on the internet using Brave",
+      "category": "paraphrase",
+      "targets": [["brave-search/brave_web_search"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-095",
+      "query": "spider an entire site with Tavily",
+      "category": "paraphrase",
+      "targets": [["tavily/tavily_crawl"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-096",
+      "query": "captions text of a YouTube video",
+      "category": "paraphrase",
+      "targets": [["youtube-transcript/get_transcript"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-097",
+      "query": "draw a picture with EverArt models",
+      "category": "paraphrase",
+      "targets": [["everart/generate_image"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-098",
+      "query": "query a Bedrock knowledge store for relevant chunks",
+      "category": "paraphrase",
+      "targets": [["aws-kb-retrieval/retrieve_from_aws_kb"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-099",
+      "query": "find the Context7 identifier for the next.js package",
+      "category": "paraphrase",
+      "targets": [["context7/resolve-library-id"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-100",
+      "query": "add a new buyer record in Stripe",
+      "category": "paraphrase",
+      "targets": [["stripe/create_customer"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-101",
+      "query": "give money back for a Stripe payment intent",
+      "category": "paraphrase",
+      "targets": [["stripe/create_refund"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-102",
+      "query": "make a shareable checkout URL in Stripe",
+      "category": "paraphrase",
+      "targets": [["stripe/create_payment_link"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-103",
+      "query": "stop a recurring Stripe plan for a customer",
+      "category": "paraphrase",
+      "targets": [["stripe/cancel_subscription"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-104",
+      "query": "file a new ticket in Linear",
+      "category": "paraphrase",
+      "targets": [["linear/linear_createIssue"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-105",
+      "query": "show all Linear projects",
+      "category": "paraphrase",
+      "targets": [["linear/linear_getProjects"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-106",
+      "query": "add a to-do to Todoist",
+      "category": "paraphrase",
+      "targets": [["todoist/createTask"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-107",
+      "query": "tick off a Todoist to-do",
+      "category": "paraphrase",
+      "targets": [["todoist/completeTask"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-108",
+      "query": "show the rows of an Airtable table",
+      "category": "paraphrase",
+      "targets": [["airtable/list_records", "airtable/search_records"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-109",
+      "query": "insert or update text into a Pinecone index",
+      "category": "paraphrase",
+      "targets": [["pinecone/upsert-records"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-110",
+      "query": "which vector stores exist in my Pinecone project",
+      "category": "paraphrase",
+      "targets": [["pinecone/list-indexes"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-111",
+      "query": "make a Contentful content item live",
+      "category": "paraphrase",
+      "targets": [["contentful/publish_entry"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-112",
+      "query": "find vault documents mentioning OKRs",
+      "category": "paraphrase",
+      "targets": [["obsidian/obsidian_search_notes"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-113",
+      "query": "execute all requests in a Postman collection",
+      "category": "paraphrase",
+      "targets": [["postman/runCollection"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-114",
+      "query": "stand up a fake API endpoint in Postman",
+      "category": "paraphrase",
+      "targets": [["postman/createMock"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-115",
+      "query": "why did my CircleCI job break, show its output",
+      "category": "paraphrase",
+      "targets": [["circleci/get_build_failure_logs"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-116",
+      "query": "non-deterministic test failures in CircleCI",
+      "category": "paraphrase",
+      "targets": [["circleci/find_flaky_tests"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-117",
+      "query": "find Azure Boards items mentioning login",
+      "category": "paraphrase",
+      "targets": [["azure-devops/search_workitem"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-118",
+      "query": "look up grouped errors in Sentry",
+      "category": "paraphrase",
+      "targets": [["sentry/search_issues"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-119",
+      "query": "pull the content of one URL with Firecrawl",
+      "category": "paraphrase",
+      "targets": [["firecrawl/firecrawl_scrape"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-120",
+      "query": "get a web-grounded answer from Perplexity",
+      "category": "paraphrase",
+      "targets": [["perplexity/perplexity_ask"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-121",
+      "query": "export PNGs and SVGs from a Figma file",
+      "category": "paraphrase",
+      "targets": [["figma/download_figma_images"]],
+      "split": "dev"
+    },
+    {
+      "id": "paraphrase-122",
+      "query": "areas reachable within 10 minutes using Mapbox",
+      "category": "paraphrase",
+      "targets": [["mapbox/isochrone_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "paraphrase-123",
+      "query": "lint Liquid templates for a Shopify storefront",
+      "category": "paraphrase",
+      "targets": [["shopify-dev/validate_theme"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-001",
+      "query": "find out why CI failed on my PR",
+      "category": "task",
+      "targets": [
+        [
+          "github/get_job_logs",
+          "github/actions_get",
+          "github/actions_list",
+          "github/pull_request_read",
+          "circleci/get_build_failure_logs",
+          "azure-devops/pipelines_build_log"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "task-002",
+      "query": "who is on call right now for the payments team",
+      "category": "task",
+      "targets": [["grafana/get_current_oncall_users"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-003",
+      "query": "is checkout throwing more errors than it did yesterday",
+      "category": "task",
+      "targets": [
+        ["grafana/find_error_pattern_logs", "grafana/query_loki_logs", "sentry/search_events"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-004",
+      "query": "which endpoints of our API respond slowly",
+      "category": "task",
+      "targets": [["grafana/find_slow_requests"]],
+      "split": "test"
+    },
+    {
+      "id": "task-005",
+      "query": "unstage everything, I put the wrong files in",
+      "category": "task",
+      "targets": [["git/git_reset"]],
+      "split": "test"
+    },
+    {
+      "id": "task-006",
+      "query": "what did I change locally since my last commit",
+      "category": "task",
+      "targets": [["git/git_diff_unstaged", "git/git_status", "git/git_diff"]],
+      "split": "test"
+    },
+    {
+      "id": "task-007",
+      "query": "remember that Alice prefers morning meetings",
+      "category": "task",
+      "targets": [["memory/add_observations", "memory/create_entities"]],
+      "split": "test"
+    },
+    {
+      "id": "task-008",
+      "query": "how long does it take to drive from Berlin to Munich",
+      "category": "task",
+      "targets": [
+        [
+          "google-maps/maps_directions",
+          "google-maps/maps_distance_matrix",
+          "mapbox/directions_tool",
+          "mapbox/matrix_tool"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-009",
+      "query": "is it already evening in Tokyo",
+      "category": "task",
+      "targets": [["time/get_current_time"]],
+      "split": "test"
+    },
+    {
+      "id": "task-010",
+      "query": "my meeting is 3pm New York, when is that for my colleague in Berlin",
+      "category": "task",
+      "targets": [["time/convert_time"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-011",
+      "query": "let everyone in #general know the deploy is done",
+      "category": "task",
+      "targets": [["slack/slack_post_message", "dynatrace/send_slack_message"]],
+      "split": "test"
+    },
+    {
+      "id": "task-012",
+      "query": "what were people discussing in #incidents today",
+      "category": "task",
+      "targets": [["slack/slack_get_channel_history"]],
+      "split": "test"
+    },
+    {
+      "id": "task-013",
+      "query": "why does my web page load so slowly",
+      "category": "task",
+      "targets": [
+        [
+          "chrome-devtools/performance_start_trace",
+          "chrome-devtools/lighthouse_audit",
+          "chrome-devtools/performance_analyze_insight"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "task-014",
+      "query": "check my landing page for accessibility and SEO problems",
+      "category": "task",
+      "targets": [["chrome-devtools/lighthouse_audit"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-015",
+      "query": "does my single page app leak memory",
+      "category": "task",
+      "targets": [["chrome-devtools/take_heapsnapshot"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-016",
+      "query": "what JavaScript errors did the page print",
+      "category": "task",
+      "targets": [["playwright/browser_console_messages", "chrome-devtools/list_console_messages"]],
+      "split": "test"
+    },
+    {
+      "id": "task-017",
+      "query": "which API calls did the page fire after it loaded",
+      "category": "task",
+      "targets": [["playwright/browser_network_requests", "chrome-devtools/list_network_requests"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-018",
+      "query": "see how the site looks on a phone-sized screen",
+      "category": "task",
+      "targets": [
+        ["playwright/browser_resize", "chrome-devtools/resize_page", "chrome-devtools/emulate"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-019",
+      "query": "preview the website with the dark color scheme",
+      "category": "task",
+      "targets": [["playwright/browser_emulate_media", "chrome-devtools/emulate"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-020",
+      "query": "add an avatar_url column to the users table in my Supabase database",
+      "category": "task",
+      "targets": [["supabase/apply_migration", "supabase/execute_sql"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-021",
+      "query": "are there security holes in my Supabase setup like missing row level security",
+      "category": "task",
+      "targets": [["supabase/get_advisors"]],
+      "split": "test"
+    },
+    {
+      "id": "task-022",
+      "query": "how much would another Supabase project cost me",
+      "category": "task",
+      "targets": [["supabase/get_cost"]],
+      "split": "test"
+    },
+    {
+      "id": "task-023",
+      "query": "I want a throwaway copy of the production database to try a schema change",
+      "category": "task",
+      "targets": [["supabase/create_branch", "digitalocean/db-cluster-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-024",
+      "query": "what's the anon key for my Supabase app",
+      "category": "task",
+      "targets": [["supabase/get_publishable_keys"]],
+      "split": "test"
+    },
+    {
+      "id": "task-025",
+      "query": "who is allowed to edit our onboarding wiki article",
+      "category": "task",
+      "targets": [
+        [
+          "atlassian/confluence_get_page_restrictions",
+          "atlassian/confluence_check_content_permissions"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-026",
+      "query": "how many people actually read our onboarding wiki article",
+      "category": "task",
+      "targets": [["atlassian/confluence_get_page_views"]],
+      "split": "test"
+    },
+    {
+      "id": "task-027",
+      "query": "what's still left to do in the current sprint",
+      "category": "task",
+      "targets": [
+        [
+          "atlassian/jira_get_sprint_issues",
+          "atlassian/jira_get_board_issues",
+          "linear/linear_getActiveCycle",
+          "linear/linear_getCycleIssues"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-028",
+      "query": "how much time has been booked on PROJ-123",
+      "category": "task",
+      "targets": [["atlassian/jira_get_worklog"]],
+      "split": "test"
+    },
+    {
+      "id": "task-029",
+      "query": "which pull requests and commits belong to ticket PROJ-77",
+      "category": "task",
+      "targets": [["atlassian/jira_get_issue_development_info"]],
+      "split": "test"
+    },
+    {
+      "id": "task-030",
+      "query": "is this customer support request going to breach its deadline",
+      "category": "task",
+      "targets": [["atlassian/jira_get_issue_sla"]],
+      "split": "test"
+    },
+    {
+      "id": "task-031",
+      "query": "take these tickets out of the sprint and park them for later",
+      "category": "task",
+      "targets": [["atlassian/jira_move_issues_to_backlog"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-032",
+      "query": "mark the login bug as blocked by the database ticket",
+      "category": "task",
+      "targets": [["atlassian/jira_create_issue_link", "linear/linear_createIssueRelation"]],
+      "split": "test"
+    },
+    {
+      "id": "task-033",
+      "query": "what statuses can PROJ-42 move to next",
+      "category": "task",
+      "targets": [["atlassian/jira_get_transitions"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-034",
+      "query": "find Rust projects about vector databases",
+      "category": "task",
+      "targets": [["github/search_repositories"]],
+      "split": "test"
+    },
+    {
+      "id": "task-035",
+      "query": "which account am I authenticated as on GitHub",
+      "category": "task",
+      "targets": [["github/get_me"]],
+      "split": "test"
+    },
+    {
+      "id": "task-036",
+      "query": "bring my PR branch up to date with main",
+      "category": "task",
+      "targets": [["github/update_pull_request_branch"]],
+      "split": "test"
+    },
+    {
+      "id": "task-037",
+      "query": "approve the PR and leave a short note",
+      "category": "task",
+      "targets": [["github/pull_request_review_write", "azure-devops/repo_pull_request_write"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-038",
+      "query": "let the AI coding agent pick up issue #88",
+      "category": "task",
+      "targets": [["github/assign_copilot_to_issue", "github/assign_copilot_to_issue_with_intent"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-039",
+      "query": "are any of this repo's npm packages known to be vulnerable",
+      "category": "task",
+      "targets": [["github/list_dependabot_alerts"]],
+      "split": "test"
+    },
+    {
+      "id": "task-040",
+      "query": "did someone accidentally commit an API token to the repo",
+      "category": "task",
+      "targets": [["github/list_secret_scanning_alerts", "postman/getDetectedSecretsLocations"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-041",
+      "query": "run the failed workflow again",
+      "category": "task",
+      "targets": [["github/actions_run_trigger", "circleci/rerun_workflow"]],
+      "split": "test"
+    },
+    {
+      "id": "task-042",
+      "query": "who can push to this repo",
+      "category": "task",
+      "targets": [["github/list_repository_collaborators"]],
+      "split": "test"
+    },
+    {
+      "id": "task-043",
+      "query": "what's the quickest walking route from the station to the hotel",
+      "category": "task",
+      "targets": [["google-maps/maps_directions", "mapbox/directions_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "task-044",
+      "query": "what street address is at 52.52, 13.405",
+      "category": "task",
+      "targets": [["google-maps/maps_reverse_geocode", "mapbox/reverse_geocode_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-045",
+      "query": "how high above sea level is Denver",
+      "category": "task",
+      "targets": [["google-maps/maps_elevation"]],
+      "split": "test"
+    },
+    {
+      "id": "task-046",
+      "query": "summarize what was said in this conference talk video",
+      "category": "task",
+      "targets": [["youtube-transcript/get_transcript"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-047",
+      "query": "make me a picture of a fox wearing sunglasses",
+      "category": "task",
+      "targets": [["everart/generate_image"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-048",
+      "query": "how do I use the new React 19 hooks, give me current docs",
+      "category": "task",
+      "targets": [["context7/query-docs", "context7/resolve-library-id"]],
+      "split": "test"
+    },
+    {
+      "id": "task-049",
+      "query": "write me an in-depth report on solid-state batteries with sources",
+      "category": "task",
+      "targets": [
+        ["tavily/tavily_research", "perplexity/perplexity_research", "firecrawl/firecrawl_agent"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-050",
+      "query": "give me every page URL on example.com",
+      "category": "task",
+      "targets": [["tavily/tavily_map", "firecrawl/firecrawl_map"]],
+      "split": "test"
+    },
+    {
+      "id": "task-051",
+      "query": "is the observability query I wrote syntactically valid in Dynatrace",
+      "category": "task",
+      "targets": [["dynatrace/verify_dql"]],
+      "split": "test"
+    },
+    {
+      "id": "task-052",
+      "query": "turn 'errors from the last hour' into a Dynatrace query",
+      "category": "task",
+      "targets": [["dynatrace/generate_dql_from_natural_language"]],
+      "split": "test"
+    },
+    {
+      "id": "task-053",
+      "query": "what happened in my k8s cluster recently according to Dynatrace",
+      "category": "task",
+      "targets": [["dynatrace/get_kubernetes_events"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-054",
+      "query": "roll the new checkout out to ten percent of users",
+      "category": "task",
+      "targets": [["launchdarkly/update-feature-flag"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-055",
+      "query": "is the dark-mode toggle switched on in production",
+      "category": "task",
+      "targets": [
+        ["launchdarkly/get-feature-flag", "launchdarkly/get-flag-status-across-environments"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "task-056",
+      "query": "who changed the rollout config yesterday",
+      "category": "task",
+      "targets": [["launchdarkly/get-audit-log-entries"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-057",
+      "query": "log a phone call I had with a customer in the CRM",
+      "category": "task",
+      "targets": [["hubspot/hubspot-create-engagement"]],
+      "split": "test"
+    },
+    {
+      "id": "task-058",
+      "query": "find all deals above 10k closing this month",
+      "category": "task",
+      "targets": [["hubspot/hubspot-search-objects"]],
+      "split": "test"
+    },
+    {
+      "id": "task-059",
+      "query": "which contacts belong to the Acme company record",
+      "category": "task",
+      "targets": [["hubspot/hubspot-list-associations"]],
+      "split": "test"
+    },
+    {
+      "id": "task-060",
+      "query": "spin up a small Linux VM in Frankfurt",
+      "category": "task",
+      "targets": [["digitalocean/droplet-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-061",
+      "query": "how much do I owe my cloud provider this month",
+      "category": "task",
+      "targets": [
+        [
+          "digitalocean/balance-get",
+          "digitalocean/invoice-list",
+          "digitalocean/billing-history-list"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-062",
+      "query": "point api.example.com at the new server IP",
+      "category": "task",
+      "targets": [["digitalocean/domain-record-create", "digitalocean/domain-record-edit"]],
+      "split": "test"
+    },
+    {
+      "id": "task-063",
+      "query": "give me credentials so kubectl can talk to my DO cluster",
+      "category": "task",
+      "targets": [["digitalocean/doks-get-kubeconfig", "digitalocean/doks-get-credentials"]],
+      "split": "test"
+    },
+    {
+      "id": "task-064",
+      "query": "stop the VM overnight to save money",
+      "category": "task",
+      "targets": [
+        [
+          "digitalocean/power-off-droplet",
+          "digitalocean/shutdown-droplet",
+          "digitalocean/droplet-action"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-065",
+      "query": "back up my VM before I upgrade it",
+      "category": "task",
+      "targets": [
+        [
+          "digitalocean/snapshot-droplet",
+          "digitalocean/droplet-action",
+          "digitalocean/enable-backups-droplet"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-066",
+      "query": "only allow ssh connections from my office IP",
+      "category": "task",
+      "targets": [["digitalocean/firewall-add-rules", "digitalocean/firewall-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-067",
+      "query": "purge the cached assets on my object storage CDN",
+      "category": "task",
+      "targets": [["digitalocean/spaces-cdn-flush-cache"]],
+      "split": "test"
+    },
+    {
+      "id": "task-068",
+      "query": "ping me when my website goes down",
+      "category": "task",
+      "targets": [
+        [
+          "digitalocean/uptimecheck-create",
+          "digitalocean/uptimecheck-alert-create",
+          "firecrawl/firecrawl_monitor_create"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "task-069",
+      "query": "note that revenue dipped in Q3 for the final analysis memo",
+      "category": "task",
+      "targets": [["sqlite/append_insight"]],
+      "split": "test"
+    },
+    {
+      "id": "task-070",
+      "query": "what's inside this folder",
+      "category": "task",
+      "targets": [["filesystem/list_directory", "filesystem/list_directory_with_sizes"]],
+      "split": "test"
+    },
+    {
+      "id": "task-071",
+      "query": "find every .env file in my project",
+      "category": "task",
+      "targets": [["filesystem/search_files"]],
+      "split": "test"
+    },
+    {
+      "id": "task-072",
+      "query": "change the port number in config.yaml from 8080 to 9090",
+      "category": "task",
+      "targets": [["filesystem/edit_file"]],
+      "split": "test"
+    },
+    {
+      "id": "task-073",
+      "query": "which folders on this machine am I allowed to touch",
+      "category": "task",
+      "targets": [["filesystem/list_allowed_directories"]],
+      "split": "test"
+    },
+    {
+      "id": "task-074",
+      "query": "show me this PNG from my downloads folder",
+      "category": "task",
+      "targets": [["filesystem/read_media_file"]],
+      "split": "test"
+    },
+    {
+      "id": "task-075",
+      "query": "load package.json and tsconfig.json at once",
+      "category": "task",
+      "targets": [["filesystem/read_multiple_files"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-076",
+      "query": "what exactly changed in commit abc123",
+      "category": "task",
+      "targets": [["git/git_show", "github/get_commit"]],
+      "split": "test"
+    },
+    {
+      "id": "task-077",
+      "query": "I'm stuck, help me reason through this design tradeoff step by step",
+      "category": "task",
+      "targets": [["sequential-thinking/sequentialthinking"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-078",
+      "query": "leave a remark on the product spec doc in Notion",
+      "category": "task",
+      "targets": [["notion/API-create-a-comment"]],
+      "split": "test"
+    },
+    {
+      "id": "task-079",
+      "query": "nest the meeting notes doc under Archive in Notion",
+      "category": "task",
+      "targets": [["notion/API-move-page"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-080",
+      "query": "who are the members of our Notion workspace",
+      "category": "task",
+      "targets": [["notion/API-get-users"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-081",
+      "query": "my dashboard panel shows wrong numbers, what query is behind it",
+      "category": "task",
+      "targets": [["grafana/get_dashboard_panel_queries"]],
+      "split": "test"
+    },
+    {
+      "id": "task-082",
+      "query": "acknowledge the page I just got",
+      "category": "task",
+      "targets": [["grafana/update_alert_group"]],
+      "split": "test"
+    },
+    {
+      "id": "task-083",
+      "query": "is the Prometheus datasource reachable",
+      "category": "task",
+      "targets": [["grafana/check_datasources_health"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-084",
+      "query": "send me a link to that dashboard",
+      "category": "task",
+      "targets": [["grafana/generate_deeplink"]],
+      "split": "test"
+    },
+    {
+      "id": "task-085",
+      "query": "where is my service spending its CPU time",
+      "category": "task",
+      "targets": [["grafana/query_pyroscope"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-086",
+      "query": "what's the p99 latency of the API",
+      "category": "task",
+      "targets": [["grafana/query_prometheus_histogram", "grafana/query_prometheus"]],
+      "split": "test"
+    },
+    {
+      "id": "task-087",
+      "query": "enter test data into all signup inputs",
+      "category": "task",
+      "targets": [
+        ["playwright/browser_fill_form", "chrome-devtools/fill_form", "puppeteer/puppeteer_fill"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-088",
+      "query": "return to the previous screen in the web session",
+      "category": "task",
+      "targets": [["playwright/browser_navigate_back", "chrome-devtools/navigate_page"]],
+      "split": "test"
+    },
+    {
+      "id": "task-089",
+      "query": "attach my resume PDF in the upload field",
+      "category": "task",
+      "targets": [["playwright/browser_file_upload", "chrome-devtools/upload_file"]],
+      "split": "test"
+    },
+    {
+      "id": "task-090",
+      "query": "pick Germany in the country dropdown",
+      "category": "task",
+      "targets": [
+        ["playwright/browser_select_option", "puppeteer/puppeteer_select", "chrome-devtools/fill"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "task-091",
+      "query": "charge the customer back the money for order 991",
+      "category": "task",
+      "targets": [["stripe/create_refund"]],
+      "split": "test"
+    },
+    {
+      "id": "task-092",
+      "query": "how much money is sitting in my payments account",
+      "category": "task",
+      "targets": [["stripe/retrieve_balance"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-093",
+      "query": "give the customer 20% off for three months",
+      "category": "task",
+      "targets": [["stripe/create_coupon"]],
+      "split": "test"
+    },
+    {
+      "id": "task-094",
+      "query": "a customer contested a charge, respond with evidence",
+      "category": "task",
+      "targets": [["stripe/update_dispute"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-095",
+      "query": "move the customer to the annual plan",
+      "category": "task",
+      "targets": [["stripe/update_subscription"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-096",
+      "query": "remind me to call the dentist tomorrow",
+      "category": "task",
+      "targets": [["todoist/createTask"]],
+      "split": "test"
+    },
+    {
+      "id": "task-097",
+      "query": "what do I still have to do today",
+      "category": "task",
+      "targets": [["todoist/listTasks"]],
+      "split": "test"
+    },
+    {
+      "id": "task-098",
+      "query": "find vectors similar to this sentence in my embeddings store",
+      "category": "task",
+      "targets": [["pinecone/search-records", "pinecone/cascading-search"]],
+      "split": "test"
+    },
+    {
+      "id": "task-099",
+      "query": "re-order these search results by relevance to the question",
+      "category": "task",
+      "targets": [["pinecone/rerank-documents"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-100",
+      "query": "how many vectors are stored in the index",
+      "category": "task",
+      "targets": [["pinecone/describe-index-stats"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-101",
+      "query": "schedule the blog post to go live Monday morning",
+      "category": "task",
+      "targets": [["contentful/schedule_publish_release"]],
+      "split": "test"
+    },
+    {
+      "id": "task-102",
+      "query": "what did I jot down in my journal yesterday",
+      "category": "task",
+      "targets": [["obsidian/obsidian_get_note", "obsidian/obsidian_search_notes"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-103",
+      "query": "add a tag to my meeting note",
+      "category": "task",
+      "targets": [["obsidian/obsidian_manage_tags", "obsidian/obsidian_manage_frontmatter"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-104",
+      "query": "why did this production exception happen",
+      "category": "task",
+      "targets": [
+        [
+          "sentry/analyze_issue_with_seer",
+          "sentry/get_sentry_resource",
+          "dynatrace/list_exceptions"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "task-105",
+      "query": "mark the crash report as resolved",
+      "category": "task",
+      "targets": [["sentry/update_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-106",
+      "query": "which checks keep failing randomly in our pipeline",
+      "category": "task",
+      "targets": [["circleci/find_flaky_tests"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-107",
+      "query": "deploy main to production on CircleCI",
+      "category": "task",
+      "targets": [["circleci/run_pipeline"]],
+      "split": "test"
+    },
+    {
+      "id": "task-108",
+      "query": "is my CircleCI config file valid",
+      "category": "task",
+      "targets": [["circleci/config_helper"]],
+      "split": "test"
+    },
+    {
+      "id": "task-109",
+      "query": "did the emails we sent last week bounce",
+      "category": "task",
+      "targets": [["mailgun/get-v3-domain-bounces", "mailgun/get-v3-domain-stats-total"]],
+      "split": "test"
+    },
+    {
+      "id": "task-110",
+      "query": "is this email address deliverable",
+      "category": "task",
+      "targets": [["mailgun/validate_email"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-111",
+      "query": "convert this Figma design into code",
+      "category": "task",
+      "targets": [["figma/get_figma_data"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-112",
+      "query": "which neighbourhoods can I reach within 15 minutes by bike",
+      "category": "task",
+      "targets": [["mapbox/isochrone_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "task-113",
+      "query": "plan the fastest round trip through these five delivery stops",
+      "category": "task",
+      "targets": [["mapbox/optimization_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-114",
+      "query": "draw a static map image of the venue",
+      "category": "task",
+      "targets": [["mapbox/static_map_image_tool", "mapbox/render_map_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-115",
+      "query": "how do I write a GraphQL query against the Shopify Admin API",
+      "category": "task",
+      "targets": [["shopify-dev/learn_shopify_api", "shopify-dev/search_docs_chunks"]],
+      "split": "test"
+    },
+    {
+      "id": "task-116",
+      "query": "what's the status of my latest Netlify deploy",
+      "category": "task",
+      "targets": [["netlify/netlify-deploy-services-reader"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-117",
+      "query": "give the Postman environment a new base URL variable",
+      "category": "task",
+      "targets": [["postman/patchEnvironment", "postman/putEnvironment"]],
+      "split": "test"
+    },
+    {
+      "id": "task-118",
+      "query": "generate an OpenAPI spec from my Postman collection",
+      "category": "task",
+      "targets": [["postman/generateSpecFromCollection"]],
+      "split": "dev"
+    },
+    {
+      "id": "task-119",
+      "query": "what's in the Azure DevOps backlog for my team",
+      "category": "task",
+      "targets": [["azure-devops/wit_backlog"]],
+      "split": "test"
+    },
+    {
+      "id": "task-120",
+      "query": "show Advanced Security findings for the repo in Azure DevOps",
+      "category": "task",
+      "targets": [["azure-devops/advsec_get_alerts"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-001",
+      "query": "file a bug report for the login crash",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/issue_write",
+          "gitlab/create_issue",
+          "atlassian/jira_create_issue",
+          "linear/linear_createIssue",
+          "azure-devops/wit_work_item_write"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-002",
+      "query": "search the web for the latest news about the EU AI act",
+      "category": "cross-server",
+      "targets": [
+        [
+          "brave-search/brave_web_search",
+          "tavily/tavily_search",
+          "exa/web_search_exa",
+          "firecrawl/firecrawl_search",
+          "perplexity/perplexity_search"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-003",
+      "query": "download a web page and give me its text as markdown",
+      "category": "cross-server",
+      "targets": [
+        ["fetch/fetch", "exa/web_fetch_exa", "tavily/tavily_extract", "firecrawl/firecrawl_scrape"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-004",
+      "query": "take a screenshot of the current page",
+      "category": "cross-server",
+      "targets": [
+        [
+          "playwright/browser_take_screenshot",
+          "puppeteer/puppeteer_screenshot",
+          "chrome-devtools/take_screenshot"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-005",
+      "query": "click the login button",
+      "category": "cross-server",
+      "targets": [
+        [
+          "playwright/browser_click",
+          "puppeteer/puppeteer_click",
+          "chrome-devtools/click",
+          "browserbase/act"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-006",
+      "query": "open https://example.com in a browser",
+      "category": "cross-server",
+      "targets": [
+        [
+          "playwright/browser_navigate",
+          "puppeteer/puppeteer_navigate",
+          "chrome-devtools/navigate_page",
+          "chrome-devtools/new_page",
+          "browserbase/navigate"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-007",
+      "query": "run some JavaScript in the page to read localStorage",
+      "category": "cross-server",
+      "targets": [
+        [
+          "playwright/browser_evaluate",
+          "puppeteer/puppeteer_evaluate",
+          "chrome-devtools/evaluate_script"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-008",
+      "query": "hover over the menu so the submenu appears",
+      "category": "cross-server",
+      "targets": [
+        ["playwright/browser_hover", "puppeteer/puppeteer_hover", "chrome-devtools/hover"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-009",
+      "query": "type my email address into the input box",
+      "category": "cross-server",
+      "targets": [
+        [
+          "playwright/browser_type",
+          "puppeteer/puppeteer_fill",
+          "chrome-devtools/fill",
+          "chrome-devtools/type_text",
+          "browserbase/act"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-010",
+      "query": "convert an address into latitude and longitude",
+      "category": "cross-server",
+      "targets": [["google-maps/maps_geocode", "mapbox/search_and_geocode_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-011",
+      "query": "find pizza places near Alexanderplatz",
+      "category": "cross-server",
+      "targets": [
+        [
+          "google-maps/maps_search_places",
+          "mapbox/search_and_geocode_tool",
+          "mapbox/category_search_tool",
+          "brave-search/brave_local_search"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-012",
+      "query": "travel times between three warehouses and five stores",
+      "category": "cross-server",
+      "targets": [["google-maps/maps_distance_matrix", "mapbox/matrix_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-013",
+      "query": "opening hours and rating of a specific restaurant",
+      "category": "cross-server",
+      "targets": [["google-maps/maps_place_details", "mapbox/place_details_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-014",
+      "query": "run a SQL query to count the orders from last week",
+      "category": "cross-server",
+      "targets": [["postgres/query", "sqlite/read_query", "supabase/execute_sql"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-015",
+      "query": "list all tables in the database",
+      "category": "cross-server",
+      "targets": [["sqlite/list_tables", "supabase/list_tables"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-016",
+      "query": "create a new branch called feature/login",
+      "category": "cross-server",
+      "targets": [
+        [
+          "git/git_create_branch",
+          "github/create_branch",
+          "gitlab/create_branch",
+          "azure-devops/repo_create_branch"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-017",
+      "query": "show me the recent commits",
+      "category": "cross-server",
+      "targets": [["git/git_log", "github/list_commits", "azure-devops/repo_search_commits"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-018",
+      "query": "open a pull request for my changes",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/create_pull_request",
+          "gitlab/create_merge_request",
+          "azure-devops/repo_pull_request_write"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-019",
+      "query": "search our codebase for usages of parseConfig",
+      "category": "cross-server",
+      "targets": [["github/search_code", "azure-devops/search_code"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-020",
+      "query": "look up the documentation for this library",
+      "category": "cross-server",
+      "targets": [["context7/query-docs", "context7/resolve-library-id"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-021",
+      "query": "search the docs for how to set up row level security",
+      "category": "cross-server",
+      "targets": [["supabase/search_docs"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-022",
+      "query": "send an email to the customer",
+      "category": "cross-server",
+      "targets": [["mailgun/post-v3-domain-messages", "dynatrace/send_email"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-023",
+      "query": "notify the team channel that the release shipped",
+      "category": "cross-server",
+      "targets": [["slack/slack_post_message", "dynatrace/send_slack_message"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-024",
+      "query": "write a wiki page documenting the deployment process",
+      "category": "cross-server",
+      "targets": [
+        [
+          "atlassian/confluence_create_page",
+          "azure-devops/wiki_upsert_page",
+          "notion/API-post-page",
+          "obsidian/obsidian_write_note"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-025",
+      "query": "search the wiki for the on-call runbook",
+      "category": "cross-server",
+      "targets": [
+        [
+          "atlassian/confluence_search",
+          "azure-devops/search_wiki",
+          "notion/API-post-search",
+          "obsidian/obsidian_search_notes"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-026",
+      "query": "show error logs from the last hour",
+      "category": "cross-server",
+      "targets": [
+        [
+          "grafana/query_loki_logs",
+          "dynatrace/execute_dql",
+          "supabase/query_logs",
+          "digitalocean/apps-get-logs"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-027",
+      "query": "what errors are users hitting in production",
+      "category": "cross-server",
+      "targets": [
+        [
+          "sentry/search_issues",
+          "sentry/search_events",
+          "dynatrace/list_exceptions",
+          "dynatrace/list_problems",
+          "grafana/find_error_pattern_logs"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-028",
+      "query": "add a comment on the ticket saying it's fixed",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/add_issue_comment",
+          "atlassian/jira_add_comment",
+          "linear/linear_createComment",
+          "azure-devops/wit_work_item_comment_write"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-029",
+      "query": "assign the ticket to Maria",
+      "category": "cross-server",
+      "targets": [
+        [
+          "atlassian/jira_assign_issue",
+          "atlassian/jira_update_issue",
+          "linear/linear_assignIssue",
+          "github/issue_write",
+          "azure-devops/wit_work_item_write"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-030",
+      "query": "close the issue as done",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/issue_write",
+          "atlassian/jira_transition_issue",
+          "atlassian/jira_update_issue",
+          "linear/linear_updateIssue",
+          "azure-devops/wit_work_item_write"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-031",
+      "query": "search tickets mentioning timeout",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/search_issues",
+          "atlassian/jira_search",
+          "linear/linear_searchIssues",
+          "azure-devops/search_workitem"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-032",
+      "query": "add a task to my list",
+      "category": "cross-server",
+      "targets": [["todoist/createTask", "linear/linear_createIssue"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-033",
+      "query": "save a note about today's standup",
+      "category": "cross-server",
+      "targets": [
+        [
+          "obsidian/obsidian_write_note",
+          "obsidian/obsidian_append_to_note",
+          "notion/API-post-page",
+          "memory/create_entities",
+          "memory/add_observations"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-034",
+      "query": "research the pros and cons of server-side rendering",
+      "category": "cross-server",
+      "targets": [
+        [
+          "tavily/tavily_research",
+          "perplexity/perplexity_research",
+          "perplexity/perplexity_ask",
+          "firecrawl/firecrawl_agent",
+          "exa/web_search_exa"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-035",
+      "query": "crawl the whole documentation site",
+      "category": "cross-server",
+      "targets": [["tavily/tavily_crawl", "firecrawl/firecrawl_crawl"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-036",
+      "query": "what are the current alerts firing",
+      "category": "cross-server",
+      "targets": [
+        ["grafana/alerting_manage_rules", "grafana/list_alert_groups", "dynatrace/list_problems"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-037",
+      "query": "show me the build logs for the failing job",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/get_job_logs",
+          "circleci/get_build_failure_logs",
+          "azure-devops/pipelines_build_log"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-038",
+      "query": "trigger a new pipeline run",
+      "category": "cross-server",
+      "targets": [
+        ["github/actions_run_trigger", "circleci/run_pipeline", "azure-devops/pipelines_write"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-039",
+      "query": "list the test results of the last build",
+      "category": "cross-server",
+      "targets": [
+        ["circleci/get_job_test_results", "azure-devops/testplan_show_test_results_from_build_id"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-040",
+      "query": "list the projects I have access to",
+      "category": "cross-server",
+      "targets": [
+        [
+          "linear/linear_getProjects",
+          "atlassian/jira_get_all_projects",
+          "azure-devops/core_list_projects",
+          "supabase/list_projects",
+          "todoist/listProjects",
+          "sentry/find_projects",
+          "circleci/list_followed_projects"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-041",
+      "query": "who am I logged in as",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/get_me",
+          "linear/linear_getViewer",
+          "notion/API-get-self",
+          "postman/getAuthenticatedUser",
+          "hubspot/hubspot-get-user-details"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-042",
+      "query": "list the security vulnerabilities we have",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/list_dependabot_alerts",
+          "github/list_code_scanning_alerts",
+          "dynatrace/list_vulnerabilities",
+          "azure-devops/advsec_get_alerts"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-043",
+      "query": "read a file from the repository",
+      "category": "cross-server",
+      "targets": [
+        ["github/get_file_contents", "gitlab/get_file_contents", "azure-devops/repo_file"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-044",
+      "query": "commit and push a changed file to the remote repo",
+      "category": "cross-server",
+      "targets": [
+        [
+          "github/create_or_update_file",
+          "github/push_files",
+          "gitlab/create_or_update_file",
+          "gitlab/push_files"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-045",
+      "query": "create a database table for invoices",
+      "category": "cross-server",
+      "targets": [["sqlite/create_table", "supabase/apply_migration", "airtable/create_table"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-046",
+      "query": "add a row to the spreadsheet-style table",
+      "category": "cross-server",
+      "targets": [["airtable/create_record", "notion/API-post-page"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-047",
+      "query": "list the users in our organization",
+      "category": "cross-server",
+      "targets": [
+        [
+          "slack/slack_get_users",
+          "notion/API-get-users",
+          "grafana/list_users_by_org",
+          "linear/linear_getUsers"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-048",
+      "query": "look up a user's profile",
+      "category": "cross-server",
+      "targets": [
+        [
+          "slack/slack_get_user_profile",
+          "atlassian/jira_get_user_profile",
+          "notion/API-get-user",
+          "github/search_users"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-049",
+      "query": "create a new project",
+      "category": "cross-server",
+      "targets": [
+        [
+          "linear/linear_createProject",
+          "todoist/createProject",
+          "supabase/create_project",
+          "github/create_repository",
+          "gitlab/create_repository"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-050",
+      "query": "show the list of open incidents",
+      "category": "cross-server",
+      "targets": [["grafana/list_incidents", "dynatrace/list_problems"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-051",
+      "query": "search academic papers about retrieval augmented generation",
+      "category": "cross-server",
+      "targets": [
+        [
+          "firecrawl/firecrawl_research_search_papers",
+          "exa/web_search_exa",
+          "perplexity/perplexity_search"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-052",
+      "query": "list environments for the project",
+      "category": "cross-server",
+      "targets": [
+        ["launchdarkly/get-environments", "postman/getEnvironments", "contentful/list_environments"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-053",
+      "query": "upload an image asset",
+      "category": "cross-server",
+      "targets": [
+        [
+          "contentful/upload_asset",
+          "atlassian/confluence_upload_attachment",
+          "airtable/upload_attachment"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-054",
+      "query": "find out what neighborhoods are around these coordinates",
+      "category": "cross-server",
+      "targets": [
+        [
+          "mapbox/ground_location_tool",
+          "google-maps/maps_reverse_geocode",
+          "mapbox/reverse_geocode_tool"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-055",
+      "query": "measure the straight-line distance between two coordinates",
+      "category": "cross-server",
+      "targets": [["mapbox/distance_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-056",
+      "query": "get my notifications",
+      "category": "cross-server",
+      "targets": [["github/list_notifications", "linear/linear_getNotifications"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-057",
+      "query": "delete the record",
+      "category": "cross-server",
+      "targets": [["airtable/delete_records", "contentful/delete_entry", "memory/delete_entities"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-058",
+      "query": "create a webhook that fires on new events",
+      "category": "cross-server",
+      "targets": [["linear/linear_createWebhook", "mailgun/post-v3-domains-domain-webhooks"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-059",
+      "query": "show me the release notes",
+      "category": "cross-server",
+      "targets": [
+        ["github/get_latest_release", "github/list_releases", "linear/linear_getReleaseNotes"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-060",
+      "query": "create a coupon code",
+      "category": "cross-server",
+      "targets": [["stripe/create_coupon"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-061",
+      "query": "list customers",
+      "category": "cross-server",
+      "targets": [
+        ["stripe/list_customers", "hubspot/hubspot-list-objects", "linear/linear_getCustomers"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-062",
+      "query": "get the dashboard definition",
+      "category": "cross-server",
+      "targets": [["grafana/get_dashboard_by_uid", "grafana/get_dashboard_summary"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-063",
+      "query": "monitor this page for changes every day",
+      "category": "cross-server",
+      "targets": [["firecrawl/firecrawl_monitor_create", "postman/createMonitor"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-064",
+      "query": "create a monitor that hits our API every 5 minutes",
+      "category": "cross-server",
+      "targets": [["postman/createMonitor", "digitalocean/uptimecheck-create"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-065",
+      "query": "store a fact so you remember it next time",
+      "category": "cross-server",
+      "targets": [["memory/create_entities", "memory/add_observations"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-066",
+      "query": "search the vault for notes about kubernetes",
+      "category": "cross-server",
+      "targets": [["obsidian/obsidian_search_notes"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-067",
+      "query": "think carefully before answering this hard question",
+      "category": "cross-server",
+      "targets": [["sequential-thinking/sequentialthinking", "perplexity/perplexity_reason"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-068",
+      "query": "fetch structured data from the product page",
+      "category": "cross-server",
+      "targets": [["browserbase/extract", "firecrawl/firecrawl_scrape", "tavily/tavily_extract"]],
+      "split": "test"
+    },
+    {
+      "id": "cross-server-069",
+      "query": "add an attachment to the ticket",
+      "category": "cross-server",
+      "targets": [["linear/linear_addAttachment"]],
+      "split": "dev"
+    },
+    {
+      "id": "cross-server-070",
+      "query": "list the branches",
+      "category": "cross-server",
+      "targets": [
+        [
+          "git/git_branch",
+          "github/list_branches",
+          "supabase/list_branches",
+          "azure-devops/repo_branch"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-001",
+      "query": "find the failing GitHub Actions job on my PR and post the error in Slack",
+      "category": "multi-step",
+      "targets": [
+        ["github/get_job_logs", "github/actions_list", "github/actions_get"],
+        ["slack/slack_post_message", "dynatrace/send_slack_message"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-002",
+      "query": "create a branch, commit my staged changes and open a pull request",
+      "category": "multi-step",
+      "targets": [
+        ["git/git_create_branch", "github/create_branch"],
+        ["git/git_commit"],
+        ["github/create_pull_request"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-003",
+      "query": "look up the Jira ticket and create a matching Linear issue",
+      "category": "multi-step",
+      "targets": [["atlassian/jira_get_issue"], ["linear/linear_createIssue"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-004",
+      "query": "scrape the pricing page and save it as a note in Obsidian",
+      "category": "multi-step",
+      "targets": [
+        ["firecrawl/firecrawl_scrape", "fetch/fetch", "exa/web_fetch_exa", "tavily/tavily_extract"],
+        ["obsidian/obsidian_write_note"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-005",
+      "query": "geocode the office address and find coffee shops nearby",
+      "category": "multi-step",
+      "targets": [
+        ["google-maps/maps_geocode", "mapbox/search_and_geocode_tool"],
+        [
+          "google-maps/maps_search_places",
+          "mapbox/category_search_tool",
+          "brave-search/brave_local_search"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-006",
+      "query": "query the Loki error logs and open a Grafana incident if there are many",
+      "category": "multi-step",
+      "targets": [
+        ["grafana/query_loki_logs", "grafana/find_error_pattern_logs"],
+        ["grafana/create_incident"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-007",
+      "query": "list the tables in SQLite, describe the orders table, then count rows",
+      "category": "multi-step",
+      "targets": [["sqlite/list_tables"], ["sqlite/describe_table"], ["sqlite/read_query"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-008",
+      "query": "create a Stripe product, give it a monthly price and a payment link",
+      "category": "multi-step",
+      "targets": [
+        ["stripe/create_product"],
+        ["stripe/create_price"],
+        ["stripe/create_payment_link"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-009",
+      "query": "create an invoice for the customer, add a line item, and finalize it",
+      "category": "multi-step",
+      "targets": [
+        ["stripe/create_invoice"],
+        ["stripe/create_invoice_item"],
+        ["stripe/finalize_invoice"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-010",
+      "query": "open the login page, fill in the credentials and take a screenshot",
+      "category": "multi-step",
+      "targets": [
+        [
+          "playwright/browser_navigate",
+          "puppeteer/puppeteer_navigate",
+          "chrome-devtools/navigate_page"
+        ],
+        [
+          "playwright/browser_fill_form",
+          "playwright/browser_type",
+          "puppeteer/puppeteer_fill",
+          "chrome-devtools/fill_form",
+          "chrome-devtools/fill"
+        ],
+        [
+          "playwright/browser_take_screenshot",
+          "puppeteer/puppeteer_screenshot",
+          "chrome-devtools/take_screenshot"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-011",
+      "query": "record a performance trace of the homepage and explain the biggest insight",
+      "category": "multi-step",
+      "targets": [
+        ["chrome-devtools/performance_start_trace"],
+        ["chrome-devtools/performance_stop_trace"],
+        ["chrome-devtools/performance_analyze_insight"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-012",
+      "query": "find the Sentry issue for the crash and file a GitHub issue for it",
+      "category": "multi-step",
+      "targets": [["sentry/search_issues"], ["github/issue_write"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-013",
+      "query": "get the YouTube transcript and save a summary page in Notion",
+      "category": "multi-step",
+      "targets": [["youtube-transcript/get_transcript"], ["notion/API-post-page"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-014",
+      "query": "search the web for the best vector DB and store the findings in memory",
+      "category": "multi-step",
+      "targets": [
+        [
+          "brave-search/brave_web_search",
+          "tavily/tavily_search",
+          "exa/web_search_exa",
+          "firecrawl/firecrawl_search",
+          "perplexity/perplexity_search"
+        ],
+        ["memory/create_entities", "memory/add_observations"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-015",
+      "query": "create a Supabase dev branch, apply the migration and merge it back",
+      "category": "multi-step",
+      "targets": [
+        ["supabase/create_branch"],
+        ["supabase/apply_migration"],
+        ["supabase/merge_branch"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-016",
+      "query": "create a droplet, reserve a static IP and assign it",
+      "category": "multi-step",
+      "targets": [
+        ["digitalocean/droplet-create"],
+        ["digitalocean/reserved-ip-reserve"],
+        ["digitalocean/reserved-ip-assign"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-017",
+      "query": "add a domain and create an A record pointing to my droplet",
+      "category": "multi-step",
+      "targets": [["digitalocean/domain-create"], ["digitalocean/domain-record-create"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-018",
+      "query": "create a DOKS cluster and download its kubeconfig",
+      "category": "multi-step",
+      "targets": [
+        ["digitalocean/doks-create-cluster"],
+        ["digitalocean/doks-get-kubeconfig", "digitalocean/doks-get-credentials"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-019",
+      "query": "create a feature flag and turn it on for staging",
+      "category": "multi-step",
+      "targets": [["launchdarkly/create-feature-flag"], ["launchdarkly/update-feature-flag"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-020",
+      "query": "find who is on call and DM them on Slack",
+      "category": "multi-step",
+      "targets": [
+        ["grafana/get_current_oncall_users", "grafana/list_oncall_schedules"],
+        ["slack/slack_post_message"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-021",
+      "query": "read the README from the GitHub repo and write it to a local file",
+      "category": "multi-step",
+      "targets": [["github/get_file_contents"], ["filesystem/write_file"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-022",
+      "query": "read my local CHANGELOG and push it to the GitHub repo",
+      "category": "multi-step",
+      "targets": [
+        ["filesystem/read_text_file", "filesystem/read_file"],
+        ["github/create_or_update_file", "github/push_files"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-023",
+      "query": "check git status, stage everything and commit",
+      "category": "multi-step",
+      "targets": [["git/git_status"], ["git/git_add"], ["git/git_commit"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-024",
+      "query": "find the Confluence runbook and copy it into a new Jira issue description",
+      "category": "multi-step",
+      "targets": [
+        ["atlassian/confluence_search", "atlassian/confluence_get_page"],
+        ["atlassian/jira_create_issue"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-025",
+      "query": "create a sprint and add the top backlog issues to it",
+      "category": "multi-step",
+      "targets": [["atlassian/jira_create_sprint"], ["atlassian/jira_add_issues_to_sprint"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-026",
+      "query": "list HubSpot deals then log a note on the biggest one",
+      "category": "multi-step",
+      "targets": [
+        ["hubspot/hubspot-list-objects", "hubspot/hubspot-search-objects"],
+        ["hubspot/hubspot-create-engagement"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-027",
+      "query": "find the slow requests in Tempo and the matching error logs in Loki",
+      "category": "multi-step",
+      "targets": [
+        ["grafana/find_slow_requests"],
+        ["grafana/query_loki_logs", "grafana/find_error_pattern_logs"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-028",
+      "query": "list Prometheus metric names then query the request rate",
+      "category": "multi-step",
+      "targets": [["grafana/list_prometheus_metric_names"], ["grafana/query_prometheus"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-029",
+      "query": "map the docs site and crawl only the API reference section",
+      "category": "multi-step",
+      "targets": [
+        ["firecrawl/firecrawl_map", "tavily/tavily_map"],
+        ["firecrawl/firecrawl_crawl", "tavily/tavily_crawl"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-030",
+      "query": "create a Pinecone index and upsert my documents into it",
+      "category": "multi-step",
+      "targets": [["pinecone/create-index-for-model"], ["pinecone/upsert-records"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-031",
+      "query": "search the Pinecone index and rerank the hits",
+      "category": "multi-step",
+      "targets": [["pinecone/search-records"], ["pinecone/rerank-documents"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-032",
+      "query": "create a Contentful entry and publish it",
+      "category": "multi-step",
+      "targets": [["contentful/create_entry"], ["contentful/publish_entry"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-033",
+      "query": "create a Postman collection from the spec and run it",
+      "category": "multi-step",
+      "targets": [
+        ["postman/generateCollection", "postman/createCollection"],
+        ["postman/runCollection"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-034",
+      "query": "find the flaky tests in CircleCI and open a Linear issue for each",
+      "category": "multi-step",
+      "targets": [["circleci/find_flaky_tests"], ["linear/linear_createIssue"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-035",
+      "query": "get the CircleCI failure logs and rerun the workflow",
+      "category": "multi-step",
+      "targets": [["circleci/get_build_failure_logs"], ["circleci/rerun_workflow"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-036",
+      "query": "convert 9am Tokyo to Berlin time and add a Todoist reminder",
+      "category": "multi-step",
+      "targets": [["time/convert_time"], ["todoist/createTask"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-037",
+      "query": "fetch the Figma design data and download its icons",
+      "category": "multi-step",
+      "targets": [["figma/get_figma_data"], ["figma/download_figma_images"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-038",
+      "query": "generate a Dynatrace query from plain English, verify it, and run it",
+      "category": "multi-step",
+      "targets": [
+        ["dynatrace/generate_dql_from_natural_language"],
+        ["dynatrace/verify_dql"],
+        ["dynatrace/execute_dql"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-039",
+      "query": "list Dynatrace problems and send an email summary",
+      "category": "multi-step",
+      "targets": [
+        ["dynatrace/list_problems"],
+        ["dynatrace/send_email", "mailgun/post-v3-domain-messages"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-040",
+      "query": "create a Linear project and add three issues to it",
+      "category": "multi-step",
+      "targets": [
+        ["linear/linear_createProject"],
+        ["linear/linear_createIssue", "linear/linear_addIssueToProject"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-041",
+      "query": "search Airtable for the client and update their status field",
+      "category": "multi-step",
+      "targets": [
+        ["airtable/search_records", "airtable/list_records"],
+        ["airtable/update_records"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-042",
+      "query": "create a Notion page and append a checklist to it",
+      "category": "multi-step",
+      "targets": [["notion/API-post-page"], ["notion/API-patch-block-children"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-043",
+      "query": "resolve the Next.js library id and fetch docs about middleware",
+      "category": "multi-step",
+      "targets": [["context7/resolve-library-id"], ["context7/query-docs"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-044",
+      "query": "create an Azure DevOps work item and link it to the pull request",
+      "category": "multi-step",
+      "targets": [["azure-devops/wit_work_item_write"], ["azure-devops/wit_work_item_link_write"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-045",
+      "query": "find my Obsidian note on the project and append today's progress",
+      "category": "multi-step",
+      "targets": [
+        ["obsidian/obsidian_search_notes", "obsidian/obsidian_get_note"],
+        ["obsidian/obsidian_append_to_note"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-046",
+      "query": "add knowledge graph entities for two people and relate them as colleagues",
+      "category": "multi-step",
+      "targets": [["memory/create_entities"], ["memory/create_relations"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-047",
+      "query": "list Mailgun templates and send a message with one of them",
+      "category": "multi-step",
+      "targets": [["mailgun/get-v3-domain-templates"], ["mailgun/post-v3-domain-messages"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-048",
+      "query": "list Stripe subscriptions and cancel the ones past due",
+      "category": "multi-step",
+      "targets": [["stripe/list_subscriptions"], ["stripe/cancel_subscription"]],
+      "split": "test"
+    },
+    {
+      "id": "multi-step-049",
+      "query": "snapshot the volume and then resize it",
+      "category": "multi-step",
+      "targets": [["digitalocean/volume-snapshot-create"], ["digitalocean/volume-resize"]],
+      "split": "dev"
+    },
+    {
+      "id": "multi-step-050",
+      "query": "look up the place, then get directions to it from the hotel",
+      "category": "multi-step",
+      "targets": [
+        ["google-maps/maps_search_places", "mapbox/search_and_geocode_tool"],
+        ["google-maps/maps_directions", "mapbox/directions_tool"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-001",
+      "query": "jira serch",
+      "category": "short-typo",
+      "targets": [["atlassian/jira_search"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-002",
+      "query": "screenshot",
+      "category": "short-typo",
+      "targets": [
+        [
+          "playwright/browser_take_screenshot",
+          "puppeteer/puppeteer_screenshot",
+          "chrome-devtools/take_screenshot"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-003",
+      "query": "git stauts",
+      "category": "short-typo",
+      "targets": [["git/git_status"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-004",
+      "query": "pr merge",
+      "category": "short-typo",
+      "targets": [["github/merge_pull_request"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-005",
+      "query": "timezone convert",
+      "category": "short-typo",
+      "targets": [["time/convert_time"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-006",
+      "query": "geocode",
+      "category": "short-typo",
+      "targets": [["google-maps/maps_geocode", "mapbox/search_and_geocode_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-007",
+      "query": "slak msg",
+      "category": "short-typo",
+      "targets": [["slack/slack_post_message"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-008",
+      "query": "refund",
+      "category": "short-typo",
+      "targets": [["stripe/create_refund"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-009",
+      "query": "promql",
+      "category": "short-typo",
+      "targets": [["grafana/query_prometheus"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-010",
+      "query": "heap snapshot",
+      "category": "short-typo",
+      "targets": [["chrome-devtools/take_heapsnapshot"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-011",
+      "query": "lighthouse",
+      "category": "short-typo",
+      "targets": [["chrome-devtools/lighthouse_audit"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-012",
+      "query": "dependabot",
+      "category": "short-typo",
+      "targets": [["github/list_dependabot_alerts", "github/get_dependabot_alert"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-013",
+      "query": "kubeconfig",
+      "category": "short-typo",
+      "targets": [["digitalocean/doks-get-kubeconfig"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-014",
+      "query": "transcrpt youtube",
+      "category": "short-typo",
+      "targets": [["youtube-transcript/get_transcript"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-015",
+      "query": "web serach",
+      "category": "short-typo",
+      "targets": [
+        [
+          "brave-search/brave_web_search",
+          "tavily/tavily_search",
+          "exa/web_search_exa",
+          "firecrawl/firecrawl_search",
+          "perplexity/perplexity_search"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-016",
+      "query": "mkdir",
+      "category": "short-typo",
+      "targets": [["filesystem/create_directory"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-017",
+      "query": "ls dir",
+      "category": "short-typo",
+      "targets": [["filesystem/list_directory", "filesystem/list_directory_with_sizes"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-018",
+      "query": "cat file",
+      "category": "short-typo",
+      "targets": [["filesystem/read_text_file", "filesystem/read_file"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-019",
+      "query": "grep files",
+      "category": "short-typo",
+      "targets": [["filesystem/search_files"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-020",
+      "query": "git commt",
+      "category": "short-typo",
+      "targets": [["git/git_commit"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-021",
+      "query": "git checkuot branch",
+      "category": "short-typo",
+      "targets": [["git/git_checkout"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-022",
+      "query": "confluense page create",
+      "category": "short-typo",
+      "targets": [["atlassian/confluence_create_page"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-023",
+      "query": "sprint issues",
+      "category": "short-typo",
+      "targets": [["atlassian/jira_get_sprint_issues"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-024",
+      "query": "worklog",
+      "category": "short-typo",
+      "targets": [["atlassian/jira_add_worklog", "atlassian/jira_get_worklog"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-025",
+      "query": "loki logs",
+      "category": "short-typo",
+      "targets": [["grafana/query_loki_logs"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-026",
+      "query": "oncall now",
+      "category": "short-typo",
+      "targets": [["grafana/get_current_oncall_users"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-027",
+      "query": "silence alert",
+      "category": "short-typo",
+      "targets": [["grafana/alerting_manage_silences"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-028",
+      "query": "edge fn deploy",
+      "category": "short-typo",
+      "targets": [["supabase/deploy_edge_function"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-029",
+      "query": "supabse migration",
+      "category": "short-typo",
+      "targets": [["supabase/apply_migration"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-030",
+      "query": "rls advisors",
+      "category": "short-typo",
+      "targets": [["supabase/get_advisors"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-031",
+      "query": "droplet reboot",
+      "category": "short-typo",
+      "targets": [["digitalocean/reboot-droplet"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-032",
+      "query": "dns record add",
+      "category": "short-typo",
+      "targets": [["digitalocean/domain-record-create"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-033",
+      "query": "feature flag toggle",
+      "category": "short-typo",
+      "targets": [["launchdarkly/update-feature-flag"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-034",
+      "query": "dql",
+      "category": "short-typo",
+      "targets": [
+        [
+          "dynatrace/execute_dql",
+          "dynatrace/verify_dql",
+          "dynatrace/generate_dql_from_natural_language",
+          "dynatrace/explain_dql_in_natural_language"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-035",
+      "query": "crm search",
+      "category": "short-typo",
+      "targets": [["hubspot/hubspot-search-objects"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-036",
+      "query": "todo add",
+      "category": "short-typo",
+      "targets": [["todoist/createTask"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-037",
+      "query": "vector upsert",
+      "category": "short-typo",
+      "targets": [["pinecone/upsert-records"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-038",
+      "query": "rerank",
+      "category": "short-typo",
+      "targets": [["pinecone/rerank-documents"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-039",
+      "query": "flaky tests",
+      "category": "short-typo",
+      "targets": [["circleci/find_flaky_tests"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-040",
+      "query": "isochrone",
+      "category": "short-typo",
+      "targets": [["mapbox/isochrone_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-041",
+      "query": "reverse geocod",
+      "category": "short-typo",
+      "targets": [["google-maps/maps_reverse_geocode", "mapbox/reverse_geocode_tool"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-042",
+      "query": "linear isue create",
+      "category": "short-typo",
+      "targets": [["linear/linear_createIssue"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-043",
+      "query": "gist",
+      "category": "short-typo",
+      "targets": [["github/create_gist", "github/list_gists", "github/get_gist"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-044",
+      "query": "fork repo",
+      "category": "short-typo",
+      "targets": [["github/fork_repository", "gitlab/fork_repository"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-045",
+      "query": "obsidan note",
+      "category": "short-typo",
+      "targets": [["obsidian/obsidian_get_note", "obsidian/obsidian_write_note"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-046",
+      "query": "email validate",
+      "category": "short-typo",
+      "targets": [["mailgun/validate_email"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-047",
+      "query": "bounces",
+      "category": "short-typo",
+      "targets": [["mailgun/get-v3-domain-bounces"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-048",
+      "query": "figma",
+      "category": "short-typo",
+      "targets": [["figma/get_figma_data", "figma/download_figma_images"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-049",
+      "query": "seer root cause",
+      "category": "short-typo",
+      "targets": [["sentry/analyze_issue_with_seer"]],
+      "split": "dev"
+    },
+    {
+      "id": "short-typo-050",
+      "query": "scrape url",
+      "category": "short-typo",
+      "targets": [
+        ["firecrawl/firecrawl_scrape", "fetch/fetch", "tavily/tavily_extract", "exa/web_fetch_exa"]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-051",
+      "query": "pupeteer click",
+      "category": "short-typo",
+      "targets": [["puppeteer/puppeteer_click"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-052",
+      "query": "playwrite navigate",
+      "category": "short-typo",
+      "targets": [["playwright/browser_navigate"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-053",
+      "query": "kg read",
+      "category": "short-typo",
+      "targets": [["memory/read_graph"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-054",
+      "query": "elevation",
+      "category": "short-typo",
+      "targets": [["google-maps/maps_elevation"]],
+      "split": "test"
+    },
+    {
+      "id": "short-typo-055",
+      "query": "balance",
+      "category": "short-typo",
+      "targets": [["stripe/retrieve_balance", "digitalocean/balance-get"]],
+      "split": "test"
+    },
+    {
+      "id": "german-001",
+      "query": "Erstelle ein neues Jira-Ticket für den Login-Fehler",
+      "category": "german",
+      "targets": [["atlassian/jira_create_issue"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-002",
+      "query": "Wie spät ist es gerade in Tokio?",
+      "category": "german",
+      "targets": [["time/get_current_time"]],
+      "split": "test"
+    },
+    {
+      "id": "german-003",
+      "query": "Rechne 15 Uhr New Yorker Zeit in deutsche Zeit um",
+      "category": "german",
+      "targets": [["time/convert_time"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-004",
+      "query": "Mach einen Screenshot der aktuellen Seite",
+      "category": "german",
+      "targets": [
+        [
+          "playwright/browser_take_screenshot",
+          "puppeteer/puppeteer_screenshot",
+          "chrome-devtools/take_screenshot"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "german-005",
+      "query": "Schick eine Nachricht in den Slack-Kanal #general",
+      "category": "german",
+      "targets": [["slack/slack_post_message", "dynatrace/send_slack_message"]],
+      "split": "test"
+    },
+    {
+      "id": "german-006",
+      "query": "Zeig mir die offenen Pull Requests im Repository",
+      "category": "german",
+      "targets": [["github/list_pull_requests", "github/search_pull_requests"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-007",
+      "query": "Warum ist der CI-Build fehlgeschlagen?",
+      "category": "german",
+      "targets": [
+        [
+          "github/get_job_logs",
+          "github/actions_get",
+          "circleci/get_build_failure_logs",
+          "azure-devops/pipelines_build_log"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "german-008",
+      "query": "Lies die Datei config.yaml von der Festplatte",
+      "category": "german",
+      "targets": [["filesystem/read_text_file", "filesystem/read_file"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-009",
+      "query": "Lege einen neuen Ordner namens backup an",
+      "category": "german",
+      "targets": [["filesystem/create_directory"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-010",
+      "query": "Welche Dateien habe ich seit dem letzten Commit geändert?",
+      "category": "german",
+      "targets": [["git/git_status", "git/git_diff_unstaged", "git/git_diff"]],
+      "split": "test"
+    },
+    {
+      "id": "german-011",
+      "query": "Committe die vorgemerkten Änderungen",
+      "category": "german",
+      "targets": [["git/git_commit"]],
+      "split": "test"
+    },
+    {
+      "id": "german-012",
+      "query": "Suche im Web nach aktuellen Nachrichten zur Energiewende",
+      "category": "german",
+      "targets": [
+        [
+          "brave-search/brave_web_search",
+          "tavily/tavily_search",
+          "exa/web_search_exa",
+          "firecrawl/firecrawl_search",
+          "perplexity/perplexity_search"
+        ]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "german-013",
+      "query": "Wandle die Adresse Unter den Linden 1, Berlin in Koordinaten um",
+      "category": "german",
+      "targets": [["google-maps/maps_geocode", "mapbox/search_and_geocode_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-014",
+      "query": "Wie komme ich am schnellsten vom Hauptbahnhof zum Flughafen?",
+      "category": "german",
+      "targets": [["google-maps/maps_directions", "mapbox/directions_tool"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-015",
+      "query": "Erstatte dem Kunden die Zahlung zurück",
+      "category": "german",
+      "targets": [["stripe/create_refund"]],
+      "split": "test"
+    },
+    {
+      "id": "german-016",
+      "query": "Kündige das Abonnement des Kunden",
+      "category": "german",
+      "targets": [["stripe/cancel_subscription"]],
+      "split": "test"
+    },
+    {
+      "id": "german-017",
+      "query": "Wer hat gerade Bereitschaftsdienst?",
+      "category": "german",
+      "targets": [["grafana/get_current_oncall_users"]],
+      "split": "test"
+    },
+    {
+      "id": "german-018",
+      "query": "Zeig mir die Fehler-Logs der letzten Stunde",
+      "category": "german",
+      "targets": [
+        [
+          "grafana/query_loki_logs",
+          "dynatrace/execute_dql",
+          "supabase/query_logs",
+          "grafana/find_error_pattern_logs"
+        ]
+      ],
+      "split": "test"
+    },
+    {
+      "id": "german-019",
+      "query": "Starte einen neuen virtuellen Server in Frankfurt",
+      "category": "german",
+      "targets": [["digitalocean/droplet-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-020",
+      "query": "Füge einen DNS-Eintrag für die Domain hinzu",
+      "category": "german",
+      "targets": [["digitalocean/domain-record-create"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-021",
+      "query": "Schalte das Feature-Flag in Produktion ein",
+      "category": "german",
+      "targets": [["launchdarkly/update-feature-flag"]],
+      "split": "test"
+    },
+    {
+      "id": "german-022",
+      "query": "Erstelle eine Aufgabe: morgen Zahnarzt anrufen",
+      "category": "german",
+      "targets": [["todoist/createTask"]],
+      "split": "test"
+    },
+    {
+      "id": "german-023",
+      "query": "Erstelle eine neue Seite in Confluence mit der Anleitung",
+      "category": "german",
+      "targets": [
+        ["atlassian/confluence_create_page", "atlassian/confluence_create_page_from_template"]
+      ],
+      "split": "dev"
+    },
+    {
+      "id": "german-024",
+      "query": "Fasse das YouTube-Video zusammen",
+      "category": "german",
+      "targets": [["youtube-transcript/get_transcript"]],
+      "split": "dev"
+    },
+    {
+      "id": "german-025",
+      "query": "Führe eine SQL-Abfrage auf der Datenbank aus",
+      "category": "german",
+      "targets": [["postgres/query", "sqlite/read_query", "supabase/execute_sql"]],
+      "split": "test"
+    },
+    {
+      "id": "german-026",
+      "query": "Welche Tabellen gibt es in der SQLite-Datenbank?",
+      "category": "german",
+      "targets": [["sqlite/list_tables"]],
+      "split": "test"
+    },
+    {
+      "id": "german-027",
+      "query": "Prüfe die Seite auf Barrierefreiheit",
+      "category": "german",
+      "targets": [["chrome-devtools/lighthouse_audit"]],
+      "split": "test"
+    },
+    {
+      "id": "german-028",
+      "query": "Ist diese E-Mail-Adresse gültig?",
+      "category": "german",
+      "targets": [["mailgun/validate_email"]],
+      "split": "test"
+    },
+    {
+      "id": "german-029",
+      "query": "Merke dir, dass Anna Kaffee ohne Zucker trinkt",
+      "category": "german",
+      "targets": [["memory/add_observations", "memory/create_entities"]],
+      "split": "test"
+    },
+    {
+      "id": "german-030",
+      "query": "Durchsuche meine Notizen nach Kubernetes",
+      "category": "german",
+      "targets": [["obsidian/obsidian_search_notes", "notion/API-post-search"]],
+      "split": "test"
+    }
+  ]
+}
