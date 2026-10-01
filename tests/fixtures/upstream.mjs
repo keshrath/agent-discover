@@ -50,7 +50,7 @@ function build() {
       structuredContent: { city, celsius: 21 },
     }),
   );
-  s.registerTool('confirm', { description: 'Ask the user to confirm, then answer' }, async (_args, ctx) => {
+  s.registerTool('confirm', { description: 'Ask the user to confirm, then answer' }, async (ctx) => {
     const ok = acceptedContent(ctx.mcpReq.inputResponses, 'ok', z.object({ yes: z.boolean() }));
     if (!ok) {
       return inputRequired({
