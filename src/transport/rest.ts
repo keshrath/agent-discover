@@ -212,12 +212,13 @@ export function createRestHandler(
   route('GET', '/api/browse', async (req, res) => {
     const q = query(req);
     const limit = Math.max(1, Math.min(parseInt(q.get('limit') ?? '20', 10) || 20, 100));
-    json(
-      res,
-      await upstream(() =>
-        ctx.marketplace.browse(q.get('query') ?? undefined, limit, q.get('cursor') ?? undefined),
-      ),
-    );
+    json(res, await upstream(() => ctx.marketplace.search(q.get('query') ?? '', limit)));
+  });
+
+  route('GET', '/api/registry', (_req, res) => json(res, ctx.registry.status()));
+
+  route('POST', '/api/registry/sync', async (_req, res) => {
+    json(res, await upstream(() => ctx.registry.sync()));
   });
 
   route('GET', '/api/prereqs', async (_req, res) => {

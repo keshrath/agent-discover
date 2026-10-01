@@ -37,6 +37,7 @@ interface ServerRow {
   package_version: string | null;
   repository: string | null;
   homepage: string | null;
+  registry_name: string | null;
   enabled: number;
   quarantined: number;
   indexed_at: string | null;
@@ -64,6 +65,7 @@ function rowToServer(row: ServerRow): ServerEntry {
     package_version: row.package_version,
     repository: row.repository,
     homepage: row.homepage,
+    registry_name: row.registry_name ?? null,
     enabled: row.enabled === 1,
     quarantined: row.quarantined === 1,
     indexed_at: row.indexed_at,
@@ -151,7 +153,8 @@ export function toConfig(server: ServerEntry, secrets: Record<string, string>): 
   if (auth && !Object.keys(headers).some((h) => h.toLowerCase() === 'authorization')) {
     headers.Authorization = auth;
   }
-  for (const [k, v] of Object.entries(headers)) if (/[\r\n]/.test(v)) delete headers[k];
+  // Declared-but-unfilled headers (registry secrets not set yet) are not sent empty.
+  for (const [k, v] of Object.entries(headers)) if (v === '' || /[\r\n]/.test(v)) delete headers[k];
   return {
     name: server.name,
     transport: server.transport,
@@ -172,8 +175,8 @@ export class ServerStore {
 
     const result = this.db.run(
       `INSERT INTO servers (name, description, source, transport, command, args, env, url, headers,
-        tags, package_name, package_version, repository, homepage)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        tags, package_name, package_version, repository, homepage, registry_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.name,
         input.description ?? '',
@@ -189,6 +192,7 @@ export class ServerStore {
         input.package_version ?? null,
         input.repository ?? null,
         input.homepage ?? null,
+        input.registry_name ?? null,
       ],
     );
     return this.getById(Number(result.lastInsertRowid))!;

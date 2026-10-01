@@ -20,6 +20,13 @@ export interface Config {
   readonly mode: ExposureMode;
   /** Operator opt-in: install_server may run without human consent when the client cannot elicit. */
   readonly allowUnconfirmedInstall: boolean;
+  /** Official MCP Registry (or a compatible sub-registry) mirrored locally (AGENT_DISCOVER_REGISTRY_URL). */
+  readonly registryUrl: string;
+  /**
+   * HTTPS URL where the operator hosts agent-discover's OAuth Client ID Metadata Document
+   * (AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL). Unset: dynamic client registration.
+   */
+  readonly oauthClientMetadataUrl?: string;
 }
 
 function int(value: string | undefined, fallback: number): number {
@@ -35,5 +42,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     connIdleMs: int(env.AGENT_DISCOVER_CONN_IDLE_MS, 10 * 60_000),
     mode: env.AGENT_DISCOVER_MODE === 'proxy' ? 'proxy' : 'native',
     allowUnconfirmedInstall: env.AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL === '1',
+    registryUrl: (
+      env.AGENT_DISCOVER_REGISTRY_URL || 'https://registry.modelcontextprotocol.io'
+    ).replace(/\/+$/, ''),
+    oauthClientMetadataUrl: env.AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL || undefined,
   };
 }

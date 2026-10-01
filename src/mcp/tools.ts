@@ -23,8 +23,9 @@ import {
   type ToolAnnotations,
 } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
-import type { ServerInput } from '../types.js';
 import { validateServerInput } from '../domain/servers.js';
+import { manualPlan, type InstallPlan } from '../domain/install-plan.js';
+import { ValidationError } from '../types.js';
 import type { ServerStatus } from '../domain/lifecycle.js';
 import type { HealthResult } from '../domain/pool.js';
 import type { IndexedTool } from '../types.js';
@@ -145,17 +146,28 @@ const serverStatus = z.object({
 });
 
 const installArgs = z.object({
-  name: z.string().describe('Local name for the server (letters, digits, . _ -)'),
-  package: z
+  server: z
     .string()
     .optional()
-    .describe('Package identifier; derives command/args from `runtime` (npx / uvx / docker)'),
-  runtime: z.enum(['node', 'python', 'docker']).optional(),
-  transport: transportEnum.optional(),
+    .describe(
+      'Exact name from search_servers: MCP Registry name (io.github.org/server), npm package or PyPI project. Omit for a manual command/url.',
+    ),
+  source: z
+    .enum(['registry', 'npm', 'pypi'])
+    .optional()
+    .describe('Where `server` comes from (default registry)'),
+  version: z.string().optional().describe('Exact version to install (default: latest)'),
+  name: z
+    .string()
+    .optional()
+    .describe('Local name (letters, digits, . _ -); default derived from `server`'),
+  transport: transportEnum
+    .optional()
+    .describe('Pick a remote (streamable-http/sse) over a package, or the manual transport'),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: stringMap.optional(),
-  url: z.string().optional().describe('Endpoint for sse / streamable-http servers'),
+  url: z.string().optional().describe('Endpoint for manual sse / streamable-http servers'),
   headers: stringMap.optional(),
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -166,48 +178,59 @@ const installArgs = z.object({
 // Tools
 // ---------------------------------------------------------------------------
 
-function proposedInput(rt: McpRuntime, a: z.infer<typeof installArgs>): ServerInput {
-  const base: ServerInput = {
+async function proposedPlan(rt: McpRuntime, a: z.infer<typeof installArgs>): Promise<InstallPlan> {
+  if (a.server) {
+    const server = a.name ? rt.app.servers.get(a.name) : null;
+    return rt.app.marketplace.plan({
+      source: a.source,
+      name: a.server,
+      version: a.version,
+      local_name: a.name,
+      transport: a.transport,
+      storedSecrets: server ? Object.keys(rt.app.secrets.getEnvForServer(server.id)) : [],
+    });
+  }
+  if (!a.name) throw new ValidationError('name is required for a manual install');
+  return manualPlan({
     name: a.name,
     description: a.description,
     tags: a.tags,
     env: a.env,
     headers: a.headers,
-    source: a.package ? 'registry' : 'manual',
-  };
-  if (a.package) {
-    const cfg = rt.app.installer.detectInstallConfig(a.package, a.runtime);
-    return {
-      ...base,
-      transport: 'stdio',
-      command: cfg.command,
-      args: cfg.args,
-      package_name: cfg.package_name,
-    };
-  }
-  return {
-    ...base,
+    source: 'manual',
     transport: a.transport ?? (a.url ? 'streamable-http' : 'stdio'),
     command: a.command,
     args: a.args,
     url: a.url,
-  };
+  });
 }
 
-function consentMessage(input: ServerInput): string {
-  const lines = [
-    `Install MCP server "${input.name}"?`,
-    `Source: ${input.package_name ? `package ${input.package_name}` : 'manual configuration'}`,
-  ];
-  if (input.transport === 'stdio') {
-    lines.push(`Runs on this machine: ${[input.command, ...(input.args ?? [])].join(' ')}`);
-  } else {
-    lines.push(`Connects to: ${input.url} (${input.transport})`);
-    if (input.headers && Object.keys(input.headers).length)
-      lines.push(`Headers: ${Object.keys(input.headers).join(', ')}`);
+function consentMessage(plan: InstallPlan): string {
+  const p = plan.provenance;
+  const lines = [`Install MCP server "${plan.server}"?`];
+  if (p.registry) {
+    lines.push(
+      `Registry: ${p.registry.name} (${p.registry.status}, publisher ${p.registry.publisher})`,
+    );
   }
-  if (input.env && Object.keys(input.env).length)
-    lines.push(`Env vars: ${Object.keys(input.env).join(', ')}`);
+  if (p.package) {
+    lines.push(
+      `Package: ${p.package.ecosystem} ${p.package.name} ${p.package.version ?? '(unversioned)'}${p.pinned ? ' (pinned)' : ''}`,
+    );
+  }
+  if (plan.transport === 'stdio') {
+    lines.push(`Runs on this machine: ${[plan.command, ...(plan.args ?? [])].join(' ')}`);
+  } else {
+    lines.push(`Connects to: ${plan.url} (${plan.transport})`);
+  }
+  for (const c of p.checks) lines.push(`Check ${c.id}: ${c.status} — ${c.detail}`);
+  if (p.repository) lines.push(`Source: ${p.repository}`);
+  if (plan.requirements.length) {
+    lines.push(
+      `Needs: ${plan.requirements.map((r) => `${r.key}${r.secret ? ' (secret)' : ''}${r.required ? '' : ' (optional)'}`).join(', ')}`,
+    );
+  }
+  for (const w of plan.warnings) lines.push(`Warning: ${w}`);
   lines.push('The server is started now to index its tools.');
   return lines.join('\n');
 }
@@ -238,22 +261,25 @@ export const META_TOOLS = {
       ),
       marketplace: z.array(
         z.object({
-          name: z.string(),
+          source: z.enum(['registry', 'npm', 'pypi']),
+          name: z.string().describe('Exact name to pass to install_server as `server`'),
+          title: z.string().optional(),
           description: z.string(),
           version: z.string(),
+          status: z.enum(['active', 'deprecated', 'deleted']),
           repository: z.string().nullable(),
           packages: z.array(
             z.object({
-              registry: z.string(),
-              name: z.string(),
-              runtime: z.string(),
-              version: z.string(),
-              url: z.string().nullable(),
+              registry_type: z.string(),
+              identifier: z.string(),
+              version: z.string().nullable(),
+              transport: z.string(),
             }),
           ),
+          remotes: z.array(z.object({ type: z.string(), url: z.string() })),
         }),
       ),
-      marketplace_error: z.string().optional(),
+      marketplace_errors: z.record(z.string(), z.string()).optional(),
     }),
     annotations: { readOnlyHint: true, openWorldHint: true },
     async run(rt, { query, limit = 10, marketplace = true }) {
@@ -268,24 +294,9 @@ export const META_TOOLS = {
         }));
       const out: Record<string, unknown> = { installed, marketplace: [] };
       if (marketplace) {
-        try {
-          const res = await rt.app.marketplace.browse(query, limit);
-          out.marketplace = res.servers.slice(0, limit).map((s) => ({
-            name: s.name,
-            description: s.description,
-            version: s.version,
-            repository: s.repository,
-            packages: s.packages.map((p) => ({
-              registry: p.registry_name,
-              name: p.name,
-              runtime: p.runtime,
-              version: p.version,
-              url: p.url,
-            })),
-          }));
-        } catch (err) {
-          out.marketplace_error = err instanceof Error ? err.message : String(err);
-        }
+        const res = await rt.app.marketplace.search(query, limit);
+        out.marketplace = res.servers;
+        if (Object.keys(res.errors).length) out.marketplace_errors = res.errors;
       }
       return ok(out);
     },
@@ -294,7 +305,7 @@ export const META_TOOLS = {
   install_server: defineTool({
     title: 'Install an MCP server',
     description:
-      'Install a server (from a package or a manual command/url) and index its tools. The user is asked to confirm the exact command first. Tools become searchable immediately; pass enable=true (or call enable_server) to expose them.',
+      'Install a server found by search_servers (exact `server` name; version pinned) or from a manual command/url, then index its tools. The user confirms the exact command and provenance first. Tools become searchable immediately; pass enable=true (or call enable_server) to expose them.',
     input: installArgs,
     output: z.object({
       name: z.string(),
@@ -303,6 +314,10 @@ export const META_TOOLS = {
       tool_count: z.number(),
       tools: z.array(z.string()),
       index_error: z.string().optional(),
+      missing: z
+        .array(z.string())
+        .optional()
+        .describe('Required env vars / headers without a value (set them as secrets)'),
     }),
     annotations: {
       readOnlyHint: false,
@@ -311,25 +326,32 @@ export const META_TOOLS = {
       openWorldHint: true,
     },
     async run(rt, args, ctx) {
-      const existing = rt.app.servers.get(args.name);
+      const plan = await proposedPlan(rt, args);
+      const missing = plan.requirements.filter((r) => r.required && !r.present).map((r) => r.key);
       const summary = (
         status: 'installed' | 'already_installed' | 'declined',
         indexError?: string,
       ) => {
-        const s = rt.app.servers.get(args.name);
+        const s = rt.app.servers.get(plan.server);
         const tools = s ? rt.app.index.list(s.id).map((t) => t.name) : [];
         return ok({
-          name: args.name,
+          name: plan.server,
           status,
           enabled: s?.enabled ?? false,
           tool_count: tools.length,
           tools,
           ...(indexError ? { index_error: indexError } : {}),
+          ...(missing.length ? { missing } : {}),
         });
       };
-      if (existing) return summary('already_installed');
-
-      const input = proposedInput(rt, args);
+      if (rt.app.servers.get(plan.server)) return summary('already_installed');
+      if (plan.blocked) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `Cannot install: ${plan.blocked}` }],
+        };
+      }
+      const input = plan.input;
       validateServerInput(input);
       const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
 
@@ -361,7 +383,7 @@ export const META_TOOLS = {
           return inputRequired({
             inputRequests: {
               consent: inputRequired.elicit({
-                message: consentMessage(input),
+                message: consentMessage(plan),
                 requestedSchema: consentSchema,
               }),
             },

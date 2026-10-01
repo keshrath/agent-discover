@@ -333,4 +333,49 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    // W3: official MCP Registry mirror (latest version per name) + the
+    // registry name an installed server came from.
+    version: 9,
+    up: (db: Database.Database) => {
+      addColumnIfMissing(db, 'servers', 'registry_name', 'TEXT');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS registry_servers (
+          name TEXT PRIMARY KEY,
+          version TEXT NOT NULL,
+          title TEXT,
+          description TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'active',
+          published_at TEXT,
+          updated_at TEXT,
+          is_latest INTEGER NOT NULL DEFAULT 1,
+          server_json TEXT NOT NULL,
+          meta_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS registry_servers_fts USING fts5(
+          name, title, description,
+          content=registry_servers, content_rowid=rowid,
+          tokenize='porter unicode61 remove_diacritics 1'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS registry_servers_ai AFTER INSERT ON registry_servers BEGIN
+          INSERT INTO registry_servers_fts(rowid, name, title, description)
+          VALUES (new.rowid, new.name, coalesce(new.title, ''), new.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS registry_servers_ad AFTER DELETE ON registry_servers BEGIN
+          INSERT INTO registry_servers_fts(registry_servers_fts, rowid, name, title, description)
+          VALUES ('delete', old.rowid, old.name, coalesce(old.title, ''), old.description);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS registry_servers_au AFTER UPDATE ON registry_servers BEGIN
+          INSERT INTO registry_servers_fts(registry_servers_fts, rowid, name, title, description)
+          VALUES ('delete', old.rowid, old.name, coalesce(old.title, ''), old.description);
+          INSERT INTO registry_servers_fts(rowid, name, title, description)
+          VALUES (new.rowid, new.name, coalesce(new.title, ''), new.description);
+        END;
+      `);
+    },
+  },
 ];

@@ -11,7 +11,7 @@ import { ServerStore } from './domain/servers.js';
 import { ToolIndex } from './domain/tool-index.js';
 import { ServerLifecycle, type TrustHooks } from './domain/lifecycle.js';
 import { MarketplaceClient } from './domain/marketplace.js';
-import { InstallerService } from './domain/installer.js';
+import { RegistryMirror } from './domain/registry.js';
 import { SecretsService } from './domain/secrets.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
@@ -26,7 +26,7 @@ export interface AppContext {
   readonly index: ToolIndex;
   readonly lifecycle: ServerLifecycle;
   readonly marketplace: MarketplaceClient;
-  readonly installer: InstallerService;
+  readonly registry: RegistryMirror;
   readonly secrets: SecretsService;
   readonly metrics: MetricsService;
   readonly logs: LogService;
@@ -59,6 +59,7 @@ export function createContext(options: ContextOptions = {}): AppContext {
   const secrets = new SecretsService(db);
   const metrics = new MetricsService(db);
   const logs = new LogService();
+  const registry = new RegistryMirror(db, config.registryUrl);
   const lifecycle = new ServerLifecycle({
     servers,
     index,
@@ -78,8 +79,8 @@ export function createContext(options: ContextOptions = {}): AppContext {
     servers,
     index,
     lifecycle,
-    marketplace: new MarketplaceClient(),
-    installer: new InstallerService(),
+    marketplace: new MarketplaceClient(registry),
+    registry,
     secrets,
     metrics,
     logs,

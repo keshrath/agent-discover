@@ -23,8 +23,22 @@ export {
   type ServerStatus,
 } from './domain/lifecycle.js';
 export { ConnectionPool, type HealthResult, type CallOptions } from './domain/pool.js';
-export { MarketplaceClient } from './domain/marketplace.js';
-export { InstallerService, type InstallConfig } from './domain/installer.js';
+export {
+  MarketplaceClient,
+  type MarketplaceEntry,
+  type MarketplaceSearch,
+  type PlanRequest,
+} from './domain/marketplace.js';
+export { RegistryMirror, type MirrorStatus } from './domain/registry.js';
+export {
+  buildInstallPlan,
+  parseServerJson,
+  type InstallPlan,
+  type Provenance,
+  type ProvenanceCheck,
+  type Requirement,
+  type ServerJson,
+} from './domain/install-plan.js';
 export { SecretsService } from './domain/secrets.js';
 export { MetricsService } from './domain/metrics.js';
 export { syncSetupFile, readSetupFile, getSetupFilePath } from './domain/setup.js';
@@ -42,9 +56,6 @@ export type {
   IndexedTool,
   SecretEntry,
   MetricEntry,
-  MarketplaceServer,
-  MarketplacePackage,
-  MarketplaceResult,
 } from './types.js';
 export {
   RegistryError,
