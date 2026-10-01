@@ -1,17 +1,26 @@
 // =============================================================================
 // agent-discover — package.json metadata (name + version)
 //
-// Thin wrapper around agent-common's readPackageMeta, locked to agent-discover's
-// own package.json so MCP initialize, WebSocket payloads, REST health, and the
-// MCP child client all read the authoritative version.
+// Read once from the package root (one level above both src/ and dist/), so
+// MCP serverInfo, REST health, WS state and the upstream client all report
+// the published version.
 // =============================================================================
 
-import { readPackageMeta as readKitPackageMeta, type PackageMeta } from 'agent-common';
+import { readFileSync } from 'node:fs';
+
+export interface PackageMeta {
+  name: string;
+  version: string;
+}
+
+let cached: PackageMeta | undefined;
 
 export function readPackageMeta(): PackageMeta {
-  return readKitPackageMeta({
-    importMetaUrl: import.meta.url,
-    fallbackName: 'agent-discover',
-    fallbackVersion: '0.0.0',
-  });
+  if (!cached) {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as Partial<PackageMeta>;
+    cached = { name: pkg.name ?? 'agent-discover', version: pkg.version ?? '0.0.0' };
+  }
+  return cached;
 }

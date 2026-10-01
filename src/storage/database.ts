@@ -1,12 +1,11 @@
 // =============================================================================
 // agent-discover — Storage layer
 //
-// Thin wrapper around agent-common's createDb. Uses adoptUserVersion so
-// existing installations that previously tracked schema via `pragma
-// user_version` migrate cleanly to agent-common's _meta-table runner without
-// re-running migrations against tables that already have the columns. All
-// ALTER TABLE statements use addColumnIfMissing / hasColumn guards so they
-// stay idempotent on partially-migrated DBs.
+// better-sqlite3 (WAL) with a small version-ordered migration runner. The
+// schema version lives in `_meta.schema_version` (where 1.x DBs already
+// track it); DBs older than that, which used `pragma user_version`, are
+// adopted from it. Every ALTER is guarded so partially-migrated DBs re-run
+// cleanly.
 //
 // Migration 7 is the 2.0 schema: proper url/headers columns (1.x stored the
 // remote URL in `homepage`), `enabled` separate from connection state,
@@ -15,31 +14,49 @@
 // metrics through the ON DELETE CASCADE foreign keys).
 // =============================================================================
 
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { toolHash } from '../domain/tool-hash.js';
-import {
-  createDb as createKitDb,
-  addColumnIfMissing,
-  hasColumn,
-  type Db,
-  type Migration,
-} from 'agent-common';
 
-export type { Db } from 'agent-common';
+export interface Db {
+  readonly raw: Database.Database;
+  run(sql: string, params?: unknown[]): Database.RunResult;
+  queryAll<T>(sql: string, params?: unknown[]): T[];
+  queryOne<T>(sql: string, params?: unknown[]): T | null;
+  transaction<T>(fn: () => T): T;
+  close(): void;
+}
+
+export interface Migration {
+  version: number;
+  up: (raw: Database.Database) => void;
+}
 
 export interface DbOptions {
-  /** Use ':memory:' for tests, or a file path. Defaults to $AGENT_DISCOVER_DB, else ~/.claude/agent-discover.db (the 1.x location, kept so existing data survives). */
+  /** ':memory:' for tests, or a file path. Defaults to $AGENT_DISCOVER_DB, else ~/.claude/agent-discover.db (the 1.x location, kept so existing data survives). */
   path?: string;
-  /** Enable verbose logging to stderr */
-  verbose?: boolean;
 }
 
 export function createDb(options: DbOptions = {}): Db {
-  const path = resolveDbPath(options.path);
-  return createKitDb({ path, migrations, verbose: options.verbose, adoptUserVersion: true });
+  const raw = new Database(resolveDbPath(options.path));
+  raw.pragma('journal_mode = WAL');
+  raw.pragma('busy_timeout = 5000');
+  raw.pragma('synchronous = NORMAL');
+  raw.pragma('foreign_keys = ON');
+  runMigrations(raw, migrations);
+  return {
+    raw,
+    run: (sql, params = []) => raw.prepare(sql).run(...params),
+    queryAll: <T>(sql: string, params: unknown[] = []) => raw.prepare(sql).all(...params) as T[],
+    queryOne: <T>(sql: string, params: unknown[] = []) =>
+      (raw.prepare(sql).get(...params) as T | undefined) ?? null,
+    transaction: <T>(fn: () => T) => raw.transaction(fn)(),
+    close: () => {
+      if (raw.open) raw.close();
+    },
+  };
 }
 
 function resolveDbPath(path?: string): string {
@@ -51,9 +68,44 @@ function resolveDbPath(path?: string): string {
   return join(dir, 'agent-discover.db');
 }
 
+/** Apply every migration above the stored version, in one transaction. */
+export function runMigrations(raw: Database.Database, list: Migration[]): void {
+  raw.exec('CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+  const row = raw.prepare("SELECT value FROM _meta WHERE key = 'schema_version'").get() as
+    | { value: string }
+    | undefined;
+  const current = row
+    ? parseInt(row.value, 10)
+    : (raw.pragma('user_version', { simple: true }) as number) || 0;
+  const pending = [...list]
+    .sort((a, b) => a.version - b.version)
+    .filter((m) => m.version > current);
+  if (pending.length === 0) return;
+  raw.transaction(() => {
+    for (const m of pending) m.up(raw);
+    raw
+      .prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?)")
+      .run(String(pending[pending.length - 1].version));
+  })();
+}
+
+function hasColumn(raw: Database.Database, table: string, column: string): boolean {
+  return (raw.pragma(`table_info(${table})`) as Array<{ name: string }>).some(
+    (c) => c.name === column,
+  );
+}
+
+function addColumnIfMissing(
+  raw: Database.Database,
+  table: string,
+  column: string,
+  type: string,
+): void {
+  if (!hasColumn(raw, table, column)) raw.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
 // ---------------------------------------------------------------------------
-// Migrations — version-ordered, applied by agent-common's runner.
-// All ALTER TABLE statements are guarded so they're safe to re-run on DBs
+// Migrations — version-ordered. Guarded so they're safe to re-run on DBs
 // that legacy pragma-user_version code already touched.
 // ---------------------------------------------------------------------------
 

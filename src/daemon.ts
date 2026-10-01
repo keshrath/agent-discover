@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { createServer, type Server } from 'node:http';
-import type { Duplex } from 'node:stream';
+import { localhostHostValidation, localhostOriginValidation } from '@modelcontextprotocol/node';
 import { createContext, type AppContext, type ContextOptions } from './context.js';
 import { createMcpFactory } from './mcp/server.js';
 import { createMcpEndpoint, type McpEndpoint } from './mcp/http.js';
@@ -37,13 +37,25 @@ export interface DaemonOptions extends ContextOptions {
 export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> {
   const ctx = createContext(options);
   const { port, host, idleMs } = ctx.config;
-  const guard = createRequestGuard({ bindHost: host });
+  const mcpHost = localhostHostValidation();
+  const mcpOrigin = localhostOriginValidation();
   const mcp = createMcpEndpoint(createMcpFactory(ctx));
   const rest = createRestHandler(ctx);
 
   let open = 0;
   let lastActivity = Date.now();
-  const httpServer = createServer((req, res) => {
+  const httpServer = createServer();
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, () => {
+      httpServer.off('error', reject);
+      resolve();
+    });
+  });
+  // The guard pins Host to the bound port, so requests are accepted only after listen.
+  const boundPort = (httpServer.address() as { port: number }).port;
+  const guard = createRequestGuard(boundPort, host);
+  httpServer.on('request', (req, res) => {
     lastActivity = Date.now();
     open++;
     res.on('close', () => {
@@ -52,6 +64,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     });
     if (guard.handle(req, res)) return;
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (pathname === '/mcp' && (!mcpHost(req, res) || !mcpOrigin(req, res))) return;
     const handler = pathname === '/mcp' ? mcp.handle(req, res) : rest(req, res);
     handler.catch((err: unknown) => {
       process.stderr.write(`[agent-discover] request failed: ${String(err)}\n`);
@@ -59,22 +72,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
       res.end(JSON.stringify({ error: 'Internal server error' }));
     });
   });
-  // WebSocket upgrades obey the same Host/Origin policy as HTTP requests.
-  httpServer.prependListener('upgrade', (req, socket: Duplex) => {
-    if (!guard.checkHost(req.headers.host) || !guard.checkOrigin(req.headers.origin, req.headers.host)) {
-      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once('error', reject);
-    httpServer.listen(port, host, () => {
-      httpServer.off('error', reject);
-      resolve();
-    });
-  });
-  const ws = setupWebSocket(httpServer, ctx);
+  const ws = setupWebSocket(httpServer, ctx, guard);
   const unsubscribe = ctx.lifecycle.onChange((e) => {
     if (e.type === 'tools') mcp.notifyToolsChanged();
   });
@@ -84,7 +82,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     ctx,
     httpServer,
     mcp,
-    port: (httpServer.address() as { port: number }).port,
+    port: boundPort,
     close() {
       closing ??= (async () => {
         clearInterval(idleTimer);
@@ -101,7 +99,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
 
   const idleTimer = setInterval(
     () => {
-      if (!idleMs || open > 0 || ws.wss.clients.size > 0) return;
+      if (!idleMs || open > 0 || ws.clientCount() > 0) return;
       if (Date.now() - lastActivity < idleMs) return;
       if (options.onIdle) options.onIdle(daemon);
       else void daemon.close().then(() => process.exit(0));
@@ -114,7 +112,9 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     void ctx
       .syncSetup()
       .then(() => ctx.lifecycle.indexPending())
-      .catch((err) => process.stderr.write(`[agent-discover] startup tasks failed: ${String(err)}\n`));
+      .catch((err) =>
+        process.stderr.write(`[agent-discover] startup tasks failed: ${String(err)}\n`),
+      );
   }
   return daemon;
 }

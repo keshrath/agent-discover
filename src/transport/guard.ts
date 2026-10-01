@@ -1,59 +1,29 @@
 // =============================================================================
-// agent-discover — Request guard
+// agent-discover — Request guard (every HTTP request and WebSocket upgrade)
 //
-// Local copy of agent-common 1.1.2's request guard (same API), used until
-// that release is available; then this file is replaced by the import.
-//
-// Shared Host / Origin / Content-Type policy for every dashboard request and
-// WebSocket upgrade:
-//   - Host header must name a loopback host (or the explicitly bound host),
-//     which defeats DNS rebinding.
-//   - Origin, when present, must be loopback http(s), the same host the
-//     request was sent to, the Electron renderer origin `file://`, or an
-//     explicitly allowed origin. `null` and unparsable origins are rejected.
-//   - State-changing requests with a body must be `application/json`, so
-//     CORS-safelisted `text/plain` form posts never reach a handler.
-//   - Allowed cross-origin callers get their Origin reflected (no wildcard).
+//   - Host must exactly equal one of the loopback names with the daemon's
+//     port (localhost:P, 127.0.0.1:P, [::1]:P), plus the bound host when the
+//     operator binds elsewhere. Defeats DNS rebinding.
+//   - Origin, when present, must parse to http(s) with a loopback hostname
+//     (`new URL().hostname`, so localhost.evil.com fails), or be exactly
+//     `file://` (agent-desk's Electron renderer). `null` is rejected.
+//   - Requests with a body on POST/PUT/PATCH/DELETE must be application/json,
+//     so CORS-safelisted form posts never reach a handler.
+//   - Allowed cross-origin callers get their Origin reflected; never `*`.
 // =============================================================================
 
-import type { IncomingMessage, ServerResponse } from 'http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
-
-const WILDCARD_BIND_HOSTS = new Set(['0.0.0.0', '::', '[::]']);
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const HOST_HEADER_RE = /^[a-z0-9.\-[\]:]+$/i;
-
-export interface RequestGuardOptions {
-  /**
-   * Address the server listens on (default `127.0.0.1`). A non-loopback
-   * address adds itself to the accepted Host names; a wildcard address
-   * (`0.0.0.0`, `::`) accepts any Host header.
-   */
-  bindHost?: string;
-  /** Extra exact Origin values to accept (e.g. `https://my-tool.example`). */
-  allowedOrigins?: string[];
-}
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
+const LOOPBACK_SET: ReadonlySet<string> = new Set(LOOPBACK);
+const ELECTRON_FILE_ORIGIN = 'file://';
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export interface RequestGuard {
-  /** True when the Host header names an accepted host. */
   checkHost(host: string | undefined): boolean;
-  /** True when the Origin header is absent or accepted for a request sent to `host`. */
-  checkOrigin(origin: string | undefined, host: string | undefined): boolean;
-  /**
-   * Apply the full policy to an HTTP request. Returns true when the request
-   * was answered (rejected, or a CORS preflight) and must not reach a handler.
-   */
+  checkOrigin(origin: string | undefined): boolean;
+  /** Apply the policy; true when the request was answered (rejected / preflight). */
   handle(req: IncomingMessage, res: ServerResponse): boolean;
-}
-
-function hostnameOf(host: string | undefined): string | null {
-  if (!host || !HOST_HEADER_RE.test(host)) return null;
-  try {
-    return new URL(`http://${host}`).hostname;
-  } catch {
-    return null;
-  }
 }
 
 function reject(res: ServerResponse, status: number, error: string): void {
@@ -64,32 +34,18 @@ function reject(res: ServerResponse, status: number, error: string): void {
   res.end(JSON.stringify({ error }));
 }
 
-function hasBody(req: IncomingMessage): boolean {
-  const length = req.headers['content-length'];
-  return (length !== undefined && length !== '0') || req.headers['transfer-encoding'] !== undefined;
-}
-
-function isJson(req: IncomingMessage): boolean {
-  const type = req.headers['content-type'];
-  return typeof type === 'string' && type.split(';')[0].trim().toLowerCase() === 'application/json';
-}
-
-export function createRequestGuard(options: RequestGuardOptions = {}): RequestGuard {
-  const bindHost = (options.bindHost ?? '127.0.0.1').toLowerCase();
-  const anyHost = WILDCARD_BIND_HOSTS.has(bindHost);
-  const allowedHosts = new Set(LOOPBACK_HOSTNAMES);
-  if (!anyHost) allowedHosts.add(bindHost.includes(':') ? `[${bindHost}]` : bindHost);
-  const allowedOrigins = new Set(options.allowedOrigins ?? []);
-
-  function checkHost(host: string | undefined): boolean {
-    const hostname = hostnameOf(host);
-    if (hostname === null) return false;
-    return anyHost || allowedHosts.has(hostname);
+export function createRequestGuard(port: number, bindHost = '127.0.0.1'): RequestGuard {
+  const names = new Set(LOOPBACK);
+  if (!['0.0.0.0', '::', '[::]'].includes(bindHost)) {
+    names.add(bindHost.includes(':') && !bindHost.startsWith('[') ? `[${bindHost}]` : bindHost);
   }
+  const hosts = new Set([...names].map((h) => `${h.toLowerCase()}:${port}`));
 
-  function checkOrigin(origin: string | undefined, host: string | undefined): boolean {
+  const checkHost = (host: string | undefined) => !!host && hosts.has(host.toLowerCase());
+
+  function checkOrigin(origin: string | undefined): boolean {
     if (origin === undefined) return true;
-    if (origin === 'file://' || allowedOrigins.has(origin)) return true;
+    if (origin === ELECTRON_FILE_ORIGIN) return true;
     let url: URL;
     try {
       url = new URL(origin);
@@ -97,18 +53,17 @@ export function createRequestGuard(options: RequestGuardOptions = {}): RequestGu
       return false;
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    if (url.origin !== origin.toLowerCase()) return false;
-    return LOOPBACK_HOSTNAMES.has(url.hostname) || url.host === host?.toLowerCase();
+    if (url.origin !== origin.toLowerCase()) return false; // no paths, credentials, trailing junk
+    return LOOPBACK_SET.has(url.hostname);
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): boolean {
-    const host = req.headers.host;
-    const origin = req.headers.origin;
-    if (!checkHost(host)) {
+    if (!checkHost(req.headers.host)) {
       reject(res, 403, 'Forbidden host');
       return true;
     }
-    if (!checkOrigin(origin, host)) {
+    const origin = req.headers.origin;
+    if (!checkOrigin(origin)) {
       reject(res, 403, 'Forbidden origin');
       return true;
     }
@@ -124,7 +79,14 @@ export function createRequestGuard(options: RequestGuardOptions = {}): RequestGu
       res.end();
       return true;
     }
-    if (MUTATING_METHODS.has(req.method ?? '') && hasBody(req) && !isJson(req)) {
+    const length = req.headers['content-length'];
+    const hasBody =
+      (length !== undefined && length !== '0') || req.headers['transfer-encoding'] !== undefined;
+    const type = String(req.headers['content-type'] ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (MUTATING.has(req.method ?? '') && hasBody && type !== 'application/json') {
       reject(res, 415, 'Content-Type must be application/json');
       return true;
     }

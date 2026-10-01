@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createRouter, json, readBody, serveStatic } from 'agent-common';
+import { createRouter, json, readJson, serveStatic } from './http.js';
 import type { Client } from '@modelcontextprotocol/client';
 import type { AppContext } from '../context.js';
 import { configuredRoots } from '../context.js';
@@ -76,7 +76,7 @@ export function createRestHandler(
     return server;
   };
   const query = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://localhost').searchParams;
-  const body = (req: IncomingMessage) => readBody(req, BODY_LIMIT);
+  const body = (req: IncomingMessage) => readJson(req, BODY_LIMIT);
   const route = router.route;
 
   /** Run an upstream operation, surfacing its message as 502. */
@@ -161,7 +161,7 @@ export function createRestHandler(
   });
 
   route('POST', '/api/servers/:id/reset-errors', (_req, res, p) => {
-    servers.resetErrorCount(byId(p.id).id);
+    lifecycle.resetErrors(byId(p.id).name);
     json(res, { status: 'reset' });
   });
 
@@ -291,7 +291,10 @@ export function createRestHandler(
         const name = testerName(p);
         json(res, await upstream(() => fn(name, query(req))));
       });
-    const post = (path: string, fn: (name: string, b: Record<string, unknown>) => Promise<unknown>) =>
+    const post = (
+      path: string,
+      fn: (name: string, b: Record<string, unknown>) => Promise<unknown>,
+    ) =>
       route('POST', prefix + path, async (req, res, p) => {
         const name = testerName(p);
         const b = await body(req);
@@ -339,13 +342,30 @@ export function createRestHandler(
     });
     post('/ping', async (name) => {
       const h = await pool.health(name);
-      ctx.logs.push(name, 'ping', {}, h.error ?? 'pong', h.latency_ms, h.status === 'healthy', 'ping');
+      ctx.logs.push(
+        name,
+        'ping',
+        {},
+        h.error ?? 'pong',
+        h.latency_ms,
+        h.status === 'healthy',
+        'ping',
+      );
       if (h.status !== 'healthy') throw new UpstreamError(h.error ?? 'ping failed');
       return { ok: true, rtt_ms: h.latency_ms };
     });
     post('/logging-level', async (name, b) => {
       const level = str(b.level) ?? '';
-      const valid = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
+      const valid = [
+        'debug',
+        'info',
+        'notice',
+        'warning',
+        'error',
+        'critical',
+        'alert',
+        'emergency',
+      ];
       if (!valid.includes(level)) {
         throw new ValidationError(`level must be one of: ${valid.join(', ')}`);
       }
@@ -389,7 +409,9 @@ export function createRestHandler(
 
   // Registered servers go through the lifecycle (trust hooks); transient ones are pool-only.
   function testerCall(name: string, tool: string, args: Record<string, unknown>) {
-    return servers.get(name) ? lifecycle.callTool(name, tool, args) : pool.callTool(name, tool, args);
+    return servers.get(name)
+      ? lifecycle.callTool(name, tool, args)
+      : pool.callTool(name, tool, args);
   }
 
   // -- transient servers -----------------------------------------------------
@@ -413,7 +435,14 @@ export function createRestHandler(
     const ttl = typeof b.ttl_ms === 'number' && b.ttl_ms > 0 ? b.ttl_ms : undefined;
     const handle = await upstream(() =>
       pool.openTransient(
-        { transport, command, args: strArray(b.args) ?? [], env, url, headers: strMap(b.headers) ?? {} },
+        {
+          transport,
+          command,
+          args: strArray(b.args) ?? [],
+          env,
+          url,
+          headers: strMap(b.headers) ?? {},
+        },
         ttl,
       ),
     );
@@ -489,14 +518,15 @@ export function createRestHandler(
 
   return async (req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
-    if (req.method === 'GET' && /^\/tester(\/|$)/.test(pathname)) {
-      serveStatic(res, uiDir, '/tester-window.html', { spaFallback: false });
-      return;
-    }
+    if (await router.handle(req, res)) return;
     if (req.method === 'GET' && !pathname.startsWith('/api/')) {
-      serveStatic(res, uiDir, pathname === '/' ? '/index.html' : pathname, { spaFallback: false });
-      return;
+      const file = /^\/tester(\/|$)/.test(pathname)
+        ? '/tester-window.html'
+        : pathname === '/'
+          ? '/index.html'
+          : pathname;
+      return serveStatic(res, uiDir, file);
     }
-    await router.handle(req, res);
+    json(res, { error: 'Not found' }, 404);
   };
 }

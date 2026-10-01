@@ -2,8 +2,6 @@
 // agent-discover — Core type definitions
 // =============================================================================
 
-import { KitError } from 'agent-common';
-
 // ---------------------------------------------------------------------------
 // Servers
 // ---------------------------------------------------------------------------
@@ -149,21 +147,42 @@ export interface MarketplaceResult {
 }
 
 // ---------------------------------------------------------------------------
-// Errors (agent-common's KitError family; the REST router maps statusCode)
+// Errors — `statusCode` is what the REST router answers with
 // ---------------------------------------------------------------------------
 
-export { KitError as RegistryError, NotFoundError, ValidationError } from 'agent-common';
+export class RegistryError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly statusCode = 400,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
 
-export class ConflictError extends KitError {
+export class NotFoundError extends RegistryError {
+  constructor(entity: string, id: string) {
+    super(`${entity} not found: ${id}`, 'NOT_FOUND', 404);
+  }
+}
+
+export class ValidationError extends RegistryError {
+  constructor(message: string) {
+    super(message, 'VALIDATION_ERROR', 400);
+  }
+}
+
+export class ConflictError extends RegistryError {
   constructor(message: string) {
     super(message, 'CONFLICT', 409);
   }
 }
 
 /** An upstream MCP server failed (connect, timeout, protocol error). */
-export class UpstreamError extends KitError {
+export class UpstreamError extends RegistryError {
   constructor(message: string, options?: { cause?: unknown }) {
-    super(message, 'UPSTREAM_ERROR', 502);
-    if (options?.cause !== undefined) (this as { cause?: unknown }).cause = options.cause;
+    super(message, 'UPSTREAM_ERROR', 502, options);
   }
 }

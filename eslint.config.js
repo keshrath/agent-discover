@@ -18,6 +18,14 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'src/ui/*.js', 'scripts/', '*.config.*', 'bench/'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'src/ui/*.js',
+      'scripts/',
+      '*.config.*',
+      'bench/',
+      'tests/fixtures/',
+    ],
   },
 );

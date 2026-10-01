@@ -30,9 +30,17 @@ export interface TrustHooks {
   /** Runs before a server row is created. Throw to refuse the install. */
   beforeInstall?(input: ServerInput): void | Promise<void>;
   /** Runs after each index diff is persisted (e.g. pin hashes, quarantine on drift). */
-  afterIndex?(server: ServerEntry, diff: IndexDiff, lifecycle: ServerLifecycle): void | Promise<void>;
+  afterIndex?(
+    server: ServerEntry,
+    diff: IndexDiff,
+    lifecycle: ServerLifecycle,
+  ): void | Promise<void>;
   /** Runs before every proxied tools/call. Throw to refuse the call. */
-  beforeCall?(server: ServerEntry, tool: string, args: Record<string, unknown> | undefined): void | Promise<void>;
+  beforeCall?(
+    server: ServerEntry,
+    tool: string,
+    args: Record<string, unknown> | undefined,
+  ): void | Promise<void>;
 }
 
 export type LifecycleEvent =
@@ -220,6 +228,11 @@ export class ServerLifecycle {
     await this.pool.disconnect(name);
     this.servers.remove(name);
     this.changed(server.enabled);
+  }
+
+  resetErrors(name: string): void {
+    this.servers.resetErrorCount(this.servers.require(name).id);
+    this.emit({ type: 'servers' });
   }
 
   setQuarantined(name: string, quarantined: boolean): void {
