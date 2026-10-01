@@ -2,7 +2,7 @@
 // agent-discover — OpenAI embedding provider
 //
 // Wraps the OpenAI embeddings REST API. Default model is
-// text-embedding-3-small (1536 dims) — same as agent-knowledge so the two
+// text-embedding-3-small — same as agent-knowledge so the two
 // servers can share an embeddings DB if you want to. No SDK dependency,
 // just native fetch.
 // =============================================================================
@@ -10,7 +10,6 @@
 import type { EmbeddingProvider } from './types.js';
 
 const DEFAULT_MODEL = 'text-embedding-3-small';
-const DEFAULT_DIMENSIONS = 1536;
 const MAX_BATCH = 256;
 const ENDPOINT = process.env.OPENAI_API_BASE
   ? `${process.env.OPENAI_API_BASE}/embeddings`
@@ -18,16 +17,15 @@ const ENDPOINT = process.env.OPENAI_API_BASE
 
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   readonly name = 'openai';
-  readonly dimensions: number;
   readonly model: string;
   private readonly apiKey: string;
 
   constructor(apiKey: string, modelOverride?: string) {
     this.apiKey = apiKey;
     this.model = modelOverride || DEFAULT_MODEL;
-    this.dimensions = DEFAULT_DIMENSIONS;
   }
 
+  /** OpenAI embedding models are symmetric: queries and documents embed alike. */
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
     const out: number[][] = [];
@@ -36,20 +34,6 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       out.push(...(await this.requestBatch(batch)));
     }
     return out;
-  }
-
-  async embedOne(text: string): Promise<number[]> {
-    const r = await this.embed([text]);
-    return r[0] ?? [];
-  }
-
-  async isAvailable(): Promise<boolean> {
-    try {
-      const r = await this.embed(['test']);
-      return r.length === 1 && r[0].length > 0;
-    } catch {
-      return false;
-    }
   }
 
   private async requestBatch(texts: string[]): Promise<number[][]> {

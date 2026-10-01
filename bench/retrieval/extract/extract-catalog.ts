@@ -4,7 +4,7 @@
 // Re-run only to refresh the corpus (then re-check query labels).
 //
 // Usage:
-//   npx tsx bench/retrieval/extract/extract-catalog.ts [--only=id1,id2]
+//   npx tsx bench/retrieval/extract/extract-catalog.ts [--only=id1,id2] [--describe]
 //
 // Each entry in servers.json describes how to launch one server. Placeholders
 // in command/args/env:
@@ -25,8 +25,8 @@ import { promisify } from 'node:util';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { z } from 'zod';
 import { toJson } from '../json.js';
 
@@ -72,6 +72,8 @@ interface CatalogTool {
 interface CatalogServer {
   server: string;
   provenance: string;
+  /** Package/repo description, as a registry listing would show it. */
+  description: string;
   method: 'tools/list';
   tools: CatalogTool[];
 }
@@ -209,6 +211,31 @@ function killTree(pid: number | null) {
   }
 }
 
+/** The package's registry description (npm/PyPI summary, GitHub repo description for go). */
+async function packageDescription(spec: ServerSpec, version: string): Promise<string> {
+  try {
+    if (spec.runtime === 'npm') {
+      const { stdout } = await run(
+        'npm',
+        ['view', `${spec.package}@${version}`, 'description', '--json', REGISTRY],
+        { shell: true },
+      );
+      return (JSON.parse(stdout.trim() || '""') as string) ?? '';
+    }
+    if (spec.runtime === 'pip') {
+      const out = execFileSync(path.join(VARS.PY, 'python'), ['-m', 'pip', 'show', spec.package], {
+        encoding: 'utf8',
+      });
+      return /^Summary:\s*(.*)$/m.exec(out)?.[1]?.trim() ?? '';
+    }
+    const repo = spec.package.replace(/^github\.com\//, '');
+    const { stdout } = await run('gh', ['api', `repos/${repo}`, '--jq', '.description']);
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
 async function extract(spec: ServerSpec): Promise<CatalogServer> {
   let version = 'unknown';
   if (spec.runtime === 'npm') version = spec.version ?? (await npmVersion(spec.package));
@@ -219,6 +246,7 @@ async function extract(spec: ServerSpec): Promise<CatalogServer> {
   return {
     server: spec.id,
     provenance: `${spec.runtime}:${pkgName.replace(/@[^@/]*$/, '') || pkgName}@${version}`,
+    description: await packageDescription(spec, version),
     method: 'tools/list',
     tools,
   };
@@ -250,6 +278,18 @@ async function main() {
     writeFileSync(OUT, toJson({ version: 1, servers }));
     return servers;
   };
+
+  if (process.argv.includes('--describe')) {
+    // Refresh only package descriptions of already-extracted servers (no spawning).
+    for (const spec of specs) {
+      const entry = byId.get(spec.id);
+      if (!entry) continue;
+      entry.description = await packageDescription(spec, entry.provenance.split('@').pop()!);
+      console.warn(`${spec.id.padEnd(28)} ${entry.description.slice(0, 80)}`);
+    }
+    save();
+    return;
+  }
 
   const queue = [...specs];
   const failures: string[] = [];

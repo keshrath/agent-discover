@@ -19,6 +19,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { toolHash } from '../domain/tool-hash.js';
+import { buildDocument, FTS_SCHEMA } from '../domain/tool-doc.js';
 
 export interface Db {
   readonly raw: Database.Database;
@@ -330,6 +331,66 @@ export const migrations: Migration[] = [
           /* keep {} for unparseable legacy rows */
         }
         update.run(toolHash({ name: row.name, description: row.description, inputSchema }), row.id);
+      }
+    },
+  },
+  {
+    // W1 retrieval: fielded FTS5 index with porter stemming (replaces the
+    // name/description trigger-synced table and the hand-written synonym
+    // list), written by ToolIndex.save; enrichment cache by tool hash;
+    // doc_hash as the embedding cache key. Stored vectors were built from a
+    // different text without query/document formatting, so they are dropped
+    // and recomputed on the next index.
+    version: 10,
+    up: (db: Database.Database) => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS server_tools_ai;
+        DROP TRIGGER IF EXISTS server_tools_ad;
+        DROP TRIGGER IF EXISTS server_tools_au;
+        DROP TABLE IF EXISTS server_tools_fts;
+        ${FTS_SCHEMA}
+        CREATE TABLE IF NOT EXISTS tool_enrichment (
+          tool_hash TEXT NOT NULL,
+          model TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (tool_hash, model)
+        );
+      `);
+      addColumnIfMissing(db, 'server_tools', 'doc_hash', 'TEXT');
+      db.exec('UPDATE server_tools SET embedding = NULL, embedding_model = NULL');
+      const rows = db
+        .prepare(
+          `SELECT t.id, t.name, t.title, t.description, t.input_schema, s.name AS server,
+             s.description AS server_description
+           FROM server_tools t JOIN servers s ON s.id = t.server_id`,
+        )
+        .all() as Array<{
+        id: number;
+        name: string;
+        title: string | null;
+        description: string;
+        input_schema: string;
+        server: string;
+        server_description: string | null;
+      }>;
+      const insert = db.prepare(
+        'INSERT INTO server_tools_fts (rowid, name, description, args, enrichment, server) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      const setHash = db.prepare('UPDATE server_tools SET doc_hash = ? WHERE id = ?');
+      for (const row of rows) {
+        let inputSchema: Record<string, unknown> = {};
+        try {
+          inputSchema = JSON.parse(row.input_schema) as Record<string, unknown>;
+        } catch {
+          /* legacy unparseable schema: index without args */
+        }
+        const doc = buildDocument(
+          { name: row.name, title: row.title, description: row.description, inputSchema },
+          { name: row.server, description: row.server_description },
+        );
+        insert.run(row.id, doc.name, doc.description, doc.args, doc.enrichment, doc.server);
+        setHash.run(doc.docHash, row.id);
       }
     },
   },

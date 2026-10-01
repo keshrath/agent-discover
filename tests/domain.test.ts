@@ -104,7 +104,10 @@ describe('ToolIndex', () => {
   ];
 
   it('diffs by tool hash and keeps ids stable', async () => {
-    const index = new ToolIndex(db, async () => new NoopEmbeddingProvider());
+    const index = new ToolIndex(db, {
+      embeddings: async () => new NoopEmbeddingProvider(),
+      enrichment: null,
+    });
     const s = servers.create({ name: 'a', command: 'x' });
     expect(await index.save(s.id, tools)).toMatchObject({
       added: ['slack_post_message', 'github_create_issue'],
@@ -126,7 +129,10 @@ describe('ToolIndex', () => {
   });
 
   it('search scores are normalized to 0..1 and rank name matches first', async () => {
-    const index = new ToolIndex(db, async () => new NoopEmbeddingProvider());
+    const index = new ToolIndex(db, {
+      embeddings: async () => new NoopEmbeddingProvider(),
+      enrichment: null,
+    });
     const s = servers.create({ name: 'a', command: 'x' });
     await index.save(s.id, tools);
     const hits = await index.search('post slack message', 5);
@@ -143,19 +149,12 @@ describe('ToolIndex', () => {
     const provider: EmbeddingProvider = {
       name: 'fake',
       model: 'fake-1',
-      dimensions: 2,
       async embed(texts) {
         calls += texts.length;
         return texts.map((t) => (t.includes('slack') ? [1, 0] : [0, 1]));
       },
-      async embedOne() {
-        return [1, 0];
-      },
-      async isAvailable() {
-        return true;
-      },
     };
-    const index = new ToolIndex(db, async () => provider);
+    const index = new ToolIndex(db, { embeddings: async () => provider, enrichment: null });
     const a = servers.create({ name: 'a', command: 'x' });
     const b = servers.create({ name: 'b', command: 'x' });
     expect((await index.save(a.id, tools)).embedded).toBe(2);

@@ -498,7 +498,8 @@
             ]
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol server that provides read and write access to Airtable databases. This server enables LLMs to inspect database schemas, then read and write records."
     },
     {
       "server": "atlassian",
@@ -3154,7 +3155,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "The Model Context Protocol (MCP) Atlassian integration is an open-source implementation that bridges Atlassian products (Jira and Confluence) with AI language models following Anthropic's MCP specification. This project enables secure, contextual AI interactions with Atlassian tools while maintaining data privacy and security. Key features include:"
     },
     {
       "server": "aws-kb-retrieval",
@@ -3184,7 +3186,8 @@
             "required": ["query", "knowledgeBaseId"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for AWS Knowledge Base retrieval using Bedrock Agent Runtime"
     },
     {
       "server": "azure-devops",
@@ -5865,7 +5868,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server for interacting with Azure DevOps"
     },
     {
       "server": "brave-search",
@@ -5915,7 +5919,8 @@
             "required": ["query"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for Brave Search API integration"
     },
     {
       "server": "browserbase",
@@ -6002,7 +6007,8 @@
             "properties": {}
           }
         }
-      ]
+      ],
+      "description": "MCP server for AI web browser automation using Browserbase and Stagehand"
     },
     {
       "server": "chrome-devtools",
@@ -6927,7 +6933,8 @@
             "additionalProperties": {}
           }
         }
-      ]
+      ],
+      "description": "MCP server for Chrome DevTools"
     },
     {
       "server": "circleci",
@@ -7411,7 +7418,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol (MCP) server implementation for CircleCI, enabling natural language interactions with CircleCI functionality through MCP-enabled clients"
     },
     {
       "server": "contentful",
@@ -13853,7 +13861,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "Contentful MCP Server - Model Context Protocol server for Contentful"
     },
     {
       "server": "context7",
@@ -13898,7 +13907,8 @@
             "required": ["query", "libraryName"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for Context7"
     },
     {
       "server": "digitalocean",
@@ -26596,7 +26606,8 @@
             "type": "object"
           }
         }
-      ]
+      ],
+      "description": "DigitalOcean MCP Implementation,"
     },
     {
       "server": "dynatrace",
@@ -27068,7 +27079,8 @@
             "required": ["dqlStatement"]
           }
         }
-      ]
+      ],
+      "description": "[DEPRECATED] Model Context Protocol (MCP) server for Dynatrace. Migrate to dynatrace-for-ai + dtctl or the Dynatrace Remote MCP Server."
     },
     {
       "server": "everart",
@@ -27099,7 +27111,8 @@
             "required": ["prompt"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for EverArt API integration"
     },
     {
       "server": "everything",
@@ -27317,7 +27330,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server that exercises all the features of the MCP protocol"
     },
     {
       "server": "exa",
@@ -27369,7 +27383,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "Connect AI agents to Exa for web search, content fetching, and multi-step research."
     },
     {
       "server": "fetch",
@@ -27416,7 +27431,8 @@
             "title": "Fetch"
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol server providing tools to fetch and convert web content for usage by LLMs"
     },
     {
       "server": "figma",
@@ -27528,7 +27544,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "Give your coding agent access to your Figma data. Implement designs in any framework in one-shot."
     },
     {
       "server": "filesystem",
@@ -27798,7 +27815,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server for filesystem access"
     },
     {
       "server": "firecrawl",
@@ -30067,7 +30085,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "MCP server for Firecrawl — search, scrape, and interact with the web, and search scientific papers. Supports both cloud and self-hosted instances. Features include web search, scraping, page interaction, batch processing, LLM-powered content analysis, and"
     },
     {
       "server": "git",
@@ -30371,7 +30390,8 @@
             "type": "object"
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol server providing tools to read, search, and manipulate Git repositories programmatically via LLMs"
     },
     {
       "server": "github",
@@ -34311,7 +34331,8 @@
             "required": ["owner", "repo", "pullNumber"]
           }
         }
-      ]
+      ],
+      "description": "GitHub's official MCP Server"
     },
     {
       "server": "gitlab",
@@ -34381,7 +34402,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server for using the GitLab API"
     },
     {
       "server": "google-maps",
@@ -34542,7 +34564,8 @@
             "required": ["query"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for using the Google Maps API"
     },
     {
       "server": "grafana",
@@ -36660,7 +36683,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "MCP server for Grafana"
     },
     {
       "server": "hubspot",
@@ -37657,7 +37681,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP Server for developers building HubSpot Apps"
     },
     {
       "server": "launchdarkly",
@@ -38766,7 +38791,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "The official [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [LaunchDarkly](https://launchdarkly.com/)."
     },
     {
       "server": "linear",
@@ -43981,7 +44007,8 @@
             "required": ["id"]
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol (MCP) server implementation for the Linear GraphQL API that enables AI assistants to interact with Linear project management systems."
     },
     {
       "server": "mailgun",
@@ -46158,7 +46185,8 @@
             "required": ["address"]
           }
         }
-      ]
+      ],
+      "description": "An MCP server that gives AI agents a practical interface to Mailgun workflows for sending, diagnosing deliverability, and taking account actions safely."
     },
     {
       "server": "mapbox",
@@ -48123,7 +48151,8 @@
             "required": ["polygons"]
           }
         }
-      ]
+      ],
+      "description": "Mapbox MCP server."
     },
     {
       "server": "memory",
@@ -48352,7 +48381,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server for enabling memory for Claude through a knowledge graph"
     },
     {
       "server": "netlify",
@@ -49081,7 +49111,8 @@
             "required": ["selectSchema"]
           }
         }
-      ]
+      ],
+      "description": "[Netlify MCP Server](https://docs.netlify.com/welcome/build-with-ai/netlify-mcp-server/) follows the [Model Context Protocol (MCP)](https://modelcontextprotocol.org) to enable code agents to use the Netlify API and CLI—so they can create new projects, bui"
     },
     {
       "server": "notion",
@@ -54433,7 +54464,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Official MCP server for Notion API"
     },
     {
       "server": "obsidian",
@@ -55348,7 +55380,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "Read, write, search, and surgically edit Obsidian vault notes, tags, and frontmatter via MCP. STDIO or Streamable HTTP."
     },
     {
       "server": "perplexity",
@@ -55534,7 +55567,8 @@
             "$schema": "https://json-schema.org/draft/2020-12/schema"
           }
         }
-      ]
+      ],
+      "description": "Real-time web search, reasoning, and research through Perplexity's API"
     },
     {
       "server": "pinecone",
@@ -55942,7 +55976,8 @@
             "required": ["name", "namespace", "records"]
           }
         }
-      ]
+      ],
+      "description": "Model Context Protocol server for Pinecone - enables AI assistants to interact with Pinecone indexes and documentation"
     },
     {
       "server": "playwright",
@@ -56617,7 +56652,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "Playwright Tools for MCP"
     },
     {
       "server": "postgres",
@@ -56636,7 +56672,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "MCP server for interacting with PostgreSQL databases"
     },
     {
       "server": "postman",
@@ -70398,7 +70435,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "Postman MCP Server — connect AI agents (Claude Code, Cursor, VS Code Copilot, Gemini CLI) to your Postman collections, specifications, and environments via Model Context Protocol (MCP)"
     },
     {
       "server": "puppeteer",
@@ -70535,7 +70573,8 @@
             "required": ["selector", "value"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for browser automation using Puppeteer"
     },
     {
       "server": "sentry",
@@ -70992,7 +71031,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": ""
     },
     {
       "server": "sequential-thinking",
@@ -71054,7 +71094,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "MCP server for sequential thinking and problem solving"
     },
     {
       "server": "shopify-dev",
@@ -71353,7 +71394,8 @@
             "required": ["conversationId", "absoluteThemePath", "filesCreatedOrUpdated"]
           }
         }
-      ]
+      ],
+      "description": "A command line tool for setting up Shopify Dev MCP server"
     },
     {
       "server": "slack",
@@ -71509,7 +71551,8 @@
             "required": ["channel_id", "thread_ts", "text"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for interacting with Slack"
     },
     {
       "server": "sqlite",
@@ -71594,7 +71637,8 @@
             "required": ["query"]
           }
         }
-      ]
+      ],
+      "description": "A simple SQLite MCP server"
     },
     {
       "server": "stripe",
@@ -72126,7 +72170,8 @@
             "$schema": "http://json-schema.org/draft-07/schema#"
           }
         }
-      ]
+      ],
+      "description": "The Stripe Agent Toolkit enables popular agent frameworks including LangChain and Vercel's AI SDK to integrate with Stripe APIs through function calling. It also provides tooling to quickly integrate metered billing for prompt and completion token usage."
     },
     {
       "server": "supabase",
@@ -72702,7 +72747,8 @@
             "additionalProperties": false
           }
         }
-      ]
+      ],
+      "description": "MCP server for interacting with Supabase"
     },
     {
       "server": "tavily",
@@ -72996,7 +73042,8 @@
             "required": ["query"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for advanced web search using Tavily"
     },
     {
       "server": "time",
@@ -73039,7 +73086,8 @@
             "required": ["timezone"]
           }
         }
-      ]
+      ],
+      "description": "A Model Context Protocol server providing tools for time queries and timezone conversions for LLMs"
     },
     {
       "server": "todoist",
@@ -73658,7 +73706,8 @@
             "required": ["taskId"]
           }
         }
-      ]
+      ],
+      "description": "MCP server for Todoist API"
     },
     {
       "server": "youtube-transcript",
@@ -73684,7 +73733,8 @@
             "required": ["url", "lang"]
           }
         }
-      ]
+      ],
+      "description": "This is an MCP server that allows you to directly download transcripts of YouTube videos."
     }
   ]
 }

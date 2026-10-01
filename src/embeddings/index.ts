@@ -2,12 +2,10 @@
 // agent-discover — Embeddings module barrel + shared math/encoding helpers
 // =============================================================================
 
-export type { EmbeddingProvider, EmbeddingConfig, ProviderName } from './types.js';
+export type { EmbeddingProvider, EmbeddingConfig, EmbedKind, ProviderName } from './types.js';
 export { getEmbeddingConfig } from './types.js';
-export { getEmbeddingProvider, resetProvider } from './factory.js';
+export { createProvider, getEmbeddingProvider } from './factory.js';
 export { NoopEmbeddingProvider } from './none.js';
-export { OpenAIEmbeddingProvider } from './openai.js';
-export { LocalEmbeddingProvider } from './local.js';
 
 export type Embedding = Float32Array;
 
