@@ -14,6 +14,7 @@ import type { Server } from 'node:http';
 import type { AppContext } from '../context.js';
 import type { RequestGuard } from './guard.js';
 import { version } from '../version.js';
+import { maskEnv } from '../domain/secrets.js';
 
 const MAX_CLIENTS = 50;
 const PING_MS = 30_000;
@@ -28,6 +29,7 @@ function statePayload(ctx: AppContext): string {
   const pool = ctx.lifecycle.pool;
   const servers = ctx.servers.list().map((s) => ({
     ...s,
+    env: maskEnv(s.env),
     connected: pool.isConnected(s.name),
     tools: ctx.index.list(s.id),
   }));

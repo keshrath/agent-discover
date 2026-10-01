@@ -91,6 +91,17 @@ describe('servers via REST', () => {
     expect(s.index_error).toMatch(/Failed to connect/);
   });
 
+  it('masks env values and keeps the original when a masked value comes back', async () => {
+    const s = d.ctx.servers.create({ name: 'm', command: 'x', env: { API_KEY: 'sk-123456' } });
+    const got = await (await api(`/api/servers/${s.id}`)).json();
+    expect(got.env).toEqual({ API_KEY: 'sk-1****' });
+    await api(`/api/servers/${s.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ env: { ...got.env, NEW: 'n' } }),
+    });
+    expect(d.ctx.servers.get('m')!.env).toEqual({ API_KEY: 'sk-123456', NEW: 'n' });
+  });
+
   it('maps validation and upstream errors to status codes', async () => {
     expect(
       (await api('/api/servers', { method: 'POST', body: JSON.stringify({ name: 'x' }) })).status,

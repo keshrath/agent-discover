@@ -19,6 +19,7 @@ import { configuredRoots } from '../context.js';
 import type { ServerEntry, ServerInput, ServerTransport, ServerUpdate } from '../types.js';
 import { NotFoundError, RegistryError, UpstreamError, ValidationError } from '../types.js';
 import { isCommandOnPath, type ElicitationContent } from '../domain/pool.js';
+import { maskEnv, restoreMaskedEnv } from '../domain/secrets.js';
 import { version } from '../version.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,8 +66,10 @@ export function createRestHandler(
   const { lifecycle, servers, index } = ctx;
   const pool = lifecycle.pool;
 
+  // Env values are masked on the way out; a masked value sent back unchanged keeps the original.
   const view = (s: ServerEntry) => ({
     ...s,
+    env: maskEnv(s.env),
     connected: pool.isConnected(s.name),
     tool_count: index.count(s.id),
   });
@@ -135,7 +138,9 @@ export function createRestHandler(
 
   route('PUT', '/api/servers/:id', async (req, res, p) => {
     const server = byId(p.id);
-    json(res, view(await lifecycle.update(server.name, serverFields(await body(req)))));
+    const fields = serverFields(await body(req));
+    if (fields.env) fields.env = restoreMaskedEnv(fields.env, server.env);
+    json(res, view(await lifecycle.update(server.name, fields)));
   });
 
   route('DELETE', '/api/servers/:id', async (_req, res, p) => {
