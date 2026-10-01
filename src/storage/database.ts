@@ -5,14 +5,21 @@
 // existing installations that previously tracked schema via `pragma
 // user_version` migrate cleanly to agent-common's _meta-table runner without
 // re-running migrations against tables that already have the columns. All
-// ALTER TABLE statements in v2/v3 use addColumnIfMissing to stay idempotent
-// on partially-migrated DBs.
+// ALTER TABLE statements use addColumnIfMissing / hasColumn guards so they
+// stay idempotent on partially-migrated DBs.
+//
+// Migration 7 is the 2.0 schema: proper url/headers columns (1.x stored the
+// remote URL in `homepage`), `enabled` separate from connection state,
+// per-server protocol-era cache, and a tool index with tool_hash. It alters
+// in place (never drops `servers`, which would cascade-delete secrets and
+// metrics through the ON DELETE CASCADE foreign keys).
 // =============================================================================
 
 import type Database from 'better-sqlite3';
 import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
+import { toolHash } from '../domain/tool-hash.js';
 import {
   createDb as createKitDb,
   addColumnIfMissing,
@@ -24,7 +31,7 @@ import {
 export type { Db } from 'agent-common';
 
 export interface DbOptions {
-  /** Use ':memory:' for tests, or a file path. Defaults to ~/.claude/agent-discover.db */
+  /** Use ':memory:' for tests, or a file path. Defaults to $AGENT_DISCOVER_DB, else ~/.claude/agent-discover.db (the 1.x location, kept so existing data survives). */
   path?: string;
   /** Enable verbose logging to stderr */
   verbose?: boolean;
@@ -219,6 +226,59 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_test_presets_lookup
           ON test_presets(server_name, kind, target_name);
       `);
+    },
+  },
+  {
+    version: 7,
+    up: (db: Database.Database) => {
+      addColumnIfMissing(db, 'servers', 'url', 'TEXT');
+      addColumnIfMissing(db, 'servers', 'headers', "TEXT DEFAULT '{}'");
+      addColumnIfMissing(db, 'servers', 'enabled', 'INTEGER DEFAULT 0');
+      addColumnIfMissing(db, 'servers', 'quarantined', 'INTEGER DEFAULT 0');
+      addColumnIfMissing(db, 'servers', 'indexed_at', 'TEXT');
+      addColumnIfMissing(db, 'servers', 'protocol_era', 'TEXT');
+      addColumnIfMissing(db, 'servers', 'discover_result', 'TEXT');
+      addColumnIfMissing(db, 'servers', 'era_checked_at', 'TEXT');
+
+      if (hasColumn(db, 'servers', 'active')) {
+        // 1.x: `active` meant "exposed to hosts"; remote URLs lived in `homepage`;
+        // tools were only persisted while active, so those servers are indexed.
+        db.exec(`
+          UPDATE servers SET enabled = active;
+          UPDATE servers SET url = homepage, homepage = NULL
+            WHERE transport IN ('sse', 'streamable-http') AND url IS NULL;
+          UPDATE servers SET source = 'registry' WHERE source = 'smithery';
+          UPDATE servers SET indexed_at = datetime('now')
+            WHERE id IN (SELECT DISTINCT server_id FROM server_tools);
+        `);
+        db.exec('ALTER TABLE servers DROP COLUMN active');
+      }
+      if (hasColumn(db, 'servers', 'installed')) db.exec('ALTER TABLE servers DROP COLUMN installed');
+      if (hasColumn(db, 'servers', 'latest_version')) {
+        db.exec('ALTER TABLE servers DROP COLUMN latest_version');
+      }
+
+      addColumnIfMissing(db, 'server_tools', 'title', 'TEXT');
+      addColumnIfMissing(db, 'server_tools', 'output_schema', 'TEXT');
+      addColumnIfMissing(db, 'server_tools', 'annotations', 'TEXT');
+      addColumnIfMissing(db, 'server_tools', 'tool_hash', "TEXT NOT NULL DEFAULT ''");
+
+      const rows = db
+        .prepare("SELECT id, name, description, input_schema FROM server_tools WHERE tool_hash = ''")
+        .all() as Array<{ id: number; name: string; description: string; input_schema: string }>;
+      const update = db.prepare('UPDATE server_tools SET tool_hash = ? WHERE id = ?');
+      for (const row of rows) {
+        let inputSchema: unknown = {};
+        try {
+          inputSchema = JSON.parse(row.input_schema);
+        } catch {
+          /* keep {} for unparseable legacy rows */
+        }
+        update.run(
+          toolHash({ name: row.name, description: row.description, inputSchema }),
+          row.id,
+        );
+      }
     },
   },
 ];

@@ -1,0 +1,120 @@
+// =============================================================================
+// agent-discover — Daemon
+//
+// The single long-running process (SPEC §1): one node:http server on
+// 127.0.0.1:<port> serving the dashboard, REST /api/*, WebSocket and MCP
+// Streamable HTTP at /mcp. Every host connects here (directly over HTTP or
+// through the stdio shim), so proxy/connection state has one owner.
+//
+// Exits after `idleMs` with no open HTTP exchanges (MCP streams, SSE) and no
+// WebSocket clients.
+// =============================================================================
+
+import { createServer, type Server } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { createContext, type AppContext, type ContextOptions } from './context.js';
+import { createMcpFactory } from './mcp/server.js';
+import { createMcpEndpoint, type McpEndpoint } from './mcp/http.js';
+import { createRestHandler } from './transport/rest.js';
+import { createRequestGuard } from './transport/guard.js';
+import { setupWebSocket } from './transport/ws.js';
+
+export interface Daemon {
+  readonly ctx: AppContext;
+  readonly httpServer: Server;
+  readonly mcp: McpEndpoint;
+  readonly port: number;
+  close(): Promise<void>;
+}
+
+export interface DaemonOptions extends ContextOptions {
+  /** Skip setup-file sync and background indexing (tests). */
+  skipStartupTasks?: boolean;
+  /** Called when the idle timer fires (default: close + process.exit(0)). */
+  onIdle?: (daemon: Daemon) => void;
+}
+
+export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> {
+  const ctx = createContext(options);
+  const { port, host, idleMs } = ctx.config;
+  const guard = createRequestGuard({ bindHost: host });
+  const mcp = createMcpEndpoint(createMcpFactory(ctx));
+  const rest = createRestHandler(ctx);
+
+  let open = 0;
+  let lastActivity = Date.now();
+  const httpServer = createServer((req, res) => {
+    lastActivity = Date.now();
+    open++;
+    res.on('close', () => {
+      open--;
+      lastActivity = Date.now();
+    });
+    if (guard.handle(req, res)) return;
+    const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    const handler = pathname === '/mcp' ? mcp.handle(req, res) : rest(req, res);
+    handler.catch((err: unknown) => {
+      process.stderr.write(`[agent-discover] request failed: ${String(err)}\n`);
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    });
+  });
+  // WebSocket upgrades obey the same Host/Origin policy as HTTP requests.
+  httpServer.prependListener('upgrade', (req, socket: Duplex) => {
+    if (!guard.checkHost(req.headers.host) || !guard.checkOrigin(req.headers.origin, req.headers.host)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, () => {
+      httpServer.off('error', reject);
+      resolve();
+    });
+  });
+  const ws = setupWebSocket(httpServer, ctx);
+  const unsubscribe = ctx.lifecycle.onChange((e) => {
+    if (e.type === 'tools') mcp.notifyToolsChanged();
+  });
+
+  let closing: Promise<void> | null = null;
+  const daemon: Daemon = {
+    ctx,
+    httpServer,
+    mcp,
+    port: (httpServer.address() as { port: number }).port,
+    close() {
+      closing ??= (async () => {
+        clearInterval(idleTimer);
+        unsubscribe();
+        ws.close();
+        await mcp.close().catch(() => {});
+        httpServer.closeAllConnections();
+        await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+        await ctx.close();
+      })();
+      return closing;
+    },
+  };
+
+  const idleTimer = setInterval(
+    () => {
+      if (!idleMs || open > 0 || ws.wss.clients.size > 0) return;
+      if (Date.now() - lastActivity < idleMs) return;
+      if (options.onIdle) options.onIdle(daemon);
+      else void daemon.close().then(() => process.exit(0));
+    },
+    Math.max(1_000, Math.min(60_000, Math.floor(idleMs / 4) || 60_000)),
+  );
+  idleTimer.unref();
+
+  if (!options.skipStartupTasks) {
+    void ctx
+      .syncSetup()
+      .then(() => ctx.lifecycle.indexPending())
+      .catch((err) => process.stderr.write(`[agent-discover] startup tasks failed: ${String(err)}\n`));
+  }
+  return daemon;
+}

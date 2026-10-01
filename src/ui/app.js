@@ -14,7 +14,7 @@
   AD._wsUrl = null;
   AD._root = document;
 
-  let state = { servers: [], active: [], version: '0.0.0' };
+  let state = { servers: [], version: '0.0.0' };
   let ws = null;
   let browseResults = [];
   let currentTab = 'installed';
@@ -42,7 +42,6 @@
         if (msg.type === 'state') {
           state = {
             servers: msg.servers || state.servers,
-            active: msg.active || state.active,
             version: msg.version || state.version,
           };
           render();
@@ -262,22 +261,24 @@
     var el = AD._root.getElementById('installed-list');
     if (!state.servers.length) {
       el.innerHTML =
-        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">dns</span><p>No servers registered</p><p class="hint">Use registry_install or browse the marketplace</p></div>';
+        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">dns</span><p>No servers registered</p><p class="hint">Use install_server or browse the marketplace</p></div>';
       return;
     }
 
     var html = state.servers
       .map(function (s) {
-        var statusClass = s.active
+        var statusClass = s.enabled
           ? s.health_status === 'unhealthy'
             ? 'unhealthy'
             : 'active'
           : 'inactive';
-        var statusLabel = s.active
+        var statusLabel = s.enabled
           ? s.health_status === 'unhealthy'
             ? 'Unhealthy'
-            : 'Active'
-          : 'Inactive';
+            : s.connected
+              ? 'Enabled · connected'
+              : 'Enabled'
+          : 'Disabled';
 
         var healthStatus = s.health_status || 'unknown';
 
@@ -320,13 +321,13 @@
               '</div></div>'
             : '';
 
-        var actionBtn = s.active
-          ? '<button class="btn-deactivate" data-action="deactivate" data-id="' +
+        var actionBtn = s.enabled
+          ? '<button class="btn-deactivate" data-action="disable" data-id="' +
             s.id +
-            '"><span class="material-symbols-outlined" style="font-size:14px">stop_circle</span>Deactivate</button>'
-          : '<button class="btn-activate" data-action="activate" data-id="' +
+            '"><span class="material-symbols-outlined" style="font-size:14px">stop_circle</span>Disable</button>'
+          : '<button class="btn-activate" data-action="enable" data-id="' +
             s.id +
-            '"><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Activate</button>';
+            '"><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Enable</button>';
 
         var healthBtn =
           '<button class="btn-health" data-action="health" data-id="' +
@@ -346,16 +347,14 @@
         // Expandable sections
         var secretsSection = renderSection(s.id, 'secrets', 'Secrets', renderSecretsContent(s));
         var metricsSection = renderSection(s.id, 'metrics', 'Metrics', renderMetricsContent(s));
-        var testerSection = s.active
-          ? renderSection(
-              s.id,
-              'tester',
-              'Test',
-              AD.renderTesterShell
-                ? AD.renderTesterShell(s)
-                : '<div class="hint">tester unavailable</div>',
-            )
-          : '';
+        var testerSection = renderSection(
+          s.id,
+          'tester',
+          'Test',
+          AD.renderTesterShell
+            ? AD.renderTesterShell(s)
+            : '<div class="hint">tester unavailable</div>',
+        );
         var configSection = renderSection(s.id, 'config', 'Config', renderConfigContent(s));
 
         return (
@@ -391,8 +390,8 @@
             return 'local stdio';
           })() +
           '</span>' +
-          (s.transport && s.transport !== 'stdio' && s.homepage
-            ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(s.homepage) + '</span>'
+          (s.transport && s.transport !== 'stdio' && s.url
+            ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(s.url) + '</span>'
             : '') +
           '</div>' +
           toolSection +
@@ -715,24 +714,24 @@
   // Server actions
   // -------------------------------------------------------------------------
 
-  window.__activateServer = function (id) {
-    AD._fetch('/api/servers/' + id + '/activate', { method: 'POST' })
+  window.__enableServer = function (id) {
+    AD._fetch('/api/servers/' + id + '/enable', { method: 'POST' })
       .then(function (r) {
         return r.json().then(function (data) {
           if (data.error) {
-            showToast('Activation failed: ' + data.error, 'error');
-          } else if (data.status === 'activated') {
-            showToast('Activated with ' + (data.tool_count || 0) + ' tools', 'success');
+            showToast('Enable failed: ' + data.error, 'error');
+          } else {
+            showToast('Enabled with ' + (data.tool_count || 0) + ' tools', 'success');
           }
         });
       })
       .catch(function (err) {
-        showToast('Activation failed: ' + err.message, 'error');
+        showToast('Enable failed: ' + err.message, 'error');
       });
   };
 
-  window.__deactivateServer = function (id) {
-    AD._fetch('/api/servers/' + id + '/deactivate', { method: 'POST' })
+  window.__disableServer = function (id) {
+    AD._fetch('/api/servers/' + id + '/disable', { method: 'POST' })
       .then(function (r) {
         return r.json();
       })
@@ -740,7 +739,7 @@
         // State will refresh via WebSocket
       })
       .catch(function (err) {
-        console.error('Deactivate failed:', err);
+        console.error('Disable failed:', err);
       });
   };
 
@@ -781,7 +780,7 @@
     };
 
     if (runtime === 'streamable-http' || runtime === 'sse') {
-      serverData.homepage = remoteUrl || server.repository || '';
+      serverData.url = remoteUrl || '';
     } else if (runtime === 'python' || (pkg && pkg.registry_name === 'pypi')) {
       // PyPI package — install via uvx
       serverData.transport = 'stdio';
@@ -805,22 +804,7 @@
         return r.json();
       })
       .then(function (data) {
-        if (serverData.command === 'npx' && data && data.id) {
-          btn.innerHTML =
-            '<span class="material-symbols-outlined" style="font-size:14px">downloading</span>Downloading...';
-          return AD._fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
-            .then(function () {
-              btn.innerHTML =
-                '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Ready';
-              btn.classList.add('btn-installed');
-            })
-            .catch(function () {
-              // Download failed but install succeeded
-              btn.innerHTML =
-                '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
-              btn.classList.add('btn-installed');
-            });
-        }
+        if (data && data.index_error) showToast('Installed, indexing failed: ' + data.index_error, 'error');
         btn.innerHTML =
           '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
         btn.classList.add('btn-installed');
@@ -883,23 +867,11 @@
             return r.json();
           })
           .then(function (data) {
-            if (data && data.id) {
-              if (btn) {
-                btn.innerHTML =
-                  '<span class="material-symbols-outlined" style="font-size:14px">downloading</span> Downloading...';
-              }
-              return AD._fetch('/api/servers/' + data.id + '/preinstall', { method: 'POST' })
-                .then(function () {
-                  showToast('Installed and downloaded ' + pkg, 'success');
-                })
-                .catch(function () {
-                  showToast(
-                    'Installed ' + pkg + ' (download will happen on first activate)',
-                    'success',
-                  );
-                });
+            if (data && data.index_error) {
+              showToast('Installed ' + pkg + ', indexing failed: ' + data.index_error, 'error');
+            } else {
+              showToast('Installed ' + pkg + ' (' + (data.tool_count || 0) + ' tools)', 'success');
             }
-            showToast('Installed ' + pkg, 'success');
           })
           .then(function () {
             if (input) input.value = '';
@@ -1178,7 +1150,7 @@
       body.command = command;
       body.args = args;
     } else {
-      body.homepage = urlVal;
+      body.url = urlVal;
     }
 
     AD._fetch('/api/servers', {
@@ -1482,11 +1454,11 @@
       var id = parseInt(btn.dataset.id, 10);
 
       switch (action) {
-        case 'activate':
-          window.__activateServer(id);
+        case 'enable':
+          window.__enableServer(id);
           break;
-        case 'deactivate':
-          window.__deactivateServer(id);
+        case 'disable':
+          window.__disableServer(id);
           break;
         case 'health':
           window.__checkHealth(id);

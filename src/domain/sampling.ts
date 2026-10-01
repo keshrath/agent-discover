@@ -2,7 +2,21 @@
 // agent-discover — Sampling provider (OpenAI Chat Completions)
 // =============================================================================
 
-import type { SamplingProvider } from './proxy.js';
+export interface SamplingProvider {
+  createMessage(request: {
+    serverName: string;
+    messages: Array<{ role: string; content: { type: string; text?: string } }>;
+    maxTokens?: number;
+    temperature?: number;
+    systemPrompt?: string;
+    modelPreferences?: Record<string, unknown>;
+  }): Promise<{
+    role: 'assistant';
+    content: { type: 'text'; text: string };
+    model: string;
+    stopReason?: string;
+  }>;
+}
 
 const DEFAULT_MODEL = 'gpt-5-mini';
 const DEFAULT_MAX_TOKENS = 1024;

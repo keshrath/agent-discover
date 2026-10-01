@@ -5,7 +5,7 @@
 // Python (pip/uvx), and Docker-based servers.
 // =============================================================================
 
-import type { ServerCreateInput } from '../types.js';
+import type { ServerInput } from '../types.js';
 import { ValidationError } from '../types.js';
 
 const SAFE_PACKAGE_NAME = /^[@a-zA-Z0-9._/-]+$/;
@@ -40,7 +40,7 @@ export class InstallerService {
   }
 
   /**
-   * Build a ServerCreateInput from marketplace data and install config.
+   * Build a ServerInput from marketplace data and install config.
    */
   buildServerInput(
     name: string,
@@ -52,7 +52,7 @@ export class InstallerService {
       version?: string;
       tags?: string[];
     },
-  ): ServerCreateInput {
+  ): ServerInput {
     return {
       name,
       description: metadata?.description ?? '',

@@ -2,70 +2,111 @@
 // agent-discover — Core type definitions
 // =============================================================================
 
+import { KitError } from 'agent-common';
+
 // ---------------------------------------------------------------------------
-// Server Registry
+// Servers
 // ---------------------------------------------------------------------------
 
-export type ServerSource = 'local' | 'registry' | 'smithery' | 'manual' | 'setup-file';
+export type ServerSource = 'local' | 'registry' | 'manual' | 'setup-file';
 export type ServerTransport = 'stdio' | 'sse' | 'streamable-http';
 export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
+/**
+ * A server row. States (SPEC §2): installed = the row exists; indexed =
+ * `indexed_at` set (tools persisted); enabled = exposed to hosts;
+ * quarantined = blocked by a trust hook. Connection state is live-only and
+ * comes from the ConnectionPool, never from the DB.
+ */
 export interface ServerEntry {
   readonly id: number;
   readonly name: string;
   readonly description: string;
   readonly source: ServerSource;
+  readonly transport: ServerTransport;
   readonly command: string | null;
   readonly args: string[];
   readonly env: Record<string, string>;
+  /** Remote endpoint for sse / streamable-http transports. */
+  readonly url: string | null;
+  /** Declared HTTP headers for remote transports (secrets may fill values, never add names). */
+  readonly headers: Record<string, string>;
   readonly tags: string[];
   readonly package_name: string | null;
   readonly package_version: string | null;
-  readonly transport: ServerTransport;
   readonly repository: string | null;
   readonly homepage: string | null;
-  readonly installed: boolean;
-  readonly active: boolean;
-  readonly latest_version: string | null;
-  readonly last_health_check: string | null;
+  readonly enabled: boolean;
+  readonly quarantined: boolean;
+  readonly indexed_at: string | null;
   readonly health_status: HealthStatus;
+  readonly last_health_check: string | null;
   readonly error_count: number;
   readonly created_at: string;
   readonly updated_at: string;
 }
 
-export interface ServerCreateInput {
+export interface ServerInput {
   name: string;
   description?: string;
   source?: ServerSource;
+  transport?: ServerTransport;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
   tags?: string[];
   package_name?: string;
   package_version?: string;
-  transport?: ServerTransport;
   repository?: string;
   homepage?: string;
 }
 
-export interface ServerTool {
-  readonly id: number;
-  readonly server_id: number;
+export type ServerUpdate = Partial<Omit<ServerInput, 'name' | 'source'>>;
+
+/** Everything needed to open a connection to an upstream server. Built only by `toConfig`. */
+export interface ServerConfig {
   readonly name: string;
-  readonly description: string;
-  readonly input_schema: Record<string, unknown>;
+  readonly transport: ServerTransport;
+  readonly command?: string;
+  readonly args: string[];
+  readonly env: Record<string, string>;
+  readonly url?: string;
+  readonly headers: Record<string, string>;
 }
 
-export interface ServerUpdateInput {
+// ---------------------------------------------------------------------------
+// Tool index
+// ---------------------------------------------------------------------------
+
+/** A tool as reported by an upstream `tools/list` (the persisted subset). */
+export interface UpstreamTool {
+  name: string;
+  title?: string;
   description?: string;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  tags?: string[];
-  transport?: ServerTransport;
-  homepage?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
 }
+
+export interface IndexedTool {
+  readonly id: number;
+  readonly server_id: number;
+  readonly server: string;
+  readonly name: string;
+  readonly title: string | null;
+  readonly description: string;
+  readonly input_schema: Record<string, unknown>;
+  readonly output_schema: Record<string, unknown> | null;
+  readonly annotations: Record<string, unknown> | null;
+  /** sha256 over name + description + inputSchema + annotations (canonical JSON). */
+  readonly tool_hash: string;
+}
+
+// ---------------------------------------------------------------------------
+// Secrets / metrics
+// ---------------------------------------------------------------------------
 
 export interface SecretEntry {
   readonly key: string;
@@ -108,84 +149,21 @@ export interface MarketplaceResult {
 }
 
 // ---------------------------------------------------------------------------
-// Events
+// Errors (agent-common's KitError family; the REST router maps statusCode)
 // ---------------------------------------------------------------------------
 
-export type EventType =
-  | 'server:registered'
-  | 'server:updated'
-  | 'server:unregistered'
-  | 'server:activated'
-  | 'server:deactivated'
-  | 'server:installed'
-  | 'server:uninstalled';
+export { KitError as RegistryError, NotFoundError, ValidationError } from 'agent-common';
 
-export interface RegistryEvent {
-  readonly type: EventType;
-  readonly timestamp: string;
-  readonly data: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-export class RegistryError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly statusCode: number = 400,
-  ) {
-    super(message);
-    this.name = 'RegistryError';
-  }
-}
-
-export class NotFoundError extends RegistryError {
-  constructor(entity: string, id: string) {
-    super(`${entity} not found: ${id}`, 'NOT_FOUND', 404);
-    this.name = 'NotFoundError';
-  }
-}
-
-export class ValidationError extends RegistryError {
-  constructor(message: string) {
-    super(message, 'VALIDATION_ERROR', 422);
-    this.name = 'ValidationError';
-  }
-}
-
-export class ConflictError extends RegistryError {
+export class ConflictError extends KitError {
   constructor(message: string) {
     super(message, 'CONFLICT', 409);
-    this.name = 'ConflictError';
   }
 }
 
-// ---------------------------------------------------------------------------
-// JSON-RPC (MCP transport)
-// ---------------------------------------------------------------------------
-
-export interface JsonRpcRequest {
-  jsonrpc: '2.0';
-  id: number | string;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-export interface JsonRpcResponse {
-  jsonrpc: '2.0';
-  id: number | string | null;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
+/** An upstream MCP server failed (connect, timeout, protocol error). */
+export class UpstreamError extends KitError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, 'UPSTREAM_ERROR', 502);
+    if (options?.cause !== undefined) (this as { cause?: unknown }).cause = options.cause;
+  }
 }

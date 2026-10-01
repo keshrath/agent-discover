@@ -326,29 +326,6 @@ export class MarketplaceClient {
     }
   }
 
-  async getServer(name: string): Promise<Record<string, unknown> | null> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    try {
-      const res = await fetch(`${REGISTRY_API}/v0/servers/${encodeURIComponent(name)}`, {
-        signal: controller.signal,
-      });
-      if (res.status === 404) return null;
-      if (!res.ok) {
-        throw new Error(`Registry API error: ${res.status} ${res.statusText}`);
-      }
-      return (await res.json()) as Record<string, unknown>;
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error('Registry API request timed out', { cause: err });
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
   private parseResponse(data: unknown): MarketplaceResult {
     if (!data || typeof data !== 'object') {
       return { servers: [], next_cursor: null };

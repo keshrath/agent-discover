@@ -2,15 +2,14 @@
 // agent-discover — WebSocket transport
 //
 // Thin wrapper around agent-common's setupWebSocket. Streams full state with
-// a single fingerprint (servers+active count). Both categories return the
-// full payload so any DB change refreshes all connected clients.
+// a single fingerprint (server rows + tool count + live connections) so any
+// change refreshes all connected clients.
 // =============================================================================
 
 import { setupWebSocket as setupKitWebSocket, type WsHandle } from 'agent-common';
 import type { Server } from 'http';
 import type { AppContext } from '../context.js';
 import { version } from '../version.js';
-import { maskEnv } from '../domain/secrets.js';
 
 export type WebSocketHandle = WsHandle;
 
@@ -26,8 +25,7 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
            || ':' || COALESCE((SELECT COUNT(*) FROM server_tools), 0)
          AS fp`,
       );
-      const active = ctx.proxy.getActiveServerNames().length;
-      return { registry: (row?.fp ?? '') + ':' + active };
+      return { registry: (row?.fp ?? '') + ':' + ctx.lifecycle.pool.connectedNames().join(',') };
     },
     getCategoryData: () => buildStatePayload(ctx),
     getFullState: () => ({ version, ...buildStatePayload(ctx) }),
@@ -37,7 +35,7 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
       ),
   });
 
-  ctx.proxy.setElicitationListener((pending) => {
+  ctx.lifecycle.pool.elicitationListener = (pending) => {
     try {
       handle.broadcast(
         JSON.stringify({
@@ -52,7 +50,7 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
     } catch {
       /* ignore broadcast errors */
     }
-  });
+  };
 
   ctx.logs.onEntry = (entry) => {
     try {
@@ -86,19 +84,11 @@ export function setupWebSocket(httpServer: Server, ctx: AppContext): WebSocketHa
 }
 
 function buildStatePayload(ctx: AppContext): Record<string, unknown> {
-  const servers = ctx.registry.list();
-  const serversWithStatus = servers.map((s) => ({
+  const pool = ctx.lifecycle.pool;
+  const servers = ctx.servers.list().map((s) => ({
     ...s,
-    env: maskEnv(s.env),
-    active: ctx.proxy.isActive(s.name),
-    tools: ctx.registry.getTools(s.id),
+    connected: pool.isConnected(s.name),
+    tools: ctx.index.list(s.id),
   }));
-
-  const activeNames = ctx.proxy.getActiveServerNames();
-  const active = activeNames.map((name) => ({
-    name,
-    tools: ctx.proxy.getServerTools(name),
-  }));
-
-  return { servers: serversWithStatus, active };
+  return { servers, mode: ctx.config.mode };
 }
