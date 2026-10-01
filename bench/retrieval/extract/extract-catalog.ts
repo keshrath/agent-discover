@@ -14,9 +14,9 @@
 //   ${TMP}   → a scratch dir (filesystem/sqlite servers need a path)
 //
 // Credentials are always dummies: the point is tools/list, which almost every
-// server answers without validating the token. Servers that fail are reported
-// and skipped; entries with "source": "manual" are copied from
-// manual/<id>.json (definitions transcribed from the server's source code).
+// server answers without validating the token. Servers that fail or hang past
+// the hard deadline are reported and skipped (README lists the ones dropped).
+// Previously extracted servers are kept, so --only=<id> refreshes one entry.
 // =============================================================================
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -40,7 +40,6 @@ const LenientToolsResult = z
   })
   .passthrough();
 // Per-server hard deadline for connect + tools/list (install time excluded).
-// Servers that hang past it are skipped and sourced manually (manual/<id>.json).
 const SPAWN_TIMEOUT_MS = Number(process.env.W1_SPAWN_TIMEOUT_MS ?? 20_000);
 const TIMEOUT = { timeout: SPAWN_TIMEOUT_MS };
 
@@ -51,12 +50,16 @@ interface ServerSpec {
   id: string;
   /** npm/pypi/go module spec, used for provenance + version resolution. */
   package: string;
-  runtime: 'npm' | 'pip' | 'go' | 'manual';
+  runtime: 'npm' | 'pip' | 'go';
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  /** For manual entries: where the definitions were transcribed from. */
-  provenance?: string;
+  /** npm only: pin a version (default: latest at extraction time). */
+  version?: string;
+  /** npm only: run this script (relative to extract/) instead of the package bin. */
+  launcher?: string;
+  /** npm only: extra packages installed next to `package` (for launchers). */
+  deps?: string[];
 }
 
 interface CatalogTool {
@@ -68,7 +71,7 @@ interface CatalogTool {
 interface CatalogServer {
   server: string;
   provenance: string;
-  method: 'tools/list' | 'source';
+  method: 'tools/list';
   tools: CatalogTool[];
 }
 
@@ -101,23 +104,31 @@ function pipVersion(pkg: string): string {
   return /^Version:\s*(\S+)/m.exec(out)?.[1] ?? 'unknown';
 }
 
-/** Install an npm server into its own cache dir; returns [command, args-prefix]. */
-async function npmInstall(pkg: string, version: string): Promise<[string, string[]]> {
+/** Install an npm server into its own cache dir; returns [command, args-prefix, env]. */
+async function npmInstall(
+  spec: ServerSpec,
+  version: string,
+): Promise<[string, string[], Record<string, string>]> {
+  const pkg = spec.package;
   const dir = path.join(TMP, 'npm', pkg.replace(/[@/]/g, '_'));
   const pj = path.join(dir, 'node_modules', ...pkg.split('/'), 'package.json');
   if (!existsSync(pj)) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'package.json'), '{"private":true}');
-    await run('npm', ['install', '--no-audit', '--no-fund', REGISTRY, `${pkg}@${version}`], {
+    const pkgs = [`${pkg}@${version}`, ...(spec.deps ?? [])];
+    await run('npm', ['install', '--no-audit', '--no-fund', REGISTRY, ...pkgs], {
       cwd: dir,
       shell: true,
       env: { ...process.env, PUPPETEER_SKIP_DOWNLOAD: '1' },
     });
   }
+  if (spec.launcher) {
+    return [process.execPath, [path.join(HERE, spec.launcher)], { W1_PKG_DIR: dir }];
+  }
   const meta = JSON.parse(readFileSync(pj, 'utf8')) as { bin?: string | Record<string, string> };
   const bin = typeof meta.bin === 'string' ? meta.bin : Object.values(meta.bin ?? {})[0];
   if (!bin) throw new Error(`${pkg} has no bin`);
-  return [process.execPath, [path.join(path.dirname(pj), bin)]];
+  return [process.execPath, [path.join(path.dirname(pj), bin)], {}];
 }
 
 function goVersion(binary: string): string {
@@ -129,13 +140,16 @@ function goVersion(binary: string): string {
 async function listTools(spec: ServerSpec, version: string): Promise<CatalogTool[]> {
   let command = sub(spec.command ?? '');
   let args = (spec.args ?? []).map(sub);
+  let installEnv: Record<string, string> = {};
   if (spec.runtime === 'npm' && !spec.command) {
-    const [cmd, prefix] = await npmInstall(spec.package, version);
+    const [cmd, prefix, extra] = await npmInstall(spec, version);
     command = cmd;
     args = [...prefix, ...args];
+    installEnv = extra;
   }
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
+    ...installEnv,
     PUPPETEER_SKIP_DOWNLOAD: '1',
     ...Object.fromEntries(Object.entries(spec.env ?? {}).map(([k, v]) => [k, sub(v)])),
   };
@@ -194,14 +208,8 @@ function killTree(pid: number | null) {
 }
 
 async function extract(spec: ServerSpec): Promise<CatalogServer> {
-  if (spec.runtime === 'manual') {
-    const tools = JSON.parse(
-      readFileSync(path.join(HERE, 'manual', `${spec.id}.json`), 'utf8'),
-    ) as CatalogTool[];
-    return { server: spec.id, provenance: spec.provenance!, method: 'source', tools };
-  }
   let version = 'unknown';
-  if (spec.runtime === 'npm') version = await npmVersion(spec.package);
+  if (spec.runtime === 'npm') version = spec.version ?? (await npmVersion(spec.package));
   else if (spec.runtime === 'pip') version = pipVersion(spec.package);
   else if (spec.runtime === 'go') version = goVersion(sub(spec.command!));
   const pkgName = spec.runtime === 'go' ? spec.package.split('@')[0] : spec.package;
@@ -257,7 +265,7 @@ async function main() {
       }
     }
   };
-  await Promise.all(Array.from({ length: 6 }, worker));
+  await Promise.all(Array.from({ length: Number(process.env.W1_CONCURRENCY ?? 6) }, worker));
 
   const servers = save();
   const total = servers.reduce((n, s) => n + s.tools.length, 0);

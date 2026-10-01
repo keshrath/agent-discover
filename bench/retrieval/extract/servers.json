@@ -133,12 +133,6 @@
     }
   },
   {
-    "id": "redis",
-    "package": "@modelcontextprotocol/server-redis",
-    "runtime": "npm",
-    "args": ["redis://localhost:6379"]
-  },
-  {
     "id": "aws-kb-retrieval",
     "package": "@modelcontextprotocol/server-aws-kb-retrieval",
     "runtime": "npm",
@@ -177,12 +171,11 @@
   },
   {
     "id": "stripe",
-    "package": "@stripe/mcp",
+    "package": "@stripe/agent-toolkit",
     "runtime": "npm",
-    "args": ["--tools=all", "--api-key=sk_test_dummy"],
-    "env": {
-      "STRIPE_SECRET_KEY": "sk_test_dummy"
-    }
+    "launcher": "launchers/stripe-agent-toolkit.cjs",
+    "deps": ["@modelcontextprotocol/sdk@1", "stripe", "zod@3"],
+    "version": "0.7.9"
   },
   {
     "id": "supabase",
@@ -229,19 +222,6 @@
     }
   },
   {
-    "id": "heroku",
-    "package": "@heroku/mcp-server",
-    "runtime": "npm",
-    "env": {
-      "HEROKU_API_KEY": "dummy"
-    }
-  },
-  {
-    "id": "kubernetes",
-    "package": "mcp-server-kubernetes",
-    "runtime": "npm"
-  },
-  {
     "id": "hubspot",
     "package": "@hubspot/mcp-server",
     "runtime": "npm",
@@ -260,50 +240,6 @@
   {
     "id": "shopify-dev",
     "package": "@shopify/dev-mcp",
-    "runtime": "npm"
-  },
-  {
-    "id": "neon",
-    "package": "@neondatabase/mcp-server-neon",
-    "runtime": "npm",
-    "args": ["start", "dummy"]
-  },
-  {
-    "id": "mongodb",
-    "package": "mongodb-mcp-server",
-    "runtime": "npm",
-    "env": {
-      "MDB_MCP_CONNECTION_STRING": "mongodb://localhost:27017"
-    }
-  },
-  {
-    "id": "elasticsearch",
-    "package": "@elastic/mcp-server-elasticsearch",
-    "runtime": "npm",
-    "env": {
-      "ES_URL": "http://localhost:9200",
-      "ES_API_KEY": "dummy"
-    }
-  },
-  {
-    "id": "twilio",
-    "package": "@twilio-alpha/mcp",
-    "runtime": "npm",
-    "args": ["ACdummy/SKdummy:secret"]
-  },
-  {
-    "id": "paypal",
-    "package": "@paypal/mcp",
-    "runtime": "npm",
-    "args": ["--tools=all"],
-    "env": {
-      "PAYPAL_ACCESS_TOKEN": "dummy",
-      "PAYPAL_ENVIRONMENT": "SANDBOX"
-    }
-  },
-  {
-    "id": "desktop-commander",
-    "package": "@wonderwhy-er/desktop-commander",
     "runtime": "npm"
   },
   {
@@ -345,19 +281,6 @@
     }
   },
   {
-    "id": "google-calendar",
-    "package": "@cocal/google-calendar-mcp",
-    "runtime": "npm",
-    "env": {
-      "GOOGLE_OAUTH_CREDENTIALS": "${TMP}/gcp-oauth.keys.json"
-    }
-  },
-  {
-    "id": "railway",
-    "package": "@railway/mcp-server",
-    "runtime": "npm"
-  },
-  {
     "id": "netlify",
     "package": "@netlify/mcp",
     "runtime": "npm"
@@ -371,31 +294,11 @@
     }
   },
   {
-    "id": "apify",
-    "package": "@apify/actors-mcp-server",
-    "runtime": "npm",
-    "env": {
-      "APIFY_TOKEN": "dummy"
-    }
-  },
-  {
     "id": "airtable",
     "package": "airtable-mcp-server",
     "runtime": "npm",
     "env": {
       "AIRTABLE_API_KEY": "dummy"
-    }
-  },
-  {
-    "id": "mysql",
-    "package": "@benborla29/mcp-server-mysql",
-    "runtime": "npm",
-    "env": {
-      "MYSQL_HOST": "127.0.0.1",
-      "MYSQL_PORT": "3306",
-      "MYSQL_USER": "root",
-      "MYSQL_PASS": "dummy",
-      "MYSQL_DB": "dummy"
     }
   },
   {
@@ -419,12 +322,6 @@
     "package": "@launchdarkly/mcp-server",
     "runtime": "npm",
     "args": ["start", "--api-key", "api-dummy"]
-  },
-  {
-    "id": "auth0",
-    "package": "@auth0/auth0-mcp-server",
-    "runtime": "npm",
-    "args": ["run"]
   },
   {
     "id": "contentful",
@@ -469,32 +366,11 @@
     }
   },
   {
-    "id": "clickup",
-    "package": "clickup-mcp-server",
-    "runtime": "npm",
-    "env": {
-      "CLICKUP_API_KEY": "dummy",
-      "CLICKUP_TEAM_ID": "1"
-    }
-  },
-  {
-    "id": "monday",
-    "package": "@mondaydotcomorg/monday-api-mcp",
-    "runtime": "npm",
-    "args": ["-t", "dummy"]
-  },
-  {
     "id": "perplexity",
     "package": "@perplexity-ai/mcp-server",
     "runtime": "npm",
     "env": {
       "PERPLEXITY_API_KEY": "dummy"
     }
-  },
-  {
-    "id": "cloudflare",
-    "package": "@cloudflare/mcp-server-cloudflare",
-    "runtime": "npm",
-    "args": ["run", "dummyaccount"]
   }
 ]
