@@ -20,6 +20,14 @@ export interface Config {
   readonly mode: ExposureMode;
   /** Operator opt-in: install_server may run without human consent when the client cannot elicit. */
   readonly allowUnconfirmedInstall: boolean;
+  /** Tool descriptions passed to models are cut to this many chars (AGENT_DISCOVER_MAX_TOOL_DESCRIPTION, default 1024, 0 = no cap). */
+  readonly maxToolDescription: number;
+  /** Same for server descriptions (AGENT_DISCOVER_MAX_SERVER_DESCRIPTION, default 512). */
+  readonly maxServerDescription: number;
+  /** Record (masked) call arguments in the audit log (AGENT_DISCOVER_AUDIT_ARGS=1). */
+  readonly auditArgs: boolean;
+  /** Audit log retention in rows (AGENT_DISCOVER_AUDIT_MAX_ROWS, default 50000, 0 = unlimited). */
+  readonly auditMaxRows: number;
 }
 
 function int(value: string | undefined, fallback: number): number {
@@ -35,5 +43,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     connIdleMs: int(env.AGENT_DISCOVER_CONN_IDLE_MS, 10 * 60_000),
     mode: env.AGENT_DISCOVER_MODE === 'proxy' ? 'proxy' : 'native',
     allowUnconfirmedInstall: env.AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL === '1',
+    maxToolDescription: int(env.AGENT_DISCOVER_MAX_TOOL_DESCRIPTION, 1024),
+    maxServerDescription: int(env.AGENT_DISCOVER_MAX_SERVER_DESCRIPTION, 512),
+    auditArgs: env.AGENT_DISCOVER_AUDIT_ARGS === '1',
+    auditMaxRows: int(env.AGENT_DISCOVER_AUDIT_MAX_ROWS, 50_000),
   };
 }

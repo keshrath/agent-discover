@@ -18,12 +18,17 @@ import { createMcpEndpoint, type McpEndpoint } from './mcp/http.js';
 import { createRestHandler } from './transport/rest.js';
 import { createRequestGuard } from './transport/guard.js';
 import { setupWebSocket } from './transport/ws.js';
+import { createRestToken } from './transport/token.js';
+import { loadTelemetry } from './domain/trust/telemetry.js';
+import { version } from './version.js';
 
 export interface Daemon {
   readonly ctx: AppContext;
   readonly httpServer: Server;
   readonly mcp: McpEndpoint;
   readonly port: number;
+  /** Per-launch token required on state-changing /api requests. */
+  readonly restToken: string;
   close(): Promise<void>;
 }
 
@@ -35,12 +40,16 @@ export interface DaemonOptions extends ContextOptions {
 }
 
 export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> {
-  const ctx = createContext(options);
+  const ctx = createContext({
+    ...options,
+    telemetry: options.telemetry ?? (await loadTelemetry(version)),
+  });
   const { port, host, idleMs } = ctx.config;
   const mcpHost = localhostHostValidation();
   const mcpOrigin = localhostOriginValidation();
   const mcp = createMcpEndpoint(createMcpFactory(ctx));
-  const rest = createRestHandler(ctx);
+  const token = createRestToken();
+  const rest = createRestHandler(ctx, token);
 
   let open = 0;
   let lastActivity = Date.now();
@@ -83,6 +92,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     httpServer,
     mcp,
     port: boundPort,
+    restToken: token.value,
     close() {
       closing ??= (async () => {
         clearInterval(idleTimer);

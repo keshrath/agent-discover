@@ -86,6 +86,8 @@ export interface CallOptions {
   onprogress?: (p: { progress: number; total?: number; message?: string }) => void;
   inputResponses?: InputResponses;
   requestState?: string;
+  /** Extra params._meta for the upstream request (W3C trace context). */
+  _meta?: Record<string, string>;
 }
 
 export interface HealthResult {
@@ -393,6 +395,7 @@ export class ConnectionPool {
       const params: Record<string, unknown> = { name: tool, arguments: args ?? {} };
       if (opts.inputResponses) params.inputResponses = opts.inputResponses;
       if (opts.requestState !== undefined) params.requestState = opts.requestState;
+      if (opts._meta) params._meta = opts._meta;
       const result = (await conn.client.request(
         { method: 'tools/call', params },
         withInputRequired(CallToolResultSchema),

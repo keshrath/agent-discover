@@ -9,7 +9,38 @@
   var AD = (window.AD = window.AD || {});
   AD._baseUrl = '';
   AD._fetch = function (url, opts) {
-    return fetch(AD._baseUrl + url, opts);
+    opts = opts || {};
+    var method = (opts.method || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD') return fetch(AD._baseUrl + url, opts);
+    // State-changing requests carry the per-launch token (docs/API.md); a
+    // daemon restart rotates it, so a TOKEN_REQUIRED answer refetches once.
+    var send = function (token) {
+      var headers = Object.assign({}, opts.headers, { 'X-Agent-Discover-Token': token });
+      return fetch(AD._baseUrl + url, Object.assign({}, opts, { headers: headers }));
+    };
+    var refresh = function () {
+      return fetch(AD._baseUrl + '/api/token')
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (b) {
+          return (AD._token = b.token);
+        });
+    };
+    return (AD._token ? Promise.resolve(AD._token) : refresh()).then(send).then(function (res) {
+      if (res.status !== 403) return res;
+      return res
+        .clone()
+        .json()
+        .then(
+          function (b) {
+            return b.code === 'TOKEN_REQUIRED' ? refresh().then(send) : res;
+          },
+          function () {
+            return res;
+          },
+        );
+    });
   };
   AD._wsUrl = null;
   AD._root = document;
@@ -902,7 +933,7 @@
     if (openSections[key]) {
       // Load data when opening
       if (name === 'secrets') {
-        fetch('/api/servers/' + serverId + '/secrets')
+        AD._fetch('/api/servers/' + serverId + '/secrets')
           .then(function (r) {
             return r.json();
           })
@@ -915,7 +946,7 @@
             render();
           });
       } else if (name === 'metrics') {
-        fetch('/api/servers/' + serverId + '/metrics')
+        AD._fetch('/api/servers/' + serverId + '/metrics')
           .then(function (r) {
             return r.json();
           })
@@ -933,7 +964,7 @@
   };
 
   window.__checkHealth = function (serverId) {
-    fetch('/api/servers/' + serverId + '/health', { method: 'POST' })
+    AD._fetch('/api/servers/' + serverId + '/health', { method: 'POST' })
       .then(function (r) {
         return r.json();
       })
@@ -954,7 +985,7 @@
     var value = valEl.value;
     if (!key || !value) return;
 
-    fetch('/api/servers/' + serverId + '/secrets/' + encodeURIComponent(key), {
+    AD._fetch('/api/servers/' + serverId + '/secrets/' + encodeURIComponent(key), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: value }),
@@ -965,7 +996,7 @@
       .then(function () {
         showToast('Secret "' + key + '" saved', 'success');
         // Reload secrets
-        return fetch('/api/servers/' + serverId + '/secrets').then(function (r) {
+        return AD._fetch('/api/servers/' + serverId + '/secrets').then(function (r) {
           return r.json();
         });
       })
@@ -980,7 +1011,7 @@
 
   window.__deleteSecret = function (serverId, key) {
     if (!confirm('Delete secret "' + key + '"?')) return;
-    fetch('/api/servers/' + serverId + '/secrets/' + encodeURIComponent(key), {
+    AD._fetch('/api/servers/' + serverId + '/secrets/' + encodeURIComponent(key), {
       method: 'DELETE',
     })
       .then(function (r) {
@@ -988,7 +1019,7 @@
       })
       .then(function () {
         showToast('Secret "' + key + '" deleted', 'success');
-        return fetch('/api/servers/' + serverId + '/secrets').then(function (r) {
+        return AD._fetch('/api/servers/' + serverId + '/secrets').then(function (r) {
           return r.json();
         });
       })
@@ -1023,7 +1054,7 @@
       }
     });
 
-    fetch('/api/servers/' + serverId, {
+    AD._fetch('/api/servers/' + serverId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

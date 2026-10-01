@@ -16,6 +16,7 @@ import type {
   HealthStatus,
 } from '../types.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types.js';
+import { assertSandboxable, sandboxConfig } from './trust/sandbox.js';
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const TRANSPORTS: ReadonlySet<string> = new Set(['stdio', 'sse', 'streamable-http']);
@@ -39,6 +40,8 @@ interface ServerRow {
   homepage: string | null;
   enabled: number;
   quarantined: number;
+  sandbox: string | null;
+  sandbox_network: number | null;
   indexed_at: string | null;
   health_status: string | null;
   last_health_check: string | null;
@@ -66,6 +69,8 @@ function rowToServer(row: ServerRow): ServerEntry {
     homepage: row.homepage,
     enabled: row.enabled === 1,
     quarantined: row.quarantined === 1,
+    sandbox: row.sandbox === 'docker' ? 'docker' : 'none',
+    sandbox_network: row.sandbox_network !== 0,
     indexed_at: row.indexed_at,
     health_status: (row.health_status ?? 'unknown') as HealthStatus,
     last_health_check: row.last_health_check,
@@ -76,10 +81,13 @@ function rowToServer(row: ServerRow): ServerEntry {
 }
 
 function validateShape(s: {
+  name: string;
   transport: ServerTransport;
   command?: string | null;
+  args?: string[];
   url?: string | null;
   headers?: Record<string, string>;
+  sandbox?: string;
 }): void {
   if (!TRANSPORTS.has(s.transport)) {
     throw new ValidationError(`transport must be stdio, sse or streamable-http`);
@@ -103,6 +111,13 @@ function validateShape(s: {
       throw new ValidationError(`invalid header "${k}"`);
     }
   }
+  if (s.sandbox !== undefined && s.sandbox !== 'none' && s.sandbox !== 'docker') {
+    throw new ValidationError('sandbox must be "none" or "docker"');
+  }
+  if (s.sandbox === 'docker') {
+    if (s.transport !== 'stdio') throw new ValidationError('sandbox applies to stdio servers only');
+    assertSandboxable({ name: s.name, command: s.command ?? null, args: s.args ?? [] });
+  }
 }
 
 /** Throws ValidationError unless `input` describes a connectable server. */
@@ -117,10 +132,13 @@ export function validateServerInput(input: ServerInput): void {
     throw new ValidationError('Name cannot contain "__" (reserved as tool namespace separator)');
   }
   validateShape({
+    name: input.name,
     transport: input.transport ?? 'stdio',
     command: input.command,
+    args: input.args,
     url: input.url,
     headers: input.headers,
+    sandbox: input.sandbox,
   });
 }
 
@@ -130,10 +148,11 @@ export function validateServerInput(input: ServerInput): void {
  * header names are sent — a secret whose key matches a declared header
  * (case-insensitive) fills its value — plus `Authorization` from the
  * AUTHORIZATION secret or `Bearer <API_KEY>`. Other secrets never leave.
+ * A `sandbox: "docker"` server is launched through trust/sandbox.ts.
  */
 export function toConfig(server: ServerEntry, secrets: Record<string, string>): ServerConfig {
   if (server.transport === 'stdio') {
-    return {
+    const config: ServerConfig = {
       name: server.name,
       transport: 'stdio',
       command: server.command ?? undefined,
@@ -141,6 +160,7 @@ export function toConfig(server: ServerEntry, secrets: Record<string, string>): 
       env: { ...server.env, ...secrets },
       headers: {},
     };
+    return server.sandbox === 'docker' ? sandboxConfig(server, config) : config;
   }
   const bySecretKey = new Map(Object.entries(secrets).map(([k, v]) => [k.toLowerCase(), v]));
   const headers: Record<string, string> = {};
@@ -172,8 +192,8 @@ export class ServerStore {
 
     const result = this.db.run(
       `INSERT INTO servers (name, description, source, transport, command, args, env, url, headers,
-        tags, package_name, package_version, repository, homepage)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        tags, package_name, package_version, repository, homepage, sandbox, sandbox_network)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.name,
         input.description ?? '',
@@ -189,6 +209,8 @@ export class ServerStore {
         input.package_version ?? null,
         input.repository ?? null,
         input.homepage ?? null,
+        input.sandbox ?? 'none',
+        input.sandbox_network === false ? 0 : 1,
       ],
     );
     return this.getById(Number(result.lastInsertRowid))!;
@@ -197,10 +219,13 @@ export class ServerStore {
   update(name: string, updates: ServerUpdate): ServerEntry {
     const existing = this.require(name);
     const merged = {
+      name: existing.name,
       transport: updates.transport ?? existing.transport,
       command: updates.command ?? existing.command,
+      args: updates.args ?? existing.args,
       url: updates.url ?? existing.url,
       headers: updates.headers ?? existing.headers,
+      sandbox: updates.sandbox ?? existing.sandbox,
     };
     validateShape(merged);
 
@@ -220,6 +245,10 @@ export class ServerStore {
     }
     if (updates.repository !== undefined) columns.push(['repository', updates.repository]);
     if (updates.homepage !== undefined) columns.push(['homepage', updates.homepage]);
+    if (updates.sandbox !== undefined) columns.push(['sandbox', updates.sandbox]);
+    if (updates.sandbox_network !== undefined) {
+      columns.push(['sandbox_network', updates.sandbox_network ? 1 : 0]);
+    }
     if (columns.length === 0) return existing;
 
     this.db.run(

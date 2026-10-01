@@ -11,8 +11,10 @@
 // (connect → tools/list → persist → disconnect), disable never touches the
 // index, and an upstream list_changed re-indexes.
 //
-// Trust extension point (SPEC §4 W2): `TrustHooks` run at install, after
-// every index diff, and before every proxied call.
+// Trust extension point (SPEC §4 W2, implemented by trust/TrustService):
+// `TrustHooks` run at install, after every index diff (whose verdict sets
+// `quarantined`), around every proxied call, on approval, and receive an
+// audit event for every state change made here.
 // =============================================================================
 
 import type { CallToolResult, InputRequiredResult } from '@modelcontextprotocol/client';
@@ -21,26 +23,36 @@ import { NotFoundError, RegistryError } from '../types.js';
 import { ServerStore, toConfig } from './servers.js';
 import type { ToolIndex, IndexDiff } from './tool-index.js';
 import type { SecretsService } from './secrets.js';
+import type { AuditEvent } from './trust/audit.js';
+import type { TrustReport } from './trust/index.js';
 import type { MetricsService } from './metrics.js';
 import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
 import { ConnectionPool, type CallOptions, type HealthResult } from './pool.js';
 
+export type CallResult = CallToolResult | InputRequiredResult;
+
 export interface TrustHooks {
   /** Runs before a server row is created. Throw to refuse the install. */
   beforeInstall?(input: ServerInput): void | Promise<void>;
-  /** Runs after each index diff is persisted (e.g. pin hashes, quarantine on drift). */
-  afterIndex?(
-    server: ServerEntry,
-    diff: IndexDiff,
-    lifecycle: ServerLifecycle,
-  ): void | Promise<void>;
-  /** Runs before every proxied tools/call. Throw to refuse the call. */
-  beforeCall?(
+  /** Runs after each index diff is persisted; the verdict is whether to quarantine. */
+  afterIndex?(server: ServerEntry, diff: IndexDiff): boolean | Promise<boolean>;
+  /**
+   * Wraps every proxied tools/call (throw to refuse). `next` performs the
+   * upstream call with `meta` merged into params._meta (trace context).
+   */
+  aroundCall?(
     server: ServerEntry,
     tool: string,
     args: Record<string, unknown> | undefined,
-  ): void | Promise<void>;
+    next: (meta: Record<string, string>) => Promise<CallResult>,
+  ): Promise<CallResult>;
+  /** Accept the server's current tools; throws unless `hashes` is exactly that set. */
+  approve?(server: ServerEntry, hashes: string[]): void;
+  /** Drift + hygiene facts for status views. */
+  inspect?(server: ServerEntry): TrustReport;
+  /** Audit sink for every lifecycle state change. */
+  record?(event: AuditEvent): void;
 }
 
 export type LifecycleEvent =
@@ -63,6 +75,10 @@ export interface ServerStatus {
   health_status: string;
   last_health_check: string | null;
   error_count: number;
+  sandbox: string;
+  /** Present while quarantined: what changed since the last approval. */
+  drift?: TrustReport['drift'];
+  flagged_tools: TrustReport['flagged_tools'];
 }
 
 export interface LifecycleDeps {
@@ -133,7 +149,7 @@ export class ServerLifecycle {
 
   resolveConfig(name: string) {
     const server = this.servers.require(name);
-    return toConfig(server, this.deps.secrets.getEnvForServer(server.id));
+    return toConfig(server, this.deps.secrets.getEnvForServer(server));
   }
 
   get(name: string): ServerEntry | null {
@@ -156,8 +172,21 @@ export class ServerLifecycle {
     await this.hooks.beforeInstall?.(input);
     let server = this.servers.create(input);
     for (const [key, value] of Object.entries(opts.secrets ?? {})) {
-      this.deps.secrets.set(server.id, key, value);
+      this.deps.secrets.set(server, key, value);
     }
+    this.record({
+      action: 'install',
+      server: server.name,
+      detail: {
+        source: server.source,
+        transport: server.transport,
+        ...(server.transport === 'stdio'
+          ? { command: [server.command, ...server.args].join(' ') }
+          : { url: server.url }),
+        ...(server.sandbox !== 'none' ? { sandbox: server.sandbox } : {}),
+        ...(opts.secrets ? { secrets: Object.keys(opts.secrets) } : {}),
+      },
+    });
     this.changed(false);
     let diff: IndexDiff | undefined;
     let indexError: string | undefined;
@@ -186,7 +215,8 @@ export class ServerLifecycle {
     const tools = await this.pool.probe(name, async () => this.pool.listTools(name));
     const diff = await this.index.save(server.id, tools);
     this.servers.markIndexed(server.id);
-    await this.hooks.afterIndex?.(this.servers.require(name), diff, this);
+    const quarantine = await this.hooks.afterIndex?.(this.servers.require(name), diff);
+    if (quarantine !== undefined) this.setQuarantined(name, quarantine);
     const after = this.servers.require(name);
     const shapeChanged = diff.added.length + diff.changed.length + diff.removed.length > 0;
     this.changed(after.enabled && shapeChanged);
@@ -195,12 +225,11 @@ export class ServerLifecycle {
 
   async enable(name: string): Promise<ServerEntry> {
     const server = this.servers.require(name);
-    if (server.quarantined) {
-      throw new RegistryError(`Server "${name}" is quarantined`, 'QUARANTINED', 409);
-    }
+    if (server.quarantined) throw this.quarantineError(server);
     if (!server.indexed_at) await this.reindex(name);
     if (!server.enabled) {
       this.servers.setEnabled(server.id, true);
+      this.record({ action: 'enable', server: name });
       this.changed(true);
     }
     return this.servers.require(name);
@@ -210,6 +239,7 @@ export class ServerLifecycle {
     const server = this.servers.require(name);
     if (server.enabled) {
       this.servers.setEnabled(server.id, false);
+      this.record({ action: 'disable', server: name });
       this.changed(true);
     }
     return this.servers.require(name);
@@ -226,8 +256,24 @@ export class ServerLifecycle {
   async uninstall(name: string): Promise<void> {
     const server = this.servers.require(name);
     await this.pool.disconnect(name);
+    this.deps.secrets.deleteAll(server);
     this.servers.remove(name);
+    this.record({ action: 'uninstall', server: name });
     this.changed(server.enabled);
+  }
+
+  async setSecret(name: string, key: string, value: string): Promise<void> {
+    const server = this.servers.require(name);
+    if (!this.deps.secrets.set(server, key, value)) return;
+    this.record({ action: 'secret-set', server: name, detail: { key } });
+    await this.pool.disconnect(name); // next use reconnects with the new secret
+  }
+
+  async deleteSecret(name: string, key: string): Promise<void> {
+    const server = this.servers.require(name);
+    this.deps.secrets.delete(server, key);
+    this.record({ action: 'secret-delete', server: name, detail: { key } });
+    await this.pool.disconnect(name);
   }
 
   resetErrors(name: string): void {
@@ -239,7 +285,49 @@ export class ServerLifecycle {
     const server = this.servers.require(name);
     if (server.quarantined === quarantined) return;
     this.servers.setQuarantined(server.id, quarantined);
+    const drift = quarantined ? this.hooks.inspect?.(server).drift : undefined;
+    this.record({
+      action: quarantined ? 'quarantine' : 'release',
+      server: name,
+      ...(drift ? { detail: { drift } } : {}),
+    });
     this.changed(server.enabled);
+  }
+
+  /**
+   * Re-approve a quarantined server's current tools (`hashes` = the exact
+   * tool hash set the user reviewed) and lift the quarantine.
+   */
+  approve(name: string, hashes: string[]): ServerEntry {
+    const server = this.servers.require(name);
+    this.hooks.approve?.(server, hashes);
+    this.record({ action: 'approve', server: name, detail: { tools: hashes.length } });
+    this.setQuarantined(name, false);
+    return this.servers.require(name);
+  }
+
+  private quarantineError(server: ServerEntry): RegistryError {
+    const drift = this.hooks.inspect?.(server).drift;
+    const parts = drift
+      ? [
+          drift.changed.length ? `changed: ${drift.changed.map((c) => c.tool).join(', ')}` : '',
+          drift.added.length ? `added: ${drift.added.join(', ')}` : '',
+          drift.removed.length ? `removed: ${drift.removed.join(', ')}` : '',
+        ].filter(Boolean)
+      : [];
+    return new RegistryError(
+      `Server "${server.name}" is quarantined: its tools changed since they were approved${parts.length ? ` (${parts.join('; ')})` : ''}. Review and re-approve with enable_server or the dashboard (POST /api/servers/${server.id}/approve).`,
+      'QUARANTINED',
+      409,
+    );
+  }
+
+  private record(event: AuditEvent): void {
+    try {
+      this.hooks.record?.(event);
+    } catch (err) {
+      process.stderr.write(`[agent-discover] audit write failed: ${String(err)}\n`);
+    }
   }
 
   /** Index every installed server that has never been indexed (1.x upgrades, setup file). */
@@ -267,11 +355,13 @@ export class ServerLifecycle {
   ): Promise<CallToolResult | InputRequiredResult> {
     const server = this.servers.get(serverName);
     if (!server) throw new NotFoundError('Server', serverName);
-    if (server.quarantined) {
-      throw new RegistryError(`Server "${serverName}" is quarantined`, 'QUARANTINED', 409);
-    }
-    await this.hooks.beforeCall?.(server, tool, args);
-    return this.pool.callTool(serverName, tool, args, opts);
+    if (server.quarantined) throw this.quarantineError(server);
+    const call = (meta: Record<string, string>) =>
+      this.pool.callTool(serverName, tool, args, {
+        ...opts,
+        ...(Object.keys(meta).length ? { _meta: meta } : {}),
+      });
+    return this.hooks.aroundCall ? this.hooks.aroundCall(server, tool, args, call) : call({});
   }
 
   async health(name: string): Promise<HealthResult> {
@@ -284,21 +374,27 @@ export class ServerLifecycle {
 
   status(name?: string): ServerStatus[] {
     const rows = name ? [this.servers.require(name)] : this.servers.list();
-    return rows.map((s) => ({
-      name: s.name,
-      description: s.description,
-      source: s.source,
-      transport: s.transport,
-      enabled: s.enabled,
-      quarantined: s.quarantined,
-      indexed: s.indexed_at !== null,
-      indexed_at: s.indexed_at,
-      connected: this.pool.isConnected(s.name),
-      tool_count: this.index.count(s.id),
-      health_status: s.health_status,
-      last_health_check: s.last_health_check,
-      error_count: s.error_count,
-    }));
+    return rows.map((s) => {
+      const trust = this.hooks.inspect?.(s);
+      return {
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        transport: s.transport,
+        enabled: s.enabled,
+        quarantined: s.quarantined,
+        indexed: s.indexed_at !== null,
+        indexed_at: s.indexed_at,
+        connected: this.pool.isConnected(s.name),
+        tool_count: this.index.count(s.id),
+        health_status: s.health_status,
+        last_health_check: s.last_health_check,
+        error_count: s.error_count,
+        sandbox: s.sandbox,
+        ...(s.quarantined && trust?.drift ? { drift: trust.drift } : {}),
+        flagged_tools: trust?.flagged_tools ?? [],
+      };
+    });
   }
 
   async close(): Promise<void> {
