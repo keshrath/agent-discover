@@ -38,6 +38,7 @@ export async function startDashboard(ctx: AppContext, port = 3424): Promise<Dash
 
   const kit: KitDashboard = await startKitDashboard({
     port,
+    host: process.env.AGENT_DISCOVER_HOST,
     handler: router,
     onListen: (httpServer) => {
       wsHandle = setupWebSocket(httpServer, ctx);

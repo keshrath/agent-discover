@@ -257,6 +257,7 @@ WantedBy=multi-user.target
 | Variable               | Default                       | Description                                                                                |
 | ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
 | `AGENT_DISCOVER_PORT`  | `3424`                        | Dashboard HTTP/WebSocket port                                                              |
+| `AGENT_DISCOVER_HOST`  | `127.0.0.1`                   | Dashboard bind address (`0.0.0.0` exposes it to the network)                               |
 | `AGENT_DISCOVER_DB`    | `~/.claude/agent-discover.db` | SQLite database path                                                                       |
 | `AGENT_DISCOVER_NO_UI` | unset                         | If set to `1`, the stdio MCP server skips starting the dashboard (useful in headless mode) |
 | `AGENT_DISCOVER_LOG`   | `info`                        | Log level (`error`, `warn`, `info`, `debug`)                                               |

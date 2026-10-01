@@ -3,6 +3,8 @@
 //
 // Manages server-specific secrets (API keys, tokens, etc.). Values are
 // masked in API responses. Secrets override env vars when activating servers.
+// Server env values are masked the same way in dashboard state; a masked value
+// sent back unchanged keeps the stored original.
 // =============================================================================
 
 import type { Db } from '../storage/database.js';
@@ -21,6 +23,22 @@ interface SecretRow {
 function maskValue(value: string): string {
   if (value.length <= 4) return '****';
   return value.slice(0, 4) + '****';
+}
+
+export function maskEnv(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).map(([k, v]) => [k, maskValue(String(v))]));
+}
+
+export function restoreMaskedEnv(
+  incoming: Record<string, string>,
+  stored: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(incoming).map(([k, v]) => [
+      k,
+      k in stored && v === maskValue(String(stored[k])) ? stored[k] : v,
+    ]),
+  );
 }
 
 export class SecretsService {

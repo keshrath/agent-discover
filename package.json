@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "MCP server registry and marketplace — discover, install, activate, and manage MCP tools on demand",
   "type": "module",
@@ -51,8 +51,8 @@
     ]
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "agent-common": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "agent-common": "^1.1.2",
     "better-sqlite3": "12.8.0",
     "morphdom": "^2.7.8",
     "ws": "8.20.0"

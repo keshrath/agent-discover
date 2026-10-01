@@ -141,7 +141,7 @@ When `find_tool` is called with `auto_activate: false` (recommended for catalogs
 
 ## REST API (33 endpoints)
 
-All endpoints return JSON. CORS enabled.
+All endpoints return JSON. Loopback only: foreign `Host`/`Origin` headers get 403, request bodies must be `application/json`, no wildcard CORS.
 
 ```
 GET    /health                            Version, uptime
@@ -219,6 +219,7 @@ npm run test:e2e:ui   # Playwright dashboard smoke tests
 | Variable                           | Default                       | Description                                                                                                 |
 | ---------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `AGENT_DISCOVER_PORT`              | `3424`                        | Dashboard HTTP port                                                                                         |
+| `AGENT_DISCOVER_HOST`              | `127.0.0.1`                   | Dashboard bind address (`0.0.0.0` exposes it to the network)                                                |
 | `AGENT_DISCOVER_DB`                | `~/.claude/agent-discover.db` | SQLite database path                                                                                        |
 | `AGENT_DISCOVER_ROOTS`             | —                             | Comma-separated root URIs advertised to child servers (e.g. `file:///Users/me/repo,file:///Users/me/data`)  |
 | `AGENT_DISCOVER_ALLOW_REMOTE_TEST` | `0`                           | Set to `1` to allow the Test panel endpoints from non-loopback origins. **Not recommended** — see Security. |

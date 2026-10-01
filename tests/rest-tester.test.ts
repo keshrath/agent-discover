@@ -34,6 +34,21 @@ afterEach(async () => {
 });
 
 describe('Tester REST endpoints', () => {
+  it.each(['null', 'http://localhost.evil.com', 'https://evil.com'])(
+    'rejects tester calls from origin %s',
+    async (origin) => {
+      const res = await request('/api/servers/9999/info', { headers: { Origin: origin } });
+      expect(res.status).toBe(403);
+    },
+  );
+
+  it('accepts tester calls from a loopback origin', async () => {
+    const res = await request('/api/servers/9999/info', {
+      headers: { Origin: 'http://localhost:3424' },
+    });
+    expect(res.status).toBe(404);
+  });
+
   it('returns 404 for unknown server id on /info', async () => {
     const res = await request('/api/servers/9999/info');
     expect(res.status).toBe(404);
