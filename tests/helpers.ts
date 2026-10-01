@@ -33,7 +33,7 @@ export async function startTestDaemon(
     dir,
     async stop() {
       await daemon.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     },
   });
 }
