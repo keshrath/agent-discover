@@ -4,7 +4,11 @@
   var AD = (window.AD = window.AD || {});
 
   function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function inline(s) {
@@ -12,10 +16,10 @@
     out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
     out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    out = out.replace(
-      /\[([^\]]+)\]\(([^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener">$1</a>',
-    );
+    out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, label, href) {
+      if (!/^https?:\/\//i.test(href)) return label;
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+    });
     return out;
   }
 

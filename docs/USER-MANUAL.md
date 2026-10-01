@@ -777,7 +777,7 @@ None -- returns an empty list if no servers are active.
 
 ## 6. REST API Reference
 
-The REST API is served by the dashboard HTTP server. All API responses include `Access-Control-Allow-Origin: *` for CORS support. CORS preflight (`OPTIONS`) is handled for all routes.
+The REST API is served by the dashboard HTTP server. Loopback only: foreign `Host`/`Origin` headers get 403, request bodies must be `application/json`, no wildcard CORS.
 
 ### GET /health
 

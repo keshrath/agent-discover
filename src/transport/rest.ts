@@ -15,7 +15,9 @@ import {
   serveStatic,
   KitError,
   ValidationError as KitValidationError,
+  createRequestGuard,
 } from 'agent-common';
+import { restoreMaskedEnv } from '../domain/secrets.js';
 import type { AppContext } from '../context.js';
 import { RegistryError, ValidationError } from '../types.js';
 import { version } from '../version.js';
@@ -354,7 +356,10 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       description: typeof body.description === 'string' ? body.description : undefined,
       command: typeof body.command === 'string' ? body.command : undefined,
       args: Array.isArray(body.args) ? (body.args as string[]) : undefined,
-      env: typeof body.env === 'object' ? (body.env as Record<string, string>) : undefined,
+      env:
+        typeof body.env === 'object' && body.env !== null
+          ? restoreMaskedEnv(body.env as Record<string, string>, server.env)
+          : undefined,
       tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
     });
     json(res, updated);
@@ -527,15 +532,11 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
     return null;
   }
 
+  const testerGuard = createRequestGuard();
+
   function isLoopback(req: IncomingMessage): boolean {
     const addr = req.socket?.remoteAddress ?? '';
-    if (!addr) return true;
-    return (
-      addr === '127.0.0.1' ||
-      addr === '::1' ||
-      addr === '::ffff:127.0.0.1' ||
-      addr.startsWith('127.')
-    );
+    return addr === '::1' || addr.startsWith('127.') || addr.startsWith('::ffff:127.');
   }
 
   function validateOrigin(req: IncomingMessage, res: ServerResponse): boolean {
@@ -551,17 +552,10 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
       );
       return false;
     }
-    const origin = req.headers.origin;
-    if (origin) {
-      const ok =
-        origin.startsWith('http://localhost') ||
-        origin.startsWith('http://127.0.0.1') ||
-        origin.startsWith('http://[::1]') ||
-        origin === 'null';
-      if (!ok) {
-        json(res, { error: 'Origin rejected (DNS rebinding protection)' }, 403);
-        return false;
-      }
+    const host = req.headers.host;
+    if (!testerGuard.checkHost(host) || !testerGuard.checkOrigin(req.headers.origin, host)) {
+      json(res, { error: 'Origin rejected (DNS rebinding protection)' }, 403);
+      return false;
     }
     return true;
   }
@@ -908,16 +902,6 @@ export function createRouter(ctx: AppContext): (req: IncomingMessage, res: Serve
   // -----------------------------------------------------------------------
 
   return (req: IncomingMessage, res: ServerResponse) => {
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.end();
-      return;
-    }
-
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const pathname = url.pathname;
 

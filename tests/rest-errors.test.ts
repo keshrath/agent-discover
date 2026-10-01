@@ -181,12 +181,10 @@ describe('REST API Error Cases', () => {
     });
   });
 
-  describe('CORS preflight', () => {
-    it('should handle OPTIONS requests', async () => {
+  describe('CORS', () => {
+    it('never answers with a wildcard origin', async () => {
       const res = await request('/api/servers', { method: 'OPTIONS' });
-      expect(res.status).toBe(204);
-      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
-      expect(res.headers.get('Access-Control-Allow-Methods')).toContain('GET');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
   });
 

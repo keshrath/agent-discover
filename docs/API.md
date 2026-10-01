@@ -227,7 +227,7 @@ Each proxied tool call is automatically metered -- latency, success/failure, and
 
 ## REST API
 
-The dashboard server exposes a REST API for programmatic access. All responses include `Access-Control-Allow-Origin: *` for CORS. CORS preflight (`OPTIONS`) is handled for all routes.
+The dashboard server exposes a REST API for programmatic access. Loopback only: foreign `Host`/`Origin` headers get 403, request bodies must be `application/json`, no wildcard CORS.
 
 ### GET /health
 

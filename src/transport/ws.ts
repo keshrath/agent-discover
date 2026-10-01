@@ -10,6 +10,7 @@ import { setupWebSocket as setupKitWebSocket, type WsHandle } from 'agent-common
 import type { Server } from 'http';
 import type { AppContext } from '../context.js';
 import { version } from '../version.js';
+import { maskEnv } from '../domain/secrets.js';
 
 export type WebSocketHandle = WsHandle;
 
@@ -88,6 +89,7 @@ function buildStatePayload(ctx: AppContext): Record<string, unknown> {
   const servers = ctx.registry.list();
   const serversWithStatus = servers.map((s) => ({
     ...s,
+    env: maskEnv(s.env),
     active: ctx.proxy.isActive(s.name),
     tools: ctx.registry.getTools(s.id),
   }));
