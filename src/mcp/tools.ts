@@ -52,7 +52,11 @@ interface MetaTool<I extends z.ZodType> {
   input: I;
   output?: z.ZodType;
   annotations: ToolAnnotations;
-  run(rt: McpRuntime, args: z.infer<I>, ctx: ServerContext): Promise<CallToolResult | InputRequiredResult>;
+  run(
+    rt: McpRuntime,
+    args: z.infer<I>,
+    ctx: ServerContext,
+  ): Promise<CallToolResult | InputRequiredResult>;
 }
 
 function defineTool<I extends z.ZodType>(tool: MetaTool<I>): MetaTool<I> {
@@ -60,7 +64,10 @@ function defineTool<I extends z.ZodType>(tool: MetaTool<I>): MetaTool<I> {
 }
 
 function ok(structured: Record<string, unknown>): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(structured) }],
+    structuredContent: structured,
+  };
 }
 
 /** The name a native-mode host sees for an upstream tool. */
@@ -69,7 +76,10 @@ export function exposedName(server: string, tool: string): string {
 }
 
 function requiredArgs(schema: Record<string, unknown>) {
-  const props = (schema.properties ?? {}) as Record<string, { type?: unknown; description?: string }>;
+  const props = (schema.properties ?? {}) as Record<
+    string,
+    { type?: unknown; description?: string }
+  >;
   const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
   return {
     required_args: required.map((name) => ({
@@ -87,8 +97,9 @@ function isExposed(rt: McpRuntime, enabled: boolean): boolean {
 
 function clientCanElicit(rt: McpRuntime, ctx: ServerContext): boolean {
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
-  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ??
-    rt.server.getClientCapabilities()) as { elicitation?: unknown } | undefined;
+  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? rt.server.getClientCapabilities()) as
+    | { elicitation?: unknown }
+    | undefined;
   return Boolean(caps?.elicitation);
 }
 
@@ -108,7 +119,9 @@ const toolMatch = z.object({
   score: z.number().describe('Relevance 0..1'),
   enabled: z.boolean(),
   exposed: z.boolean().describe('True when the host already lists this tool natively'),
-  required_args: z.array(z.object({ name: z.string(), type: z.string(), description: z.string().optional() })),
+  required_args: z.array(
+    z.object({ name: z.string(), type: z.string(), description: z.string().optional() }),
+  ),
   optional_count: z.number(),
 });
 
@@ -164,20 +177,37 @@ function proposedInput(rt: McpRuntime, a: z.infer<typeof installArgs>): ServerIn
   };
   if (a.package) {
     const cfg = rt.app.installer.detectInstallConfig(a.package, a.runtime);
-    return { ...base, transport: 'stdio', command: cfg.command, args: cfg.args, package_name: cfg.package_name };
+    return {
+      ...base,
+      transport: 'stdio',
+      command: cfg.command,
+      args: cfg.args,
+      package_name: cfg.package_name,
+    };
   }
-  return { ...base, transport: a.transport ?? (a.url ? 'streamable-http' : 'stdio'), command: a.command, args: a.args, url: a.url };
+  return {
+    ...base,
+    transport: a.transport ?? (a.url ? 'streamable-http' : 'stdio'),
+    command: a.command,
+    args: a.args,
+    url: a.url,
+  };
 }
 
 function consentMessage(input: ServerInput): string {
-  const lines = [`Install MCP server "${input.name}"?`, `Source: ${input.package_name ? `package ${input.package_name}` : 'manual configuration'}`];
+  const lines = [
+    `Install MCP server "${input.name}"?`,
+    `Source: ${input.package_name ? `package ${input.package_name}` : 'manual configuration'}`,
+  ];
   if (input.transport === 'stdio') {
     lines.push(`Runs on this machine: ${[input.command, ...(input.args ?? [])].join(' ')}`);
   } else {
     lines.push(`Connects to: ${input.url} (${input.transport})`);
-    if (input.headers && Object.keys(input.headers).length) lines.push(`Headers: ${Object.keys(input.headers).join(', ')}`);
+    if (input.headers && Object.keys(input.headers).length)
+      lines.push(`Headers: ${Object.keys(input.headers).join(', ')}`);
   }
-  if (input.env && Object.keys(input.env).length) lines.push(`Env vars: ${Object.keys(input.env).join(', ')}`);
+  if (input.env && Object.keys(input.env).length)
+    lines.push(`Env vars: ${Object.keys(input.env).join(', ')}`);
   lines.push('The server is started now to index its tools.');
   return lines.join('\n');
 }
@@ -192,17 +222,35 @@ export const META_TOOLS = {
     input: z.object({
       query: z.string().min(1),
       limit: z.number().int().min(1).max(50).optional(),
-      marketplace: z.boolean().optional().describe('Also search the public registries (default true)'),
+      marketplace: z
+        .boolean()
+        .optional()
+        .describe('Also search the public registries (default true)'),
     }),
     output: z.object({
-      installed: z.array(z.object({ name: z.string(), description: z.string(), enabled: z.boolean(), tool_count: z.number() })),
+      installed: z.array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          enabled: z.boolean(),
+          tool_count: z.number(),
+        }),
+      ),
       marketplace: z.array(
         z.object({
           name: z.string(),
           description: z.string(),
           version: z.string(),
           repository: z.string().nullable(),
-          packages: z.array(z.object({ registry: z.string(), name: z.string(), runtime: z.string(), version: z.string(), url: z.string().nullable() })),
+          packages: z.array(
+            z.object({
+              registry: z.string(),
+              name: z.string(),
+              runtime: z.string(),
+              version: z.string(),
+              url: z.string().nullable(),
+            }),
+          ),
         }),
       ),
       marketplace_error: z.string().optional(),
@@ -212,7 +260,12 @@ export const META_TOOLS = {
       const installed = rt.app.servers
         .list({ query })
         .slice(0, limit)
-        .map((s) => ({ name: s.name, description: s.description, enabled: s.enabled, tool_count: rt.app.index.count(s.id) }));
+        .map((s) => ({
+          name: s.name,
+          description: s.description,
+          enabled: s.enabled,
+          tool_count: rt.app.index.count(s.id),
+        }));
       const out: Record<string, unknown> = { installed, marketplace: [] };
       if (marketplace) {
         try {
@@ -222,7 +275,13 @@ export const META_TOOLS = {
             description: s.description,
             version: s.version,
             repository: s.repository,
-            packages: s.packages.map((p) => ({ registry: p.registry_name, name: p.name, runtime: p.runtime, version: p.version, url: p.url })),
+            packages: s.packages.map((p) => ({
+              registry: p.registry_name,
+              name: p.name,
+              runtime: p.runtime,
+              version: p.version,
+              url: p.url,
+            })),
           }));
         } catch (err) {
           out.marketplace_error = err instanceof Error ? err.message : String(err);
@@ -245,13 +304,28 @@ export const META_TOOLS = {
       tools: z.array(z.string()),
       index_error: z.string().optional(),
     }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async run(rt, args, ctx) {
       const existing = rt.app.servers.get(args.name);
-      const summary = (status: 'installed' | 'already_installed' | 'declined', indexError?: string) => {
+      const summary = (
+        status: 'installed' | 'already_installed' | 'declined',
+        indexError?: string,
+      ) => {
         const s = rt.app.servers.get(args.name);
         const tools = s ? rt.app.index.list(s.id).map((t) => t.name) : [];
-        return ok({ name: args.name, status, enabled: s?.enabled ?? false, tool_count: tools.length, tools, ...(indexError ? { index_error: indexError } : {}) });
+        return ok({
+          name: args.name,
+          status,
+          enabled: s?.enabled ?? false,
+          tool_count: tools.length,
+          tools,
+          ...(indexError ? { index_error: indexError } : {}),
+        });
       };
       if (existing) return summary('already_installed');
 
@@ -262,9 +336,13 @@ export const META_TOOLS = {
       if (!rt.app.config.allowUnconfirmedInstall) {
         const state = ctx.mcpReq.requestState<McpState>();
         const answered = state?.kind === 'install' && state.digest === digest;
-        const response = answered ? inputResponse(ctx.mcpReq.inputResponses, 'consent') : { kind: 'missing' as const };
+        const response = answered
+          ? inputResponse(ctx.mcpReq.inputResponses, 'consent')
+          : { kind: 'missing' as const };
         if (response.kind === 'elicit' && response.action !== 'accept') return summary('declined');
-        const consent = answered ? acceptedContent(ctx.mcpReq.inputResponses, 'consent', consentSchema) : undefined;
+        const consent = answered
+          ? acceptedContent(ctx.mcpReq.inputResponses, 'consent', consentSchema)
+          : undefined;
         if (consent && !consent.confirm) return summary('declined');
         if (!consent) {
           if (!clientCanElicit(rt, ctx)) {
@@ -281,7 +359,12 @@ export const META_TOOLS = {
             };
           }
           return inputRequired({
-            inputRequests: { consent: inputRequired.elicit({ message: consentMessage(input), requestedSchema: consentSchema }) },
+            inputRequests: {
+              consent: inputRequired.elicit({
+                message: consentMessage(input),
+                requestedSchema: consentSchema,
+              }),
+            },
             requestState: await rt.mint({ kind: 'install', digest }, ctx),
           });
         }
@@ -296,8 +379,18 @@ export const META_TOOLS = {
     description:
       "Expose an installed server's tools to this host (as <server>__<tool> in native mode). Indexes the server first if needed.",
     input: z.object({ name: z.string() }),
-    output: z.object({ name: z.string(), enabled: z.boolean(), tool_count: z.number(), tools: z.array(z.string()) }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    output: z.object({
+      name: z.string(),
+      enabled: z.boolean(),
+      tool_count: z.number(),
+      tools: z.array(z.string()),
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     async run(rt, { name }) {
       const server = await rt.app.lifecycle.enable(name);
       const tools = rt.app.index.list(server.id).map((t) => exposedName(name, t.name));
@@ -307,10 +400,16 @@ export const META_TOOLS = {
 
   disable_server: defineTool({
     title: 'Disable an MCP server',
-    description: "Stop exposing a server's tools. The server stays installed and its tools stay searchable.",
+    description:
+      "Stop exposing a server's tools. The server stays installed and its tools stay searchable.",
     input: z.object({ name: z.string() }),
     output: z.object({ name: z.string(), enabled: z.boolean() }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     async run(rt, { name }) {
       const server = await rt.app.lifecycle.disable(name);
       return ok({ name, enabled: server.enabled });
@@ -319,12 +418,14 @@ export const META_TOOLS = {
 
   server_status: defineTool({
     title: 'Server status',
-    description: 'State of installed servers (enabled, indexed, connected, tool count, health). check_health=true runs a live probe.',
+    description:
+      'State of installed servers (enabled, indexed, connected, tool count, health). check_health=true runs a live probe.',
     input: z.object({ name: z.string().optional(), check_health: z.boolean().optional() }),
     output: z.object({ mode: z.enum(['native', 'proxy']), servers: z.array(serverStatus) }),
     annotations: { readOnlyHint: true, openWorldHint: false },
     async run(rt, { name, check_health }) {
-      const servers: Array<ServerStatus & { health?: HealthResult }> = rt.app.lifecycle.status(name);
+      const servers: Array<ServerStatus & { health?: HealthResult }> =
+        rt.app.lifecycle.status(name);
       if (check_health) {
         for (const s of servers) s.health = await rt.app.lifecycle.health(s.name);
       }
@@ -340,7 +441,9 @@ export const META_TOOLS = {
       queries: z.array(z.string().min(1)).min(1).max(10),
       limit: z.number().int().min(1).max(20).optional(),
     }),
-    output: z.object({ results: z.array(z.object({ query: z.string(), matches: z.array(toolMatch) })) }),
+    output: z.object({
+      results: z.array(z.object({ query: z.string(), matches: z.array(toolMatch) })),
+    }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     async run(rt, { queries, limit = 5 }) {
       const enabled = new Set(rt.app.servers.enabledNames());
@@ -368,7 +471,8 @@ export const META_TOOLS = {
 
   get_tool: defineTool({
     title: 'Get tool definition',
-    description: 'Full definition (input/output schema, annotations, hash) of one indexed tool by server + tool name.',
+    description:
+      'Full definition (input/output schema, annotations, hash) of one indexed tool by server + tool name.',
     input: z.object({ server: z.string(), tool: z.string() }),
     output: z.object({
       found: z.boolean(),
@@ -389,7 +493,14 @@ export const META_TOOLS = {
       const t = rt.app.index.get(server, tool);
       if (!t) return ok({ found: false, server, tool });
       const enabled = rt.app.servers.get(server)?.enabled ?? false;
-      return ok({ found: true, server, tool, ...describeTool(t), enabled, exposed: isExposed(rt, enabled) });
+      return ok({
+        found: true,
+        server,
+        tool,
+        ...describeTool(t),
+        enabled,
+        exposed: isExposed(rt, enabled),
+      });
     },
   }),
 
@@ -397,7 +508,11 @@ export const META_TOOLS = {
     title: 'Call a tool',
     description:
       'Invoke any indexed tool of an installed server (enabled or not) and return its result unchanged. Prefer calling exposed tools directly.',
-    input: z.object({ server: z.string(), tool: z.string(), arguments: z.record(z.string(), z.unknown()).optional() }),
+    input: z.object({
+      server: z.string(),
+      tool: z.string(),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+    }),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     async run(rt, { server, tool, arguments: args }, ctx) {
       return rt.forward(server, tool, args, ctx);
@@ -445,7 +560,12 @@ export async function runMetaTool(
   const tool = META_TOOLS[name] as MetaTool<z.ZodType>;
   const parsed = tool.input.safeParse(rawArgs ?? {});
   if (!parsed.success) {
-    return { isError: true, content: [{ type: 'text', text: `Invalid arguments for ${name}: ${z.prettifyError(parsed.error)}` }] };
+    return {
+      isError: true,
+      content: [
+        { type: 'text', text: `Invalid arguments for ${name}: ${z.prettifyError(parsed.error)}` },
+      ],
+    };
   }
   try {
     return await tool.run(rt, parsed.data, ctx);

@@ -17,11 +17,15 @@ import * as z from 'zod';
 import { McpServer, inputRequired, acceptedContent } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 let grown = false;
 
 function build() {
-  const s = new McpServer({ name: 'fixture-upstream', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+  const s = new McpServer(
+    { name: 'fixture-upstream', version: '1.0.0' },
+    { capabilities: { tools: { listChanged: true } } },
+  );
   s.registerTool(
     'echo',
     {
@@ -50,16 +54,27 @@ function build() {
       structuredContent: { city, celsius: 21 },
     }),
   );
-  s.registerTool('confirm', { description: 'Ask the user to confirm, then answer' }, async (ctx) => {
-    const ok = acceptedContent(ctx.mcpReq.inputResponses, 'ok', z.object({ yes: z.boolean() }));
-    if (!ok) {
-      return inputRequired({
-        inputRequests: { ok: inputRequired.elicit({ message: 'Proceed?', requestedSchema: z.object({ yes: z.boolean() }) }) },
-        requestState: 'upstream-state-1',
-      });
-    }
-    return { content: [{ type: 'text', text: `confirmed=${ok.yes} state=${ctx.mcpReq.requestState()}` }] };
-  });
+  s.registerTool(
+    'confirm',
+    { description: 'Ask the user to confirm, then answer' },
+    async (ctx) => {
+      const ok = acceptedContent(ctx.mcpReq.inputResponses, 'ok', z.object({ yes: z.boolean() }));
+      if (!ok) {
+        return inputRequired({
+          inputRequests: {
+            ok: inputRequired.elicit({
+              message: 'Proceed?',
+              requestedSchema: z.object({ yes: z.boolean() }),
+            }),
+          },
+          requestState: 'upstream-state-1',
+        });
+      }
+      return {
+        content: [{ type: 'text', text: `confirmed=${ok.yes} state=${ctx.mcpReq.requestState()}` }],
+      };
+    },
+  );
   s.registerTool('crash', { description: 'Exit the server process' }, async () => {
     setTimeout(() => process.exit(1), 10);
     return { content: [{ type: 'text', text: 'bye' }] };

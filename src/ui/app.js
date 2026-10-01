@@ -804,7 +804,8 @@
         return r.json();
       })
       .then(function (data) {
-        if (data && data.index_error) showToast('Installed, indexing failed: ' + data.index_error, 'error');
+        if (data && data.index_error)
+          showToast('Installed, indexing failed: ' + data.index_error, 'error');
         btn.innerHTML =
           '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
         btn.classList.add('btn-installed');

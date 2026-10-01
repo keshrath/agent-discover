@@ -11,7 +11,11 @@
 
 import type { Db } from '../storage/database.js';
 import type { IndexedTool, UpstreamTool } from '../types.js';
-import { encodeEmbedding, getEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
+import {
+  encodeEmbedding,
+  getEmbeddingProvider,
+  type EmbeddingProvider,
+} from '../embeddings/index.js';
 import { Bm25HybridRanker, type Ranker } from './ranker.js';
 import { toolHash } from './tool-hash.js';
 
@@ -78,10 +82,14 @@ export class ToolIndex {
     const provider = await this.embeddings();
     const existing = new Map(
       this.db
-        .queryAll<{ id: number; name: string; tool_hash: string; embedding_model: string | null }>(
-          'SELECT id, name, tool_hash, embedding_model FROM server_tools WHERE server_id = ?',
-          [serverId],
-        )
+        .queryAll<{
+          id: number;
+          name: string;
+          tool_hash: string;
+          embedding_model: string | null;
+        }>('SELECT id, name, tool_hash, embedding_model FROM server_tools WHERE server_id = ?', [
+          serverId,
+        ])
         .map((r) => [r.name, r]),
     );
     const incoming = tools.map((t) => ({ tool: t, hash: toolHash(t) }));
@@ -201,9 +209,10 @@ export class ToolIndex {
 
   count(serverId: number): number {
     return (
-      this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM server_tools WHERE server_id = ?', [
-        serverId,
-      ])?.n ?? 0
+      this.db.queryOne<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM server_tools WHERE server_id = ?',
+        [serverId],
+      )?.n ?? 0
     );
   }
 

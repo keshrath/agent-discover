@@ -46,4 +46,10 @@ export type {
   MarketplacePackage,
   MarketplaceResult,
 } from './types.js';
-export { RegistryError, NotFoundError, ValidationError, ConflictError, UpstreamError } from './types.js';
+export {
+  RegistryError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  UpstreamError,
+} from './types.js';

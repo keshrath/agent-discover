@@ -1,14 +1,13 @@
 // =============================================================================
 // agent-discover — Playwright E2E dashboard test
 //
-// Boots the standalone HTTP+WS server against a temp SQLite DB on a free port,
-// seeds a few mock server entries via the registry, and verifies the dashboard
+// Boots the daemon against a temp SQLite DB on a free port, seeds a few mock
+// server rows, and verifies the dashboard
 // renders the installed list and lets the user click into a server card.
 // =============================================================================
 
 import { test, expect, type ConsoleMessage } from '@playwright/test';
-import { createContext, type AppContext } from '../../dist/context.js';
-import { startDashboard, type DashboardServer } from '../../dist/server.js';
+import { startDaemon, type Daemon } from '../../dist/daemon.js';
 import { mkdtempSync, mkdirSync, rmSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
@@ -33,42 +32,32 @@ async function freePort(): Promise<number> {
 }
 
 let tempDir: string;
-let ctx: AppContext;
-let dashboard: DashboardServer;
+let daemon: Daemon;
 let baseUrl: string;
 const seededNames = ['e2e-mock-one', 'e2e-mock-two', 'e2e-mock-three'];
 
 test.beforeAll(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'agent-discover-e2e-'));
-  ctx = createContext({ path: join(tempDir, 'test.db') });
-
+  const port = await freePort();
+  daemon = await startDaemon({
+    path: join(tempDir, 'test.db'),
+    skipStartupTasks: true,
+    config: { port, idleMs: 0 },
+  });
   for (const name of seededNames) {
-    ctx.registry.register({
+    daemon.ctx.servers.create({
       name,
       description: `Mock MCP server ${name} for e2e`,
       command: 'echo',
       args: ['hello'],
-      transport: 'stdio',
       tags: ['e2e', 'mock'],
     });
   }
-
-  const port = await freePort();
-  dashboard = await startDashboard(ctx, port);
-  baseUrl = `http://localhost:${dashboard.port}`;
+  baseUrl = `http://localhost:${daemon.port}`;
 });
 
 test.afterAll(async () => {
-  try {
-    dashboard?.close();
-  } catch {
-    /* ignore */
-  }
-  try {
-    ctx?.close();
-  } catch {
-    /* ignore */
-  }
+  await daemon?.close();
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
 });
 

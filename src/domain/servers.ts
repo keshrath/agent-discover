@@ -291,9 +291,9 @@ export class ServerStore {
 
   enabledNames(): string[] {
     return this.db
-      .queryAll<{ name: string }>(
-        'SELECT name FROM servers WHERE enabled = 1 AND quarantined = 0 ORDER BY name',
-      )
+      .queryAll<{
+        name: string;
+      }>('SELECT name FROM servers WHERE enabled = 1 AND quarantined = 0 ORDER BY name')
       .map((r) => r.name);
   }
 

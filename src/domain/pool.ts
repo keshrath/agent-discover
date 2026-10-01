@@ -260,7 +260,10 @@ export class ConnectionPool {
     return verdict.era === 'legacy' && age < LEGACY_VERDICT_TTL_MS ? { kind: 'legacy' } : undefined;
   }
 
-  private async handshake(config: ServerConfig, prior: PriorDiscovery | undefined): Promise<Client> {
+  private async handshake(
+    config: ServerConfig,
+    prior: PriorDiscovery | undefined,
+  ): Promise<Client> {
     const client = new Client(
       { name: 'agent-discover', version },
       {
@@ -312,7 +315,10 @@ export class ConnectionPool {
     return new UpstreamError(`Failed to connect "${name}": ${friendly}`, { cause: err });
   }
 
-  private createTransport(config: ServerConfig): { transport: Transport; stderrTail: () => string } {
+  private createTransport(config: ServerConfig): {
+    transport: Transport;
+    stderrTail: () => string;
+  } {
     if (config.transport === 'stdio') {
       if (!config.command) throw new Error(`Server "${config.name}" has no command configured`);
       const transport = new StdioClientTransport({
@@ -328,7 +334,8 @@ export class ConnectionPool {
       return { transport, stderrTail: () => tail.trim() };
     }
     if (!config.url) throw new Error(`Server "${config.name}" has no url configured`);
-    const requestInit = Object.keys(config.headers).length > 0 ? { headers: config.headers } : undefined;
+    const requestInit =
+      Object.keys(config.headers).length > 0 ? { headers: config.headers } : undefined;
     const url = new URL(config.url);
     const transport =
       config.transport === 'sse'
@@ -429,7 +436,8 @@ export class ConnectionPool {
     const start = Date.now();
     try {
       const client = await this.connect(name);
-      if (client.getProtocolEra() === 'modern') await client.discover({ timeout: HEALTH_TIMEOUT_MS });
+      if (client.getProtocolEra() === 'modern')
+        await client.discover({ timeout: HEALTH_TIMEOUT_MS });
       else await client.ping({ timeout: HEALTH_TIMEOUT_MS });
       return { status: 'healthy', latency_ms: Date.now() - start };
     } catch (err) {
@@ -469,7 +477,10 @@ export class ConnectionPool {
   // Transient (ad-hoc, dashboard tester) servers
   // ---------------------------------------------------------------------------
 
-  async openTransient(config: Omit<ServerConfig, 'name'>, ttlMs = TRANSIENT_TTL_MS): Promise<TransientHandle> {
+  async openTransient(
+    config: Omit<ServerConfig, 'name'>,
+    ttlMs = TRANSIENT_TTL_MS,
+  ): Promise<TransientHandle> {
     const handle = `${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
     const serverName = `${TRANSIENT_PREFIX}${handle}`;
     const expiresAt = Date.now() + ttlMs;
@@ -506,7 +517,9 @@ export class ConnectionPool {
   }
 
   transientConfig(serverName: string): ServerConfig | null {
-    return serverName.startsWith(TRANSIENT_PREFIX) ? (this.transient.get(serverName)?.config ?? null) : null;
+    return serverName.startsWith(TRANSIENT_PREFIX)
+      ? (this.transient.get(serverName)?.config ?? null)
+      : null;
   }
 
   async releaseTransient(handle: string): Promise<void> {
@@ -534,7 +547,15 @@ export class ConnectionPool {
       requestedSchema: requestedSchema ?? { type: 'object', properties: {} },
       createdAt: Date.now(),
     };
-    this.deps.logs.push(serverName, 'elicitation/create', request.requestedSchema, message, 0, true, 'elicitation');
+    this.deps.logs.push(
+      serverName,
+      'elicitation/create',
+      request.requestedSchema,
+      message,
+      0,
+      true,
+      'elicitation',
+    );
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.elicitations.delete(id)) resolve({ action: 'cancel' });
@@ -568,7 +589,5 @@ export class ConnectionPool {
 
 function summarize(result: CallToolResult | InputRequiredResult): string {
   if (!('content' in result) || !Array.isArray(result.content)) return JSON.stringify(result);
-  return result.content
-    .map((c) => (c.type === 'text' ? c.text : `[${c.type}]`))
-    .join('\n');
+  return result.content.map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
 }

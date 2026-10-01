@@ -83,11 +83,17 @@ export function createMcpFactory(app: AppContext): McpFactory {
         requestState: upstreamState,
         onprogress: (p) => {
           if (progressToken === undefined) return;
-          void ctx.mcpReq.notify({ method: 'notifications/progress', params: { ...p, progressToken } });
+          void ctx.mcpReq.notify({
+            method: 'notifications/progress',
+            params: { ...p, progressToken },
+          });
         },
       });
     } catch (err) {
-      return { isError: true, content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }] };
+      return {
+        isError: true,
+        content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }],
+      };
     }
     if (isInputRequiredResult(result)) {
       return {
@@ -115,7 +121,9 @@ export function createMcpFactory(app: AppContext): McpFactory {
       );
       const rt: McpRuntime = { app, server, mint: (s, ctx) => codec.mint(s, ctx), forward };
       const allTools = () =>
-        [...META_TOOL_DEFS, ...exposedTools()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        [...META_TOOL_DEFS, ...exposedTools()].sort((a, b) =>
+          a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+        );
 
       server.setRequestHandler('tools/list', () => ({ tools: allTools() }));
       server.setRequestHandler('tools/call', async (req, ctx) => {
@@ -127,7 +135,8 @@ export function createMcpFactory(app: AppContext): McpFactory {
           return server.projectCallToolResult(result, def?.outputSchema);
         }
         const parsed = splitToolName(name);
-        const def = parsed && app.config.mode === 'native' ? app.index.get(parsed.server, parsed.tool) : null;
+        const def =
+          parsed && app.config.mode === 'native' ? app.index.get(parsed.server, parsed.tool) : null;
         if (!parsed || !def || !app.servers.get(parsed.server)?.enabled) {
           throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
         }
@@ -136,7 +145,9 @@ export function createMcpFactory(app: AppContext): McpFactory {
         return server.projectCallToolResult(result, def.output_schema ?? undefined);
       });
       server.setRequestHandler('prompts/list', () => ({ prompts: PROMPTS }));
-      server.setRequestHandler('prompts/get', (req) => getPrompt(req.params.name, req.params.arguments));
+      server.setRequestHandler('prompts/get', (req) =>
+        getPrompt(req.params.name, req.params.arguments),
+      );
       return server;
     },
   };

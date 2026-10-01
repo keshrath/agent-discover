@@ -12,11 +12,7 @@
 // =============================================================================
 
 import type { Db } from '../storage/database.js';
-import {
-  cosineSimilarity,
-  decodeEmbedding,
-  type EmbeddingProvider,
-} from '../embeddings/index.js';
+import { cosineSimilarity, decodeEmbedding, type EmbeddingProvider } from '../embeddings/index.js';
 
 export interface RankedHit {
   /** server_tools.id */
@@ -159,10 +155,12 @@ export class Bm25HybridRanker implements Ranker {
     const conds = raw.map(() => '(LOWER(name) LIKE ? OR LOWER(description) LIKE ?)').join(' AND ');
     const params = raw.flatMap((t) => [`%${t}%`, `%${t}%`]);
     return this.db
-      .queryAll<{ id: number }>(
-        `SELECT id FROM server_tools WHERE ${conds} ORDER BY length(name) LIMIT ?`,
-        [...params, limit],
-      )
+      .queryAll<{
+        id: number;
+      }>(`SELECT id FROM server_tools WHERE ${conds} ORDER BY length(name) LIMIT ?`, [
+        ...params,
+        limit,
+      ])
       .map((r) => ({ id: r.id, score: LIKE_FALLBACK_SCORE }));
   }
 }

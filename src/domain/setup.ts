@@ -51,7 +51,8 @@ export function getSetupFilePath(): string | null {
 
 export function readSetupFile(filePath: string): SetupFile {
   const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as { servers?: unknown };
-  if (!Array.isArray(parsed.servers)) throw new Error(`setup file missing "servers" array: ${filePath}`);
+  if (!Array.isArray(parsed.servers))
+    throw new Error(`setup file missing "servers" array: ${filePath}`);
   for (const entry of parsed.servers as Array<Record<string, unknown>>) {
     if ('auto_activate' in entry) {
       throw new Error(
@@ -102,7 +103,8 @@ async function syncSingleFile(
           { secrets: resolvedSecrets },
         );
         result.registered.push(entry.name);
-        if (index_error) result.errors.push({ name: entry.name, error: `index failed: ${index_error}` });
+        if (index_error)
+          result.errors.push({ name: entry.name, error: `index failed: ${index_error}` });
       } else {
         for (const [key, value] of Object.entries(resolvedSecrets)) {
           secrets.set(existing.id, key, value);
@@ -114,7 +116,10 @@ async function syncSingleFile(
         result.enabled.push(entry.name);
       }
     } catch (err) {
-      result.errors.push({ name: entry.name, error: err instanceof Error ? err.message : String(err) });
+      result.errors.push({
+        name: entry.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 }

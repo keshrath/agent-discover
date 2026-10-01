@@ -33,7 +33,9 @@ function baseUrl(config: Config): string {
 
 async function isHealthy(config: Config): Promise<boolean> {
   try {
-    const res = await fetch(`${baseUrl(config)}/api/health`, { signal: AbortSignal.timeout(1_000) });
+    const res = await fetch(`${baseUrl(config)}/api/health`, {
+      signal: AbortSignal.timeout(1_000),
+    });
     return res.ok && ((await res.json()) as { status?: string }).status === 'ok';
   } catch {
     return false;

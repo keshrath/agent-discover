@@ -16,7 +16,11 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createMcpHandler, isLegacyRequest, type Server } from '@modelcontextprotocol/server';
-import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
+import {
+  NodeStreamableHTTPServerTransport,
+  toNodeHandler,
+  toWebRequest,
+} from '@modelcontextprotocol/node';
 import type { McpFactory } from './server.js';
 
 interface LegacySession {
@@ -34,7 +38,9 @@ export interface McpEndpoint {
 }
 
 function log(err: unknown): void {
-  process.stderr.write(`[agent-discover] mcp: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(
+    `[agent-discover] mcp: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
 }
 
 function jsonRpcError(res: ServerResponse, status: number, code: number, message: string): void {

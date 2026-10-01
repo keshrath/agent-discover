@@ -1,693 +1,117 @@
-# API Reference
+# API Reference (2.0)
 
-## MCP Tools
+One daemon (`agent-discover daemon`, default `127.0.0.1:3424`) serves:
 
-agent-discover exposes **1 action-based MCP tool** (`registry`) plus dynamically proxied tools from active servers. Keeping the tool count to one minimizes prompt overhead — every action lives behind the same dispatcher.
+| Path             | What                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `/mcp`           | MCP Streamable HTTP — 2026-07-28 (stateless) and 2025-06-18 / 2025-11-25 (sessionful) |
+| `/api/*`         | REST for the dashboard and local tooling                                              |
+| `/ws`            | Dashboard live updates                                                                |
+| `/`, `/tester/*` | Dashboard static files                                                                |
 
-### registry
+The default bin (`agent-discover`) is a stdio shim: it starts the daemon if needed and relays stdio ⇄ `/mcp`. Hosts that speak HTTP can use `{ "type": "http", "url": "http://127.0.0.1:3424/mcp" }` directly.
 
-Unified server-registry tool. Actions: `find_tool`, `find_tools`, `get_schema`, `proxy_call`, `list`, `install`, `uninstall`, `activate`, `deactivate`, `browse`, `status`.
+## Security
 
-**Parameters:**
+Every request and WebSocket upgrade passes the request guard:
 
-| Name             | Type     | Required | Description                                                                                                                            |
-| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `action`         | string   | **yes**  | One of the actions listed above                                                                                                        |
-| `query`          | string   | no       | [find_tool/list/browse] Intent or FTS search query                                                                                     |
-| `intents`        | string[] | no       | [find_tools] Array of intent strings — one per tool you need to discover in the batch                                                  |
-| `auto_activate`  | boolean  | no       | [find_tool/find_tools] When `false`, do not expose proxied tools to the host. Use `proxy_call` to invoke them instead. Default `true`. |
-| `call_as`        | string   | no       | [get_schema/proxy_call] Fully-qualified `mcp__server__tool` name returned by `find_tool`                                               |
-| `server`         | string   | no       | [proxy_call] Server name (alternative to `call_as`)                                                                                    |
-| `tool`           | string   | no       | [proxy_call] Tool name (alternative to `call_as`)                                                                                      |
-| `arguments`      | object   | no       | [proxy_call] Arguments to pass to the proxied tool                                                                                     |
-| `limit`          | number   | no       | [find_tool/find_tools/browse] Max results per query                                                                                    |
-| `source`         | string   | no       | [list/install] Filter by or specify source (`local`, `registry`, `smithery`, `manual`)                                                 |
-| `installed_only` | boolean  | no       | [list] Only show installed servers                                                                                                     |
-| `name`           | string   | no       | [install/uninstall/activate/deactivate] Server name                                                                                    |
-| `command`        | string   | no       | [install] Command to start server (required for manual install)                                                                        |
-| `args`           | string[] | no       | [install] Command arguments                                                                                                            |
-| `env`            | object   | no       | [install] Environment variables                                                                                                        |
-| `description`    | string   | no       | [install] Server description                                                                                                           |
-| `tags`           | string[] | no       | [install] Tags for search/filtering                                                                                                    |
-| `cursor`         | string   | no       | [browse] Pagination cursor from previous response                                                                                      |
+- `Host` must be exactly `localhost:<port>`, `127.0.0.1:<port>` or `[::1]:<port>` (plus `AGENT_DISCOVER_HOST:<port>` if set).
+- `Origin`, when present, must be `http(s)://` with a loopback hostname, or exactly `file://` (agent-desk). `null` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
+- POST/PUT/PATCH/DELETE with a body must be `application/json` (415 otherwise).
+- CORS: allowed origins are reflected; never `*`.
 
----
+## Environment
 
-### registry — find_tool / find_tools / get_schema / proxy_call
+| Variable                                   | Default                       | Meaning                                                                                 |
+| ------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------- |
+| `AGENT_DISCOVER_PORT`                      | `3424`                        | Daemon port                                                                             |
+| `AGENT_DISCOVER_HOST`                      | `127.0.0.1`                   | Listen address                                                                          |
+| `AGENT_DISCOVER_DB`                        | `~/.claude/agent-discover.db` | SQLite path (1.x location, migrated in place)                                           |
+| `AGENT_DISCOVER_MODE`                      | `native`                      | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only |
+| `AGENT_DISCOVER_IDLE_MS`                   | `1800000`                     | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)   |
+| `AGENT_DISCOVER_CONN_IDLE_MS`              | `600000`                      | Idle upstream connections are closed                                                    |
+| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL` | unset                         | `1` lets `install_server` run without an elicitation prompt (operator opt-in)           |
+| `AGENT_DISCOVER_SETUP_FILE`                | unset                         | Declarative server list synced at daemon start                                          |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`        | `none`                        | `openai` / `local` adds semantic ranking                                                |
 
-Single-call tool discovery. The agent describes what it wants in natural language, agent-discover ranks the entire cross-server tool catalog with hybrid BM25 + semantic retrieval, and returns the best match with a confidence label and the args the agent needs to invoke it. Replaces the multi-step `list → activate → call` dance.
+## MCP
 
-**`find_tool` example (single intent):**
+`tools/list` is sorted by name. Server `instructions` explain the flow. Prompts: `discover(task)`, `install(server)`, `status`.
 
-```json
-{
-  "name": "registry",
-  "arguments": {
-    "action": "find_tool",
-    "query": "post a message to a slack channel",
-    "auto_activate": false
-  }
-}
-```
+| Tool             | Annotations             | Purpose                                                                                                                                             |
+| ---------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_servers` | read-only, open-world   | `{query, limit?, marketplace?}` → installed matches + public registry / npm / PyPI matches                                                          |
+| `install_server` | idempotent, open-world  | `{name, package?+runtime? \| command+args? \| url+transport?, env?, headers?, enable?}` → installs and indexes                                      |
+| `enable_server`  | idempotent              | `{name}` → exposes the server's tools (indexes first if needed)                                                                                     |
+| `disable_server` | idempotent              | `{name}` → hides them; index and searchability stay                                                                                                 |
+| `server_status`  | read-only               | `{name?, check_health?}` → installed/indexed/enabled/connected/tool_count/health                                                                    |
+| `search_tools`   | read-only               | `{queries: string[1..10], limit?}` → per query, matches across **all installed** servers with `score` (0..1), `enabled`, `exposed`, `required_args` |
+| `get_tool`       | read-only               | `{server, tool}` → full definition (input/output schema, annotations, `tool_hash`) by direct lookup                                                 |
+| `call_tool`      | destructive, open-world | `{server, tool, arguments?}` → the upstream `CallToolResult`, unchanged                                                                             |
 
-**Returns:**
+All tools except `call_tool` declare an `outputSchema` and return `structuredContent`.
 
-```json
-{
-  "found": true,
-  "confidence": "high",
-  "score": 0.87,
-  "call_as": "mcp__slack__post_message",
-  "server": "slack",
-  "tool": "post_message",
-  "description": "Post a message to a Slack channel or thread.",
-  "required_args": [
-    { "name": "channel", "type": "string", "description": "Channel ID or name." },
-    { "name": "text", "type": "string", "description": "Message body." }
-  ],
-  "optional_count": 1,
-  "next_step": "invoke call_as directly",
-  "other_matches": [
-    {
-      "call_as": "mcp__slack__list_channels",
-      "tool": "list_channels",
-      "description": "...",
-      "score": 0.42
-    }
-  ]
-}
-```
+**Native tools** (`AGENT_DISCOVER_MODE=native`): each enabled server's indexed tools are listed as `<server>__<tool>` with the upstream schema, output schema and annotations verbatim. Every enable / disable / uninstall / re-index of an enabled server emits `notifications/tools/list_changed` (on 2026 `subscriptions/listen` streams and on every 2025 session).
 
-When the top-result score falls below `0.25` the response is `{ found: false, top_score, hint }` instead — the no-match path.
+**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result telling the user to install from the dashboard — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. There is deliberately no agent-supplied `confirm` argument.
 
-**`find_tools` example (batch — N intents in one round-trip):**
+**Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push goes to the dashboard queue (`/api/elicitations`).
 
-```json
-{
-  "name": "registry",
-  "arguments": {
-    "action": "find_tools",
-    "intents": ["recent sentry errors for the web project", "create a linear issue"],
-    "auto_activate": false
-  }
-}
-```
+## REST
 
-Returns one result per intent in the same shape as `find_tool`.
+Errors are `{ error, code? }` with 400 (validation), 404, 409, 413, 415, 502 (upstream failure) or 500.
 
-**`get_schema` example (full input_schema for a tool you've already discovered):**
+### Health and status
 
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "get_schema", "call_as": "mcp__slack__post_message" }
-}
-```
+- `GET /api/health` → `{status:"ok", version, pid, mode, uptime}` (the shim's readiness probe)
+- `GET /api/status` → `{mode, servers: ServerStatus[]}`
 
-Use this only when the compact `required_args` summary isn't enough (conditional / polymorphic args). Most tools can be invoked from the `find_tool` response alone.
+### Servers
 
-**`proxy_call` example (invoke a discovered tool through agent-discover):**
+Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected` and `tool_count`.
+
+- `GET /api/servers?query=&source=`
+- `GET /api/servers/:id` → server + `tools` (indexed definitions)
+- `POST /api/servers` `{name, transport?, command?, args?, env?, url?, headers?, ..., enabled?}` → 201 server (+ `index_error` when the probe failed; the server stays installed)
+- `PUT /api/servers/:id` → update (drops the live connection)
+- `DELETE /api/servers/:id`
+- `POST /api/servers/:id/enable` · `POST /api/servers/:id/disable`
+- `POST /api/servers/:id/index` → re-index; returns `{added, changed, removed, unchanged, embedded}`
+- `POST /api/servers/:id/health` → `{status, latency_ms, error?}` (real ping / `server/discover`)
+- `POST /api/servers/:id/reset-errors`
+- `POST /api/servers/:id/call` `{tool, args}` → upstream `CallToolResult`
+- `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection)
+- `GET /api/servers/:id/metrics` · `GET /api/metrics`
+
+Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`.
+
+### Tester (connects lazily; same routes under `/api/transient/:handle`)
+
+`GET /info`, `GET /tools`, `GET /resources`, `GET /resource-templates`, `POST /resource/read|subscribe|unsubscribe`, `GET /prompts`, `POST /prompt/get`, `POST /ping`, `POST /logging-level`, `GET /export?format=mcp-json|agent-discover`, `POST /call`.
+`POST /api/transient` `{transport, command|url, args?, env?, headers?, ttl_ms?}` → 201 handle · `DELETE /api/transient/:handle`.
+
+### Other
+
+`GET /api/browse?query=&limit=&cursor=` · `GET /api/prereqs` · `GET /api/npm-check?package=` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
+
+## WebSocket (`/ws`)
+
+Server → client: `{type:"state", version, mode, servers}` on connect and after every lifecycle change (debounced), `log_entry`, `notification`, `progress`, `elicitation_request`. Client → server: `{type:"refresh"}`. Max 50 clients, 4 KiB messages.
+
+## Setup file
 
 ```json
 {
-  "name": "registry",
-  "arguments": {
-    "action": "proxy_call",
-    "call_as": "mcp__slack__post_message",
-    "arguments": { "channel": "#releases", "text": "deploy finished" }
-  }
-}
-```
-
-`proxy_call` lets the agent invoke a tool **without** the host having to load that tool into its catalog. Combined with `find_tool({auto_activate: false})`, this keeps the host MCP surface area at exactly 5 agent-discover actions regardless of how many tools the registered child servers actually expose. Critical for very large catalogs (~1k+ tools) where firing `notifications/tools/list_changed` would flood the host with thousands of schemas.
-
-If the proxied tool call fails, the response includes a `did_you_mean` array with similarly-named tools so the agent can recover from a wrong-tool selection in one extra turn.
-
----
-
-**Example (list):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "list", "query": "filesystem", "installed_only": true }
-}
-```
-
-**Example (install from registry):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "install", "name": "filesystem", "source": "registry" }
-}
-```
-
-**Example (install manually):**
-
-```json
-{
-  "name": "registry",
-  "arguments": {
-    "action": "install",
-    "name": "my-server",
-    "command": "node",
-    "args": ["/path/to/server.js"],
-    "description": "My custom MCP server"
-  }
-}
-```
-
-**Example (uninstall):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "uninstall", "name": "filesystem" }
-}
-```
-
-**Example (browse):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "browse", "query": "database", "limit": 5 }
-}
-```
-
-**Example (status):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "status" }
-}
-```
-
----
-
-### registry — activate / deactivate
-
-Activation starts the server as a child process and exposes its tools through agent-discover. Proxied tools appear as `serverName__toolName`. Secrets stored for this server are automatically merged into the process environment.
-
-Deactivation stops the server and removes its proxied tools.
-
-**Example (activate):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "activate", "name": "filesystem" }
-}
-```
-
-**Example (deactivate):**
-
-```json
-{
-  "name": "registry",
-  "arguments": { "action": "deactivate", "name": "filesystem" }
-}
-```
-
-Activation and deactivation trigger an MCP `tools/list_changed` notification, so MCP clients refresh their tool list automatically.
-
----
-
-### Proxied Tools
-
-When a server is activated, its tools are exposed with a namespaced name: `serverName__toolName`. These tools accept the same parameters as the original server defines and proxy calls through to the child process.
-
-Example: If `filesystem` is active and provides `read_file`, you can call the tool `filesystem__read_file` with the original tool's parameters.
-
-Each proxied tool call is automatically metered -- latency, success/failure, and call count are recorded in the metrics table.
-
----
-
-## REST API
-
-The dashboard server exposes a REST API for programmatic access. Loopback only: foreign `Host`/`Origin` headers get 403, request bodies must be `application/json`, no wildcard CORS.
-
-### GET /health
-
-Health check endpoint.
-
-**Response:**
-
-```json
-{
-  "status": "ok",
-  "version": "1.1.0",
-  "uptime": 3600
-}
-```
-
----
-
-### GET /api/prereqs
-
-Probe the host for installed package managers. The dashboard uses this to warn when a tool needed for an install (`npx`, `uvx`, `docker`) is missing.
-
-Each value is the result of spawning `<tool> --version` with a 5-second timeout. Uses `shell: true` so Windows `.cmd`/`.bat` shims (`npx.cmd`, `uvx.cmd`) resolve correctly.
-
-**Response:**
-
-```json
-{
-  "npx": true,
-  "uvx": false,
-  "docker": false,
-  "uv": false
-}
-```
-
----
-
-### GET /api/servers
-
-List registered servers. Supports query parameters for filtering.
-
-**Query parameters:**
-
-| Name        | Description                        |
-| ----------- | ---------------------------------- |
-| `query`     | FTS search query                   |
-| `source`    | Filter by source type              |
-| `installed` | Set to `"true"` for installed only |
-
-**Response:** Array of server objects with `active` status merged from proxy. Each server includes `health_status`, `last_health_check`, and `error_count` fields.
-
----
-
-### GET /api/servers/:id
-
-Get a single server by ID, including its discovered tools.
-
-**Response:**
-
-```json
-{
-  "id": 1,
-  "name": "filesystem",
-  "description": "...",
-  "active": true,
-  "health_status": "healthy",
-  "error_count": 0,
-  "tools": [
-    { "id": 1, "server_id": 1, "name": "read_file", "description": "...", "input_schema": {} }
-  ]
-}
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### POST /api/servers
-
-Register a new server.
-
-**Request body:**
-
-```json
-{
-  "name": "my-server",
-  "command": "node",
-  "args": ["/path/to/server.js"],
-  "description": "My server",
-  "tags": ["custom"]
-}
-```
-
-**Response:** `201 Created` with the server object.
-
----
-
-### PUT /api/servers/:id
-
-Update an existing server's configuration.
-
-**Request body (all fields optional):**
-
-```json
-{
-  "description": "Updated description",
-  "command": "node",
-  "args": ["server.js", "--verbose"],
-  "env": { "API_KEY": "..." },
-  "tags": ["updated"]
-}
-```
-
-**Accepted fields:** `description`, `command`, `args`, `env`, `tags`.
-
-**Response:** The updated server object.
-
-**Errors:**
-
-- `404` if the server ID does not exist.
-
----
-
-### DELETE /api/servers/:id
-
-Remove a server. Deactivates it first if active.
-
-**Response:**
-
-```json
-{ "status": "deleted" }
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### POST /api/servers/:id/activate
-
-Activate a server by ID. Secrets are merged into the server's environment on activation.
-
-**Response:**
-
-```json
-{ "status": "activated", "tool_count": 5 }
-```
-
-**Errors:**
-
-- `404` if the server ID does not exist.
-- `400` if the server has no command configured.
-- Returns `{ "status": "already_active" }` if already running.
-
----
-
-### POST /api/servers/:id/deactivate
-
-Deactivate a running server.
-
-**Response:**
-
-```json
-{ "status": "deactivated" }
-```
-
-**Errors:**
-
-- `404` if the server ID does not exist.
-- Returns `{ "status": "not_active" }` if the server is not currently running.
-
----
-
-### GET /api/servers/:id/secrets
-
-List all secrets for a server. Values are masked (first 4 characters visible, rest replaced with `****`).
-
-**Response:**
-
-```json
-[
-  {
-    "key": "API_KEY",
-    "masked_value": "sk-t****",
-    "updated_at": "2025-01-15T10:30:00"
-  }
-]
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### PUT /api/servers/:id/secrets/:key
-
-Set (create or update) a secret for a server. The secret value is stored and will be injected as an environment variable when the server is activated.
-
-**Request body:**
-
-```json
-{
-  "value": "sk-test-1234567890"
-}
-```
-
-**Response:**
-
-```json
-{ "status": "set", "key": "API_KEY" }
-```
-
-**Errors:**
-
-- `404` if the server ID does not exist.
-- `422` if `value` is missing or empty.
-
----
-
-### DELETE /api/servers/:id/secrets/:key
-
-Delete a secret for a server.
-
-**Response:**
-
-```json
-{ "status": "deleted", "key": "API_KEY" }
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### POST /api/servers/:id/health
-
-Run a health check on a server. For active servers, checks the tool list via the proxy. For inactive servers with a command, attempts a quick activate/deactivate cycle (5-second timeout). Updates `health_status`, `last_health_check`, and `error_count` in the database.
-
-**Response:**
-
-```json
-{
-  "status": "healthy",
-  "latency_ms": 42
-}
-```
-
-or on failure:
-
-```json
-{
-  "status": "unhealthy",
-  "latency_ms": 5001,
-  "error": "Health check timed out"
-}
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### GET /api/servers/:id/metrics
-
-Get per-tool metrics for a specific server.
-
-**Response:**
-
-```json
-[
-  {
-    "tool_name": "read_file",
-    "call_count": 42,
-    "error_count": 1,
-    "avg_latency_ms": 150,
-    "last_called_at": "2025-01-15T12:00:00"
-  }
-]
-```
-
-**Errors:** Returns `404` if the server ID does not exist.
-
----
-
-### GET /api/metrics
-
-Global metrics overview across all servers with recorded activity.
-
-**Response:**
-
-```json
-[
-  {
-    "server_name": "filesystem",
-    "total_calls": 100,
-    "total_errors": 2,
-    "avg_latency_ms": 120
-  }
-]
-```
-
----
-
-### GET /api/browse
-
-Federated search across the **official MCP registry**, **npm**, and **PyPI**, merged into a single result. The official registry is the primary source; npm and PyPI augment best-effort and never block the response.
-
-Same-source version duplicates are collapsed by name (highest semver wins). Cross-source name collisions are kept distinct via a `<source>:<name>` dedupe key, so e.g. `mcp-server-sqlite` (npm) and `mcp-server-sqlite` (PyPI) both appear.
-
-**Query parameters:**
-
-| Name     | Description              |
-| -------- | ------------------------ |
-| `query`  | Search term              |
-| `limit`  | Max results (default 20) |
-| `cursor` | Pagination cursor        |
-
-**Response:** Marketplace result with `servers` array and `next_cursor`. Each server entry's `packages[].runtime` is one of:
-
-| Runtime           | Source                                       | Install command (default)    |
-| ----------------- | -------------------------------------------- | ---------------------------- |
-| `node`            | Official registry node entries, npm fallback | `npx -y <pkg>`               |
-| `python`          | PyPI curated list / scrape                   | `uvx <pkg>`                  |
-| `docker`          | Official registry docker entries             | `docker run -i --rm <image>` |
-| `streamable-http` | Official registry, remote MCP servers        | (no spawn — direct HTTP)     |
-| `sse`             | Official registry, remote MCP servers        | (no spawn — direct SSE)      |
-
----
-
-### POST /api/servers/:id/reset-errors
-
-Reset a server's error count to 0.
-
-**Response:**
-
-```json
-{ "status": "reset" }
-```
-
-### POST /api/servers/:id/call
-
-Call a tool on an active server via REST (proxy). Generates a log entry.
-
-**Request body:**
-
-| Field  | Type   | Required | Description                    |
-| ------ | ------ | -------- | ------------------------------ |
-| `tool` | string | **yes**  | Tool name (e.g. `search_read`) |
-| `args` | object | no       | Arguments to pass to the tool  |
-
-**Response:** The tool's MCP result (content array).
-
-### GET /api/logs
-
-Return recent call log entries (newest first).
-
-**Query parameters:**
-
-| Param    | Type   | Default | Description             |
-| -------- | ------ | ------- | ----------------------- |
-| `limit`  | number | 100     | Max entries (up to 500) |
-| `offset` | number | 0       | Skip first N entries    |
-
-**Response:**
-
-```json
-{
-  "entries": [
-    {
-      "id": 3,
-      "timestamp": "2026-04-12T08:26:35.123Z",
-      "server": "lastloop-odoo",
-      "tool": "search_read",
-      "args": { "model": "res.partner" },
-      "response": "[{\"id\": 1, \"name\": \"...\"}]",
-      "latency_ms": 414,
-      "success": true
-    }
-  ],
-  "total": 3
-}
-```
-
-### DELETE /api/logs
-
-Clear all log entries.
-
-**Response:**
-
-```json
-{ "status": "cleared" }
-```
-
-### GET /api/status
-
-Show active server summary.
-
-**Response:**
-
-```json
-{
-  "active_count": 2,
-  "servers": [{ "name": "filesystem", "tool_count": 5, "tools": ["read_file", "..."] }]
-}
-```
-
----
-
-## WebSocket Protocol
-
-Connect to `ws://localhost:3424` to receive real-time state updates.
-
-### Connection
-
-On connect, the server sends a full state snapshot:
-
-```json
-{
-  "type": "state",
-  "version": "1.1.0",
   "servers": [
     {
-      "id": 1,
-      "name": "filesystem",
-      "active": true,
-      "health_status": "healthy",
-      "error_count": 0,
-      "tools": [{ "id": 1, "name": "read_file", "description": "..." }]
-    }
-  ],
-  "active": [
-    {
-      "name": "filesystem",
-      "tools": [{ "name": "read_file", "description": "..." }]
+      "name": "x",
+      "transport": "streamable-http",
+      "url": "https://…/mcp",
+      "secrets": { "AUTHORIZATION": "$TOKEN" },
+      "enabled": true
     }
   ]
 }
 ```
 
-### Delta Updates
-
-The server polls the database every 2 seconds. When changes are detected (via a fingerprint based on server count, max ID, last update time, and tool count), a full state message is re-sent to all connected clients whose fingerprint is stale.
-
-### Client Messages
-
-| Message                 | Description                 |
-| ----------------------- | --------------------------- |
-| `{ "type": "refresh" }` | Request a full state resend |
-
-### Server Messages
-
-| Message                | Description                                                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type: "state"`        | Full state snapshot                                                                                                                                           |
-| `type: "log_entry"`    | Real-time tool call log entry (see GET /api/logs for schema). `entry.kind` is `call` / `ping` / `resource-read` / `prompt-get` / `notification` / `progress`. |
-| `type: "notification"` | Mirrors a log entry with `kind: "notification"` — `{ serverName, method, params, ts }`.                                                                       |
-| `type: "progress"`     | Mirrors a log entry with `kind: "progress"` — `{ serverName, payload: { token, progress, total, message }, ts }`.                                             |
-| `type: "error"`        | Error message (invalid JSON, etc.)                                                                                                                            |
-
-### Tester API
-
-The 14 new tester endpoints under `/api/servers/:id/*` and `/api/transient/:handle/*` (also mirrored as `GET /api/roots`, `GET /api/logs/notifications`, `GET /api/logs/progress`) are documented in [DASHBOARD.md → Test Panel](./DASHBOARD.md#test-panel) and the top-level `README.md` endpoint table. All are gated on loopback access unless `AGENT_DISCOVER_ALLOW_REMOTE_TEST=1` is set.
-
-### Connection Limits
-
-- Max payload size: 4096 bytes
-- Max connections: 50
-- Ping interval: 30 seconds (clients must respond to pings)
+`auto_activate` was renamed to `enabled`; a file still using it fails sync with a clear error. A sibling `*.local.json` is merged.
