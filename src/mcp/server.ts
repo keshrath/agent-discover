@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import {
   ProtocolError,
   ProtocolErrorCode,
+  ResourceNotFoundError,
   Server,
   createRequestStateCodec,
   isInputRequiredResult,
@@ -34,6 +35,7 @@ import {
   type MetaToolName,
 } from './tools.js';
 import { PROMPTS, getPrompt } from './prompts.js';
+import { WIDGET_MIME, WIDGET_URI, widgetHtml } from '../widgets/resources.js';
 
 const INSTRUCTIONS = `agent-discover is an MCP gateway: it installs other MCP servers, indexes their tools and proxies calls.
 - Need a capability you don't see? search_tools({queries:[...]}) searches every installed server's tools, enabled or not.
@@ -45,7 +47,16 @@ export interface McpFactory {
   build(): Server;
 }
 
-export function createMcpFactory(app: AppContext): McpFactory {
+const WIDGET_RESOURCE = {
+  uri: WIDGET_URI,
+  name: 'agent-discover-app',
+  title: 'agent-discover',
+  description: 'MCP Apps view for agent-discover tool results (search, status, install, tester)',
+  mimeType: WIDGET_MIME,
+};
+
+/** `dashboard`: origin of the daemon's dashboard, used for deep links in results. */
+export function createMcpFactory(app: AppContext, dashboard: string): McpFactory {
   const info = readPackageMeta();
   // Single daemon process serves every MRTR round, so a per-process key works.
   const codec = createRequestStateCodec<McpState>({ key: randomBytes(32), ttlSeconds: 600 });
@@ -112,14 +123,27 @@ export function createMcpFactory(app: AppContext): McpFactory {
       const server = new Server(
         { name: info.name, version: info.version },
         {
-          capabilities: { tools: { listChanged: true }, prompts: { listChanged: false } },
+          capabilities: {
+            tools: { listChanged: true },
+            prompts: { listChanged: false },
+            resources: { listChanged: false },
+          },
           instructions: INSTRUCTIONS,
-          cacheHints: { 'tools/list': { ttlMs: 0, cacheScope: 'private' } },
+          cacheHints: {
+            'tools/list': { ttlMs: 0, cacheScope: 'private' },
+            'resources/read': { ttlMs: 3_600_000, cacheScope: 'private' },
+          },
           requestState: { verify: codec.verify },
           inputRequired: { maxRounds: 8 },
         },
       );
-      const rt: McpRuntime = { app, server, mint: (s, ctx) => codec.mint(s, ctx), forward };
+      const rt: McpRuntime = {
+        app,
+        server,
+        dashboard,
+        mint: (s, ctx) => codec.mint(s, ctx),
+        forward,
+      };
       const allTools = () =>
         [...META_TOOL_DEFS, ...exposedTools()].sort((a, b) =>
           a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -143,6 +167,11 @@ export function createMcpFactory(app: AppContext): McpFactory {
         const result = await forward(parsed.server, parsed.tool, args, ctx);
         if (isInputRequiredResult(result)) return result;
         return server.projectCallToolResult(result, def.output_schema ?? undefined);
+      });
+      server.setRequestHandler('resources/list', () => ({ resources: [WIDGET_RESOURCE] }));
+      server.setRequestHandler('resources/read', (req) => {
+        if (req.params.uri !== WIDGET_URI) throw new ResourceNotFoundError(req.params.uri);
+        return { contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml() }] };
       });
       server.setRequestHandler('prompts/list', () => ({ prompts: PROMPTS }));
       server.setRequestHandler('prompts/get', (req) =>

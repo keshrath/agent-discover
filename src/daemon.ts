@@ -39,7 +39,6 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   const { port, host, idleMs } = ctx.config;
   const mcpHost = localhostHostValidation();
   const mcpOrigin = localhostOriginValidation();
-  const mcp = createMcpEndpoint(createMcpFactory(ctx));
   const rest = createRestHandler(ctx);
 
   let open = 0;
@@ -55,6 +54,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   // The guard pins Host to the bound port, so requests are accepted only after listen.
   const boundPort = (httpServer.address() as { port: number }).port;
   const guard = createRequestGuard(boundPort, host);
+  const mcp = createMcpEndpoint(createMcpFactory(ctx, `http://${host}:${boundPort}`));
   httpServer.on('request', (req, res) => {
     lastActivity = Date.now();
     open++;

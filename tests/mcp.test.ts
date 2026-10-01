@@ -159,7 +159,11 @@ describe.each(['modern', 'legacy'] as const)('%s client', (era) => {
       arguments: { name: 'nope', command: process.execPath, args: [FIXTURE] },
     })) as CallToolResult;
     expect(res.isError).toBe(true);
-    expect(JSON.stringify(res.content)).toMatch(/cannot show confirmation prompts/);
+    expect(res.structuredContent).toMatchObject({
+      status: 'consent_required',
+      plan: { name: 'nope', command: process.execPath, args: [FIXTURE] },
+    });
+    expect(JSON.stringify(res.content)).toMatch(/cannot show the confirmation prompt/);
     expect(d.ctx.servers.get('nope')).toBeNull();
   });
 
