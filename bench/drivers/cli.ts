@@ -31,6 +31,15 @@ export const BENCH_DB =
     ? 'C:\\tmp\\agent-discover-bench\\agent-discover-bench.db'
     : '/tmp/agent-discover-bench/agent-discover-bench.db');
 
+// The discover arm talks to its own daemon (port + DB) in proxy mode: only
+// the meta tools are listed, every real call goes through call_tool.
+export const DISCOVER_ENV = {
+  AGENT_DISCOVER_DB: BENCH_DB.replace(/\\/g, '/'),
+  AGENT_DISCOVER_PORT: process.env.AGENT_DISCOVER_BENCH_PORT ?? '3499',
+  AGENT_DISCOVER_MODE: 'proxy',
+  AGENT_DISCOVER_IDLE_MS: '120000',
+};
+
 export interface CliDriverOpts {
   /** Path to bench/fake-tools/server.mjs (eager arm). */
   fakeToolsServerPath: string;
@@ -70,17 +79,21 @@ interface StreamEvent {
   usage?: ClaudeJsonResult['usage'];
 }
 
-// Harness/meta tools that should not count as "real tool calls" for scoring
-// purposes. ToolSearch is Claude Code's built-in deferred-tools loader; the
-// agent-discover registry is the equivalent in the discover arm. Both are
-// discovery overhead, not the answer to the task.
-const META_TOOLS = new Set(['ToolSearch']);
-const META_PREFIXES = ['mcp__agent-discover__'];
-
-function isMetaTool(name: string): boolean {
-  if (META_TOOLS.has(name)) return true;
-  return META_PREFIXES.some((p) => name.startsWith(p));
-}
+// Discovery overhead: Claude Code's ToolSearch and agent-discover's meta
+// tools. agent-discover's call_tool is NOT overhead — it is the real call,
+// so it is scored as the tool it invokes.
+const DISCOVER_PREFIX = 'mcp__agent-discover__';
+const DISCOVERY_TOOLS = new Set([
+  'ToolSearch',
+  ...[
+    'search_tools',
+    'get_tool',
+    'search_servers',
+    'server_status',
+    'enable_server',
+    'disable_server',
+  ].map((t) => DISCOVER_PREFIX + t),
+]);
 
 function extractToolCalls(events: StreamEvent[]): {
   toolCalls: ToolCall[];
@@ -95,17 +108,23 @@ function extractToolCalls(events: StreamEvent[]): {
     for (const block of ev.message.content ?? []) {
       if (block.type !== 'tool_use' || !block.name) continue;
       ts += 100;
-      if (isMetaTool(block.name)) {
-        // Both harness ToolSearch and agent-discover registry calls count as
-        // discovery overhead, regardless of arm. Doing it uniformly means the
-        // distractor_call_rate metric reflects actual wrong-tool selection,
-        // not "the agent used the deferred-tools system".
+      if (DISCOVERY_TOOLS.has(block.name)) {
         discoveryCalls++;
         continue;
       }
-      // Strip MCP namespace prefix: "mcp__fake-tools__slack_post_message" → "slack_post_message"
-      const m = /^mcp__[^_]+(?:__)(.+)$/.exec(block.name);
-      const bare = m ? m[1] : block.name;
+      if (block.name === DISCOVER_PREFIX + 'call_tool') {
+        const input = block.input ?? {};
+        toolCalls.push({
+          name: String(input.tool ?? ''),
+          arguments: (input.arguments as Record<string, unknown>) ?? {},
+          ts_ms: ts,
+        });
+        continue;
+      }
+      // "mcp__fake-tools__slack_post_message" / "mcp__agent-discover__srv__slack_post_message" → "slack_post_message"
+      const bare = block.name.startsWith('mcp__')
+        ? block.name.split('__').slice(-1)[0]
+        : block.name;
       toolCalls.push({ name: bare, arguments: block.input ?? {}, ts_ms: ts });
     }
   }
@@ -129,7 +148,7 @@ function buildMcpConfig(arm: Arm, n: number, opts: CliDriverOpts): string {
       'agent-discover': {
         command: 'node',
         args: [opts.discoverDistPath.replace(/\\/g, '/')],
-        env: { AGENT_DISCOVER_DB: BENCH_DB.replace(/\\/g, '/') },
+        env: DISCOVER_ENV,
       },
     },
   });
@@ -154,57 +173,23 @@ names.
 const DISCOVER_INSTRUCTION = `
 ${BENCH_PREAMBLE}
 
-[DISCOVERY PROTOCOL — confidence-aware, single round-trip per tool]
+[DISCOVERY PROTOCOL — one search, then call]
 
-For each tool you need, call:
+The tools you need are NOT listed directly. Find them with ONE batched search:
 
-  mcp__agent-discover__registry({action:"find_tool", query:"<short intent keywords>"})
+  mcp__agent-discover__search_tools({queries:["<intent 1>", "<intent 2>", ...]})
 
-This returns:
-  {
-    found, confidence: "high" | "medium" | "low",
-    call_as,             // fully-qualified mcp__server__tool name to invoke
-    required_args,       // [{name, type, description}] — usually enough to invoke
-    optional_count,      // how many extra optional params exist
-    next_step,           // action hint based on confidence
-    other_matches        // ranked alternatives if you need them
-  }
+One query per tool the task needs. Each result lists matches ranked by score
+(0..1) with server, tool, description and required_args. Pick the best match
+for each query and invoke it:
 
-DECISION RULES — follow these literally:
+  mcp__agent-discover__call_tool({server:"<server>", tool:"<tool>", arguments:{...}})
 
-  - confidence="high"   → invoke call_as immediately with the required_args.
-                          Do NOT call find_tool again. Do NOT ask the user.
+Only if required_args are not enough to build the call, fetch the full schema:
+  mcp__agent-discover__get_tool({server:"<server>", tool:"<tool>"})
 
-  - confidence="medium" → if the top "tool" name + description clearly fits
-                          your task, invoke it. Otherwise pick the best of
-                          other_matches and invoke THAT — without re-searching.
-
-  - confidence="low"    → the query is ambiguous. Pick the most-specific match
-                          across {top, other_matches} and invoke it. ONLY refuse
-                          if NONE of the matches plausibly fit.
-
-  - found=false         → the tool doesn't exist in the registry. Say so and
-                          stop. Do NOT try synonyms.
-
-For multi-tool tasks (e.g., "query Sentry then create a Linear issue"), batch
-discovery in ONE call:
-  mcp__agent-discover__registry({action:"find_tools", intents:["recent sentry errors", "create linear issue"]})
-This returns one result per intent. Then invoke each call_as in turn.
-
-If an invoke FAILS (returns isError or did_you_mean in the result), the result
-includes a "did_you_mean" array of similarly-named tools. Pick the most likely
-one from that list and invoke it directly — do NOT call find_tool again.
-
-If a tool's required_args alone don't tell you how to invoke it (e.g., the
-schema is conditional or polymorphic), call:
-  mcp__agent-discover__registry({action:"get_schema", call_as:"<the call_as>"})
-to fetch the full input_schema. This is rare — try invoking with required_args
-first.
-
-LIMITS:
-- One find_tool per tool you need (not per task).
-- Multi-tool tasks: ONE find_tools call + N invokes. Maximum N+1 MCP calls.
-- Never call action:"list", action:"activate", action:"status".
+If no match plausibly fits the task, say so and stop — do not invent tools.
+LIMITS: one search_tools call per task, then one call_tool per needed tool.
 `.trim();
 
 function spawnClaude(

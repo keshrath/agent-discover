@@ -28,16 +28,11 @@ import { spawn } from 'node:child_process';
 import { promises as fs, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { BenchDriver, Task, Arm, TaskRun, ToolCall } from '../runner.js';
+import { DISCOVER_ENV } from './cli.js';
 
 const TMP_ROOT =
   process.env.AGENT_DISCOVER_BENCH_TMP ??
   (process.platform === 'win32' ? 'C:\\tmp\\agent-discover-bench' : '/tmp/agent-discover-bench');
-
-const BENCH_DB =
-  process.env.AGENT_DISCOVER_BENCH_DB ??
-  (process.platform === 'win32'
-    ? 'C:\\tmp\\agent-discover-bench\\agent-discover-bench.db'
-    : '/tmp/agent-discover-bench/agent-discover-bench.db');
 
 export interface OpencodeDriverOpts {
   fakeToolsServerPath: string;
@@ -85,53 +80,30 @@ interface OpencodeText {
 
 type OpencodeEvent = OpencodeStepFinish | OpencodeToolUse | OpencodeText | { type: string };
 
-// Tool-name normalization. There are two distinct namespacing layers to peel:
-//
-//   1. OpenCode side: "<opencode-mcp-server>_<inner>" (single underscore).
-//      For the eager arm the server is "fake-tools" so the call shows up as
-//      e.g. "fake-tools_slack_post_message". For the discover arm the server
-//      is "agent-discover" so a registry call is "agent-discover_registry"
-//      and a proxied tool call is "agent-discover_<inner>".
-//
-//   2. agent-discover proxy side (only for the discover arm): when
-//      agent-discover proxies a tool from a registered child MCP server, it
-//      namespaces it as "<inner-server>__<inner-tool>" (double underscore —
-//      see src/transport/mcp.ts proxy code). End result for slack_post_message:
-//        agent-discover_fake-tools-bench__slack_post_message
-//
-// We need to strip BOTH layers to recover the bare "slack_post_message" the
-// scoring function expects in expected_tools.
-
-const OPENCODE_SERVER_PREFIXES = ['fake-tools', 'fake-tools-bench', 'agent-discover'];
-const PROXY_SERVER_PREFIXES = ['fake-tools-bench', 'fake-tools'];
-
-// "discovery" tools = the agent-discover registry meta-tool itself, NOT the
-// proxied real tools that flow through it. Only registry/find_tool/etc
-// invocations should be counted as discovery overhead.
-function isMetaTool(name: string): boolean {
-  return name === 'agent-discover_registry';
-}
+// Tool-name normalization. OpenCode names MCP tools "<server>_<tool>"; in the
+// discover arm the server is "agent-discover" and the real call is
+// "agent-discover_call_tool" with {server, tool, arguments}. Every other
+// agent-discover meta tool is discovery overhead.
+const OPENCODE_SERVER_PREFIXES = ['fake-tools', 'agent-discover'];
+const DISCOVERY_TOOLS = new Set(
+  [
+    'search_tools',
+    'get_tool',
+    'search_servers',
+    'server_status',
+    'enable_server',
+    'disable_server',
+  ].map((t) => `agent-discover_${t}`),
+);
 
 function stripServerPrefix(name: string): string {
-  let stripped = name;
-  // Layer 1: opencode-side prefix.
   for (const srv of OPENCODE_SERVER_PREFIXES) {
-    if (stripped.startsWith(srv + '_')) {
-      stripped = stripped.slice(srv.length + 1);
-      break;
-    }
+    if (name.startsWith(srv + '_')) return name.slice(srv.length + 1);
   }
-  // Layer 2: agent-discover proxy namespace ("<server>__<tool>").
-  for (const srv of PROXY_SERVER_PREFIXES) {
-    if (stripped.startsWith(srv + '__')) {
-      stripped = stripped.slice(srv.length + 2);
-      break;
-    }
-  }
-  return stripped;
+  return name;
 }
 
-function extractToolCalls(events: OpencodeEvent[]): {
+export function extractToolCalls(events: OpencodeEvent[]): {
   toolCalls: ToolCall[];
   discoveryCalls: number;
 } {
@@ -144,46 +116,20 @@ function extractToolCalls(events: OpencodeEvent[]): {
     const toolName = tu.part.tool;
     if (!toolName) continue;
     ts += 100;
-
-    // Special handling for agent-discover's proxy_call action: it routes a
-    // real tool invocation through the registry. The OpenCode-side tool
-    // name is "agent-discover_registry", but semantically this IS a real
-    // tool call to whatever call_as resolves to. Extract the inner tool
-    // name and push it as a real ToolCall so scoring sees it. Earlier
-    // versions of this driver counted proxy_call as pure discovery overhead
-    // and missed all real tool invocations made via proxy_call mode.
-    if (toolName === 'agent-discover_registry') {
-      const input = (tu.part.state?.input ?? {}) as Record<string, unknown>;
-      const action = typeof input.action === 'string' ? input.action : '';
-      if (action === 'proxy_call') {
-        const callAs = typeof input.call_as === 'string' ? input.call_as : '';
-        if (callAs) {
-          // call_as form: "mcp__<server>__<tool>"
-          const m = /^mcp__[^_]+(?:__)(.+)$/.exec(callAs);
-          const bare = m ? m[1] : callAs;
-          const inner = stripServerPrefix(bare);
-          const innerArgs =
-            typeof input.arguments === 'object' && input.arguments !== null
-              ? (input.arguments as Record<string, unknown>)
-              : {};
-          toolCalls.push({ name: inner, arguments: innerArgs, ts_ms: ts });
-          continue;
-        }
-      }
-      // Any other registry action = pure discovery overhead.
+    if (DISCOVERY_TOOLS.has(toolName)) {
       discoveryCalls++;
       continue;
     }
-
-    if (isMetaTool(toolName)) {
-      discoveryCalls++;
+    const input = (tu.part.state?.input ?? {}) as Record<string, unknown>;
+    if (toolName === 'agent-discover_call_tool') {
+      toolCalls.push({
+        name: String(input.tool ?? ''),
+        arguments: (input.arguments as Record<string, unknown>) ?? {},
+        ts_ms: ts,
+      });
       continue;
     }
-    toolCalls.push({
-      name: stripServerPrefix(toolName),
-      arguments: tu.part.state?.input ?? {},
-      ts_ms: ts,
-    });
+    toolCalls.push({ name: stripServerPrefix(toolName), arguments: input, ts_ms: ts });
   }
   return { toolCalls, discoveryCalls };
 }
@@ -240,7 +186,7 @@ function buildOpencodeConfig(arm: Arm, n: number, opts: OpencodeDriverOpts): str
           type: 'local',
           command: ['node', opts.discoverDistPath.replace(/\\/g, '/')],
           enabled: true,
-          environment: { AGENT_DISCOVER_DB: BENCH_DB.replace(/\\/g, '/') },
+          environment: DISCOVER_ENV,
         },
       },
     },
@@ -264,45 +210,18 @@ explicitly and stop — do not invent tool names.
 const DISCOVER_INSTRUCTION = `
 ${BENCH_PREAMBLE}
 
-[DISCOVERY PROTOCOL — proxy mode, two MCP calls per task, never bloat the catalog]
+[DISCOVERY PROTOCOL — proxy mode: one search, then call]
 
-For each tool you need:
+  Step 1: agent-discover_search_tools({ queries: ["intent 1", "intent 2"] })
+    One query per tool the task needs. Each result lists matches ranked by
+    score (0..1) with server, tool, description and required_args.
 
-  Step 1: agent-discover_registry({
-    action: "find_tool",
-    query: "[short intent keywords]",
-    auto_activate: false
-  })
+  Step 2: agent-discover_call_tool({ server: "[server]", tool: "[tool]", arguments: { ... } })
+    Invokes the tool through agent-discover and returns its normal result.
 
-  Returns: { found, confidence, call_as, required_args, optional_count, other_matches }
-  IMPORTANT: pass auto_activate:false. Without it the host receives the
-  full proxied tool catalog and stalls on huge registries.
-
-  Step 2: agent-discover_registry({
-    action: "proxy_call",
-    call_as: "[the call_as from step 1]",
-    arguments: { ...the tool args... }
-  })
-
-  This invokes the tool through agent-discover without exposing it to the
-  host. Returns the tool's normal result (or isError if it failed).
-
-Decision rules for picking the right tool from find_tool:
-- confidence=high   - use the top "call_as" directly.
-- confidence=medium - if top match clearly fits, use it; else pick best
-                      of other_matches.
-- confidence=low    - pick the most-specific match across {top, other_matches}.
-                      Refuse only if NONE plausibly fit.
-- found=false       - tool doesn't exist. Say so and STOP.
-
-For multi-tool tasks:
-  agent-discover_registry({action:"find_tools", intents:["intent1","intent2"], auto_activate:false})
-returns one result per intent in one round-trip.
-
-LIMITS:
-- One find_tool per tool you need. Never call list/activate/status.
-- Always pair find_tool with proxy_call. NEVER try to invoke a tool by its
-  bare name [the host doesn't see proxied tools when auto_activate is false].
+If required_args are not enough, agent-discover_get_tool({server, tool}) returns
+the full schema. If no match plausibly fits, say so and STOP.
+LIMITS: one search_tools call per task, then one call_tool per needed tool.
 `.trim();
 
 // Per-task hard wall-time cap. opencode + huge MCP catalogs can hang for

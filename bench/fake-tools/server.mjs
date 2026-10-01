@@ -131,6 +131,116 @@ const RESOURCES = [
   'tag',
 ];
 
+// Resource aliases — natural-language synonyms for the canonical resource
+// names. Bench uses these to enrich tool descriptions so embeddings have
+// real semantic signal to latch onto. Mirrors how real-world tool catalogs
+// (Stripe API, Linear API) include domain language in their descriptions.
+const RESOURCE_ALIASES = {
+  user: 'user account / customer profile / member',
+  account: 'account / customer / user record',
+  project: 'project / workspace / repository',
+  event: 'event / activity / occurrence / log entry',
+  record: 'record / row / entry',
+  invoice: 'invoice / bill / charge / receipt',
+  subscription: 'subscription / recurring billing arrangement / recurring plan / membership',
+  webhook: 'webhook / callback URL / event listener / notification endpoint',
+  workflow: 'workflow / pipeline / automation / process',
+  pipeline: 'pipeline / build / CI run / deployment process',
+  job: 'job / task / scheduled run / background work',
+  metric: 'metric / data point / measurement / statistic',
+  alert: 'alert / incident / notification / warning',
+  dashboard: 'dashboard / report view / chart panel',
+  report: 'report / summary / analysis document',
+  token: 'token / API key / credential / secret',
+  campaign: 'campaign / marketing push / promotion',
+  cart: 'cart / shopping basket / checkout',
+  order: 'order / purchase / transaction',
+  payment: 'payment / charge / transaction',
+  shipment: 'shipment / delivery / fulfillment',
+  discount: 'discount / coupon / promo code',
+  product: 'product / SKU / item / listing',
+  cluster: 'cluster / kubernetes cluster / node group',
+  node: 'node / server / instance',
+  volume: 'volume / disk / storage attachment',
+  snapshot: 'snapshot / backup point / restore image',
+  backup: 'backup / archive / restore copy',
+  rule: 'rule / policy / firewall rule',
+  audit: 'audit / log / compliance trail',
+  session: 'session / login / authentication',
+  tag: 'tag / label / category',
+};
+
+const ACTION_ALIASES = {
+  list: 'list / show all / pull / fetch all / browse / enumerate',
+  get: 'get / fetch / look up / retrieve / read / show one',
+  create: 'create / make / add / set up / open / register / provision new',
+  update: 'update / change / edit / modify / patch / move to',
+  delete: 'delete / remove / cancel / end / destroy / terminate',
+  search: 'search / find / query / lookup',
+  export: 'export / download / dump',
+  import: 'import / upload / load',
+};
+
+// Service domain aliases — describes what each service IS so embeddings can
+// match queries that name a domain rather than the service brand. Without
+// these, the bench's adv-get task ("recurring billing arrangement") matches
+// stripe_get_subscription AND twilio_get_subscription equally because both
+// have the same resource description. Embedding "stripe = billing platform"
+// vs "twilio = sms provider" gives the model semantic signal to prefer the
+// right one.
+const SERVICE_ALIASES = {
+  stripe:
+    'payment processor / billing platform / subscription billing / online payments / charge cards',
+  shopify: 'ecommerce platform / online store / retail commerce',
+  twilio: 'sms / voice / communications API / phone messaging',
+  pagerduty: 'incident management / on-call alerting / paging system',
+  opsgenie: 'incident management / alerting / on-call schedule',
+  snowflake: 'data warehouse / cloud database / analytics SQL',
+  redshift: 'data warehouse / aws analytics database',
+  bigquery: 'data warehouse / google analytics SQL / serverless query',
+  azure: 'microsoft cloud / cloud infrastructure',
+  gcp: 'google cloud / cloud infrastructure',
+  cloudflare: 'CDN / edge network / DNS / DDoS protection',
+  fastly: 'CDN / edge compute / cache',
+  auth0: 'authentication / identity / login / SSO',
+  okta: 'identity / SSO / enterprise authentication',
+  segment: 'analytics pipeline / customer data platform / event tracking',
+  mixpanel: 'product analytics / event tracking / user behavior',
+  amplitude: 'product analytics / user journey / behavior tracking',
+  intercom: 'customer support chat / messaging / help desk',
+  zendesk: 'customer support / help desk / ticketing',
+  hubspot: 'CRM / marketing automation / sales pipeline',
+  salesforce: 'CRM / sales / customer relationship management',
+  asana: 'project management / task tracking / team workflow',
+  trello: 'kanban board / task tracking / project management',
+  monday: 'project management / work tracking / team collaboration',
+  figma: 'design tool / UI mockup / collaborative design',
+  miro: 'whiteboard / collaborative diagram / brainstorming',
+  confluence: 'wiki / documentation / knowledge base',
+  bitbucket: 'git hosting / code repository / version control',
+  gitlab: 'git hosting / CI/CD / devops platform',
+  circleci: 'CI/CD / build automation / continuous integration',
+  jenkins: 'CI/CD / build server / automation',
+  argocd: 'gitops / kubernetes deployment / continuous delivery',
+  terraform: 'infrastructure as code / cloud provisioning',
+  vault: 'secrets management / credentials store',
+  consul: 'service discovery / configuration / service mesh',
+  nomad: 'workload orchestration / scheduler',
+  kafka: 'event streaming / message bus / log pipeline',
+  rabbitmq: 'message queue / AMQP broker',
+  redis: 'in-memory cache / key-value store',
+  memcached: 'in-memory cache / key-value store',
+  mysql: 'relational database / SQL',
+  mongodb: 'document database / NoSQL',
+  dynamodb: 'aws nosql database / key-value store',
+  elasticsearch: 'search engine / log analytics',
+  opensearch: 'search engine / log analytics / aws fork of elasticsearch',
+  splunk: 'log analytics / security information event management',
+  newrelic: 'application monitoring / observability / APM',
+  grafana: 'metrics dashboard / observability / time series visualization',
+  prometheus: 'metrics / monitoring / time series database',
+};
+
 function synthTool(idx) {
   // Vary RESOURCES fastest, then ACTIONS, then SERVICES — gives a small N
   // catalog with diverse tool names instead of 50× the same resource. At
@@ -153,7 +263,11 @@ function synthTool(idx) {
   }
   return {
     name,
-    description: `${act[0].toUpperCase()}${act.slice(1)} a ${res} in ${svc}.`,
+    description:
+      `${act[0].toUpperCase()}${act.slice(1)} a ${res} in ${svc}. ` +
+      `Service: ${svc} (${SERVICE_ALIASES[svc] ?? svc}). ` +
+      `Action synonyms: ${ACTION_ALIASES[act] ?? act}. ` +
+      `Resource synonyms: ${RESOURCE_ALIASES[res] ?? res}.`,
     inputSchema: { type: 'object', properties, required: [`field_0`] },
   };
 }

@@ -23,51 +23,19 @@ import {
   type Arm,
   type ArmReport,
 } from './runner.js';
+import { extractToolCalls } from './drivers/opencode.js';
 
 const TMP_ROOT =
   process.env.AGENT_DISCOVER_BENCH_TMP ??
   (process.platform === 'win32' ? 'C:\\tmp\\agent-discover-bench' : '/tmp/agent-discover-bench');
 const TASKS_PATH = path.resolve('bench/workloads/tasks.json');
 
-interface OpencodeToolUse {
-  type: 'tool_use';
-  part: {
-    tool: string;
-    state: { input: Record<string, unknown>; output: string };
-  };
-}
 interface OpencodeStepFinish {
   type: 'step_finish';
   part: {
     cost: number;
     tokens?: { input: number; output: number; cache?: { read: number } };
   };
-}
-
-const META_TOOLS = new Set(['ToolSearch']);
-const OPENCODE_PREFIXES = ['fake-tools', 'fake-tools-bench', 'agent-discover'];
-const PROXY_PREFIXES = ['fake-tools-bench', 'fake-tools'];
-
-function isMetaTool(name: string): boolean {
-  if (META_TOOLS.has(name)) return true;
-  return name.startsWith('mcp__agent-discover__');
-}
-
-function stripServerPrefix(name: string): string {
-  let stripped = name;
-  for (const srv of OPENCODE_PREFIXES) {
-    if (stripped.startsWith(srv + '_')) {
-      stripped = stripped.slice(srv.length + 1);
-      break;
-    }
-  }
-  for (const srv of PROXY_PREFIXES) {
-    if (stripped.startsWith(srv + '__')) {
-      stripped = stripped.slice(srv.length + 2);
-      break;
-    }
-  }
-  return stripped;
 }
 
 interface ParsedRun {
@@ -93,55 +61,20 @@ function parseRunDir(dir: string): ParsedRun | null {
     })
     .filter(Boolean) as Array<{ type: string; part?: Record<string, unknown> }>;
 
-  const tool_calls: ParsedRun['tool_calls'] = [];
-  let discovery_calls = 0;
+  const { toolCalls: tool_calls, discoveryCalls: discovery_calls } = extractToolCalls(
+    events as Parameters<typeof extractToolCalls>[0],
+  );
   let input_tokens = 0;
   let output_tokens = 0;
   let total_cost_usd = 0;
   let turns = 0;
-  let ts = 0;
-
   for (const ev of events) {
-    if (ev.type === 'tool_use') {
-      const tu = ev as unknown as OpencodeToolUse;
-      const toolName = tu.part?.tool;
-      if (!toolName) continue;
-      ts += 100;
-      // Detect agent-discover proxy_call invocation and extract inner tool name.
-      if (toolName === 'agent-discover_registry') {
-        const input = (tu.part.state?.input ?? {}) as Record<string, unknown>;
-        const action = typeof input.action === 'string' ? input.action : '';
-        if (action === 'proxy_call') {
-          const callAs = typeof input.call_as === 'string' ? input.call_as : '';
-          if (callAs) {
-            const m = /^mcp__[^_]+(?:__)(.+)$/.exec(callAs);
-            const bare = m ? m[1] : callAs;
-            const inner = stripServerPrefix(bare);
-            const innerArgs =
-              typeof input.arguments === 'object' && input.arguments !== null
-                ? (input.arguments as Record<string, unknown>)
-                : {};
-            tool_calls.push({ name: inner, arguments: innerArgs, ts_ms: ts });
-            continue;
-          }
-        }
-        discovery_calls++;
-        continue;
-      }
-      if (isMetaTool(toolName)) {
-        discovery_calls++;
-        continue;
-      }
-      const inner = stripServerPrefix(toolName);
-      const args = (tu.part.state?.input ?? {}) as Record<string, unknown>;
-      tool_calls.push({ name: inner, arguments: args, ts_ms: ts });
-    } else if (ev.type === 'step_finish') {
-      const sf = ev as unknown as OpencodeStepFinish;
-      total_cost_usd += sf.part?.cost ?? 0;
-      input_tokens += sf.part?.tokens?.input ?? 0;
-      output_tokens += sf.part?.tokens?.output ?? 0;
-      turns += 1;
-    }
+    if (ev.type !== 'step_finish') continue;
+    const sf = ev as unknown as OpencodeStepFinish;
+    total_cost_usd += sf.part?.cost ?? 0;
+    input_tokens += sf.part?.tokens?.input ?? 0;
+    output_tokens += sf.part?.tokens?.output ?? 0;
+    turns += 1;
   }
   return { tool_calls, discovery_calls, input_tokens, output_tokens, total_cost_usd, turns };
 }
