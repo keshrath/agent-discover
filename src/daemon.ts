@@ -13,6 +13,7 @@
 import { createServer, type Server } from 'node:http';
 import { localhostHostValidation, localhostOriginValidation } from '@modelcontextprotocol/node';
 import { createContext, type AppContext, type ContextOptions } from './context.js';
+import { loadConfig } from './config.js';
 import { createMcpFactory } from './mcp/server.js';
 import { createMcpEndpoint, type McpEndpoint } from './mcp/http.js';
 import { createRestHandler } from './transport/rest.js';
@@ -35,15 +36,7 @@ export interface DaemonOptions extends ContextOptions {
 }
 
 export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> {
-  const ctx = createContext(options);
-  const { port, host, idleMs } = ctx.config;
-  const mcpHost = localhostHostValidation();
-  const mcpOrigin = localhostOriginValidation();
-  const mcp = createMcpEndpoint(createMcpFactory(ctx), ctx.config.sessionIdleMs);
-  const rest = createRestHandler(ctx);
-
-  let open = 0;
-  let lastActivity = Date.now();
+  const { port, host, idleMs } = { ...loadConfig(), ...options.config };
   const httpServer = createServer();
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
@@ -52,8 +45,17 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
       resolve();
     });
   });
-  // The guard pins Host to the bound port, so requests are accepted only after listen.
+  // The guard pins Host to the bound port and the OAuth redirect points at it, so the
+  // context is built and requests are accepted only after listen.
   const boundPort = (httpServer.address() as { port: number }).port;
+  const ctx = createContext({ ...options, config: { ...options.config, port: boundPort } });
+  const mcpHost = localhostHostValidation();
+  const mcpOrigin = localhostOriginValidation();
+  const mcp = createMcpEndpoint(createMcpFactory(ctx), ctx.config.sessionIdleMs);
+  const rest = createRestHandler(ctx);
+
+  let open = 0;
+  let lastActivity = Date.now();
   const guard = createRequestGuard(boundPort, host);
   httpServer.on('request', (req, res) => {
     lastActivity = Date.now();

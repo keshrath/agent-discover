@@ -78,9 +78,10 @@ export class SecretsService {
     this.db.run('DELETE FROM server_secrets WHERE server_id = ? AND key = ?', [serverId, key]);
   }
 
+  /** Secrets that go into the server's env / headers (OAuth state is the transport's own). */
   getEnvForServer(serverId: number): Record<string, string> {
     const rows = this.db.queryAll<SecretRow>(
-      'SELECT key, value FROM server_secrets WHERE server_id = ?',
+      "SELECT key, value FROM server_secrets WHERE server_id = ? AND key NOT LIKE 'oauth:%'",
       [serverId],
     );
     const env: Record<string, string> = {};

@@ -26,6 +26,7 @@ import {
 import type { AppContext } from '../context.js';
 import { splitToolName } from '../domain/lifecycle.js';
 import type { ElicitationAnswer, ElicitationContent } from '../domain/pool.js';
+import { AuthRequiredError } from '../domain/oauth.js';
 import { readPackageMeta } from '../package-meta.js';
 import {
   META_TOOLS,
@@ -47,6 +48,8 @@ const INSTRUCTIONS = `agent-discover is an MCP gateway: it installs other MCP se
 
 /** How long an upstream call waits for the downstream to answer its question. */
 const PARK_TTL_MS = 2 * 60_000;
+/** How long a retry after URL-mode sign-in waits for the OAuth callback. */
+const SIGN_IN_WAIT_MS = 5 * 60_000;
 
 interface Question {
   message: string;
@@ -61,7 +64,7 @@ interface RunningCall {
   ctx: ServerContext;
   abort: AbortController;
   questions: ReturnType<typeof queue<Question>>;
-  result: Promise<CallToolResult | InputRequiredResult>;
+  result: Promise<CallToolResult | InputRequiredResult | AuthRequiredError>;
 }
 
 interface ParkedCall {
@@ -154,13 +157,37 @@ export function createMcpFactory(app: AppContext): McpFactory {
             });
           },
         })
-        .catch((err: unknown) => errorResult(err instanceof Error ? err.message : String(err))),
+        .catch((err: unknown) =>
+          err instanceof AuthRequiredError
+            ? err
+            : errorResult(err instanceof Error ? err.message : String(err)),
+        ),
     };
     return run;
   }
 
   /** Wait for the call's result or its next upstream question, whichever comes first. */
+  /** Hand the authorization URL to a client that can open it (URL-mode elicitation). */
+  async function signIn(
+    server: Server,
+    err: AuthRequiredError,
+    run: RunningCall,
+    ctx: ServerContext,
+  ): Promise<CallToolResult | InputRequiredResult> {
+    if (!clientCanElicit(server, ctx, 'url')) return errorResult(err.message);
+    return inputRequired({
+      inputRequests: {
+        signin: inputRequired.elicitUrl({
+          message: `Sign in to "${err.server}" so agent-discover can call it.`,
+          url: err.authorizeUrl,
+        }),
+      },
+      requestState: await codec.mint({ kind: 'auth', server: run.server, tool: run.tool }, ctx),
+    });
+  }
+
   async function relay(
+    server: Server,
     run: RunningCall,
     ctx: ServerContext,
   ): Promise<CallToolResult | InputRequiredResult> {
@@ -174,6 +201,7 @@ export function createMcpFactory(app: AppContext): McpFactory {
       ]);
       if ('result' in next) {
         const { result } = next;
+        if (result instanceof AuthRequiredError) return signIn(server, result, run, ctx);
         if (!isInputRequiredResult(result)) return result;
         return {
           ...result,
@@ -212,7 +240,19 @@ export function createMcpFactory(app: AppContext): McpFactory {
     ctx: ServerContext,
   ): Promise<CallToolResult | InputRequiredResult> {
     const state = ctx.mcpReq.requestState<McpState>();
-    if (state?.kind !== 'parked') return relay(startCall(server, serverName, tool, args, ctx), ctx);
+    if (state?.kind === 'auth' && state.server === serverName && state.tool === tool) {
+      const answer = inputResponse(ctx.mcpReq.inputResponses, 'signin');
+      if (answer.kind !== 'elicit' || answer.action !== 'accept') {
+        return errorResult(`Sign-in to "${serverName}" was declined.`);
+      }
+      const done =
+        !app.oauth.authorizeUrl(serverName) ||
+        (await app.oauth.waitForAuthorization(serverName, SIGN_IN_WAIT_MS, ctx.mcpReq.signal));
+      if (!done) return errorResult(`Sign-in to "${serverName}" did not complete; retry the call.`);
+    }
+    if (state?.kind !== 'parked') {
+      return relay(server, startCall(server, serverName, tool, args, ctx), ctx);
+    }
     const entry = parked.get(state.id);
     if (!entry || entry.run.server !== serverName || entry.run.tool !== tool) {
       return errorResult('The upstream question expired; call the tool again.');
@@ -228,7 +268,7 @@ export function createMcpFactory(app: AppContext): McpFactory {
           }
         : { action: 'cancel' },
     );
-    return relay(entry.run, ctx);
+    return relay(server, entry.run, ctx);
   }
 
   return {

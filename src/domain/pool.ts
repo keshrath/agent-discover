@@ -10,6 +10,8 @@
 //   - close connections idle longer than `idleMs`;
 //   - forward tools/call verbatim (CallToolResult or MRTR input_required),
 //     with SDK timeouts/abort instead of hand-rolled races;
+//   - OAuth 2.1 for remote servers without their own Authorization header
+//     (oauth.ts); a 401 surfaces as AuthRequiredError with the sign-in URL;
 //   - real health probes (`ping` on 2025 connections, `server/discover` on
 //     2026 ones);
 //   - upstream elicitation/create pushes (2025 servers) go to the caller's
@@ -25,6 +27,7 @@ import {
   SdkErrorCode,
   SSEClientTransport,
   StreamableHTTPClientTransport,
+  UnauthorizedError,
   withInputRequired,
   type CallToolResult,
   type InputRequiredResult,
@@ -39,6 +42,7 @@ import type { ServerConfig } from '../types.js';
 import { RegistryError, UpstreamError } from '../types.js';
 import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
+import { AuthRequiredError, type OAuthManager } from './oauth.js';
 import { version } from '../version.js';
 
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -58,19 +62,21 @@ const TRANSIENT_PREFIX = '__transient__';
  */
 class InPlaceStdioTransport extends StdioClientTransport {}
 
-/** The in-place probe ended because the server closed the connection (a legacy server). */
-function closedDuringProbe(err: unknown): boolean {
-  for (let e: unknown = err; e instanceof Error; e = e.cause) {
-    if (
-      e instanceof SdkError &&
-      e.code === SdkErrorCode.EraNegotiationFailed &&
-      e.message.includes('probed in place')
-    ) {
-      return true;
-    }
-  }
+/** `match` holds for the error or one of its causes. */
+function causedBy(err: unknown, match: (e: Error) => boolean): boolean {
+  for (let e: unknown = err; e instanceof Error; e = e.cause) if (match(e)) return true;
   return false;
 }
+
+/** The in-place probe ended because the server closed the connection (a legacy server). */
+const closedDuringProbe = (err: unknown) =>
+  causedBy(
+    err,
+    (e) =>
+      e instanceof SdkError &&
+      e.code === SdkErrorCode.EraNegotiationFailed &&
+      e.message.includes('probed in place'),
+  );
 
 export type EraVerdict = { era: 'modern' | 'legacy'; discover: unknown; checked_at: string };
 
@@ -87,6 +93,8 @@ export interface PoolDeps {
   logs: LogService;
   roots: () => Array<{ uri: string; name?: string }>;
   sampling?: SamplingProvider;
+  /** OAuth for remote servers that do not send their own Authorization header. */
+  oauth?: OAuthManager;
   idleMs: number;
 }
 
@@ -347,6 +355,11 @@ export class ConnectionPool {
   }
 
   private async recordFailure(name: string, config: ServerConfig, err: unknown): Promise<Error> {
+    // Sign-in is the user's move, not an outage: no backoff, hand out the authorization URL.
+    const authorizeUrl = causedBy(err, (e) => e instanceof UnauthorizedError)
+      ? this.deps.oauth?.authorizeUrl(name)
+      : undefined;
+    if (authorizeUrl) return new AuthRequiredError(name, authorizeUrl);
     const count = (this.failures.get(name)?.count ?? 0) + 1;
     this.failures.set(name, {
       count,
@@ -384,10 +397,15 @@ export class ConnectionPool {
     const requestInit =
       Object.keys(config.headers).length > 0 ? { headers: config.headers } : undefined;
     const url = new URL(config.url);
+    const ownAuth = Object.keys(config.headers).some((h) => h.toLowerCase() === 'authorization');
+    const authProvider =
+      ownAuth || config.name.startsWith(TRANSIENT_PREFIX)
+        ? undefined
+        : this.deps.oauth?.provider(config.name);
     const transport =
       config.transport === 'sse'
-        ? new SSEClientTransport(url, { requestInit })
-        : new StreamableHTTPClientTransport(url, { requestInit });
+        ? new SSEClientTransport(url, { requestInit, authProvider })
+        : new StreamableHTTPClientTransport(url, { requestInit, authProvider });
     return { transport, stderrTail: () => '' };
   }
 

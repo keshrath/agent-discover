@@ -34,7 +34,9 @@ export type McpState =
   | { kind: 'install'; digest: string }
   | { kind: 'upstream'; server: string; tool: string; state?: string }
   /** An upstream call parked on a pushed elicitation/create (2025 upstream). */
-  | { kind: 'parked'; id: string };
+  | { kind: 'parked'; id: string }
+  /** The upstream needs OAuth sign-in; the client was handed the authorization URL. */
+  | { kind: 'auth'; server: string; tool: string };
 
 export interface McpRuntime {
   app: AppContext;
@@ -98,12 +100,17 @@ function isExposed(rt: McpRuntime, enabled: boolean): boolean {
   return enabled && rt.app.config.mode === 'native';
 }
 
-export function clientCanElicit(server: Server, ctx: ServerContext): boolean {
+/** Whether the downstream client accepts elicitation (`url` mode needs `elicitation.url`). */
+export function clientCanElicit(
+  server: Server,
+  ctx: ServerContext,
+  mode: 'form' | 'url' = 'form',
+): boolean {
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
   const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
-    | { elicitation?: unknown }
+    | { elicitation?: { url?: unknown } }
     | undefined;
-  return Boolean(caps?.elicitation);
+  return mode === 'url' ? Boolean(caps?.elicitation?.url) : Boolean(caps?.elicitation);
 }
 
 // ---------------------------------------------------------------------------

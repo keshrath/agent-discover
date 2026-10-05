@@ -58,6 +58,26 @@ function serverFields(body: Record<string, unknown>): ServerUpdate {
   };
 }
 
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+function page(res: ServerResponse, status: number, title: string, text: string): void {
+  const esc = (v: string) => v.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><h1>${esc(title)}</h1><p>${esc(text)}</p>`,
+  );
+}
+
 export function createRestHandler(
   ctx: AppContext,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -200,6 +220,47 @@ export function createRestHandler(
     ctx.secrets.delete(server.id, p.key);
     await pool.disconnect(server.name);
     json(res, { status: 'deleted', key: p.key });
+  });
+
+  // -- OAuth (remote upstreams) ----------------------------------------------
+
+  const remote = (id: string): ServerEntry & { url: string } => {
+    const server = byId(id);
+    if (server.transport === 'stdio' || !server.url) {
+      throw new ValidationError(`"${server.name}" is not a remote server`);
+    }
+    return server as ServerEntry & { url: string };
+  };
+
+  route('GET', '/api/servers/:id/auth', (_req, res, p) => {
+    json(res, ctx.oauth.status(remote(p.id).name));
+  });
+
+  route('POST', '/api/servers/:id/auth', async (_req, res, p) => {
+    const server = remote(p.id);
+    json(res, await upstream(() => ctx.oauth.begin(server.name, server.url)));
+  });
+
+  // The authorization server redirects the user's browser here (loopback redirect URI).
+  route('GET', '/oauth/callback', async (req, res) => {
+    let name: string;
+    try {
+      name = await ctx.oauth.callback(query(req), (n) => servers.require(n).url ?? '');
+    } catch (err) {
+      return page(res, 400, 'Sign-in failed', err instanceof Error ? err.message : String(err));
+    }
+    if (!servers.require(name).indexed_at) {
+      lifecycle.reindex(name).catch((err) =>
+        process.stderr.write(`[agent-discover] indexing "${name}" failed: ${String(err)}
+`),
+      );
+    }
+    page(
+      res,
+      200,
+      'Signed in',
+      `agent-discover is authorized for "${name}". You can close this tab.`,
+    );
   });
 
   route('GET', '/api/servers/:id/metrics', (_req, res, p) => {

@@ -26,6 +26,7 @@ import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
 import { ConnectionPool, type CallOptions, type HealthResult } from './pool.js';
 import type { RegistryMirror } from './registry.js';
+import type { OAuthManager } from './oauth.js';
 import type { RegistryStatus } from './install-plan.js';
 
 export interface TrustHooks {
@@ -78,6 +79,7 @@ export interface LifecycleDeps {
   registry: RegistryMirror;
   roots: () => Array<{ uri: string; name?: string }>;
   sampling?: SamplingProvider;
+  oauth?: OAuthManager;
   connIdleMs: number;
   hooks?: TrustHooks;
 }
@@ -112,6 +114,7 @@ export class ServerLifecycle {
       logs: deps.logs,
       roots: deps.roots,
       sampling: deps.sampling,
+      oauth: deps.oauth,
       idleMs: deps.connIdleMs,
     });
   }

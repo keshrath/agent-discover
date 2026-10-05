@@ -12,6 +12,7 @@ import { ToolIndex } from './domain/tool-index.js';
 import { ServerLifecycle, type TrustHooks } from './domain/lifecycle.js';
 import { MarketplaceClient } from './domain/marketplace.js';
 import { RegistryMirror } from './domain/registry.js';
+import { OAuthManager } from './domain/oauth.js';
 import { SecretsService } from './domain/secrets.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
@@ -27,6 +28,7 @@ export interface AppContext {
   readonly lifecycle: ServerLifecycle;
   readonly marketplace: MarketplaceClient;
   readonly registry: RegistryMirror;
+  readonly oauth: OAuthManager;
   readonly secrets: SecretsService;
   readonly metrics: MetricsService;
   readonly logs: LogService;
@@ -60,6 +62,13 @@ export function createContext(options: ContextOptions = {}): AppContext {
   const metrics = new MetricsService(db);
   const logs = new LogService();
   const registry = new RegistryMirror(db, config.registryUrl);
+  // The loopback redirect is the daemon's own callback route (config.port is the bound port).
+  const oauth = new OAuthManager(
+    servers,
+    secrets,
+    `http://127.0.0.1:${config.port}/oauth/callback`,
+    config.oauthClientMetadataUrl,
+  );
   const lifecycle = new ServerLifecycle({
     servers,
     index,
@@ -67,6 +76,7 @@ export function createContext(options: ContextOptions = {}): AppContext {
     metrics,
     logs,
     registry,
+    oauth,
     roots: configuredRoots,
     sampling: maybeCreateDefaultSamplingProvider(),
     connIdleMs: config.connIdleMs,
@@ -82,6 +92,7 @@ export function createContext(options: ContextOptions = {}): AppContext {
     lifecycle,
     marketplace: new MarketplaceClient(registry),
     registry,
+    oauth,
     secrets,
     metrics,
     logs,

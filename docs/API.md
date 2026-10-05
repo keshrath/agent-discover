@@ -62,7 +62,7 @@ All tools except `call_tool` declare an `outputSchema` and return `structuredCon
 
 ## REST
 
-Errors are `{ error, code? }` with 400 (validation), 404, 409, 413, 415, 502 (upstream failure) or 500.
+Errors are `{ error, code? }` with 400 (validation), 401 (`AUTH_REQUIRED`: a remote upstream needs OAuth sign-in), 404, 409, 413, 415, 502 (upstream failure) or 500.
 
 ### Health and status
 
@@ -95,6 +95,15 @@ Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `
 - `POST /api/install` `{source?, name, version?, local_name?, transport?, enable?, secrets?}` → 201 server + `plan` (+ `index_error`). It returns 400 when the plan is blocked and 409 when the local name exists.
 - `GET /api/registry` → `{count, synced_at, syncing, last_error}` (local mirror of the official MCP Registry; the daemon syncs on start and on search when older than 1 h) · `POST /api/registry/sync` → `{mode: "full"|"incremental", fetched, pages, ms}`.
 - `ServerStatus.registry_status` (`GET /api/status`, `server_status`) is `deleted` when the entry an installed server came from was taken down.
+
+### OAuth (remote upstreams)
+
+Remote servers without their own `Authorization` header authenticate with OAuth 2.1. The SDK runs discovery (RFC 9728, RFC 8414), PKCE, refresh and the RFC 9207 `iss` check. The client registers dynamically unless `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL` names a Client ID Metadata Document. Credentials are stored as server secrets: `oauth:client:<issuer>`, `oauth:tokens:<issuer>`, `oauth:issuer`, `oauth:discovery` and `oauth:verifier`. These keys never go into env or headers. agent-discover never opens the authorization URL itself and only hands out http(s) URLs.
+
+- `GET /api/servers/:id/auth` → `{status: "authorized"|"required"|"unknown", authorize_url?, issuer?}`.
+- `POST /api/servers/:id/auth` → runs `auth()` now and returns the same shape. Use it to start sign-in before the first call.
+- `GET /oauth/callback?code&state&iss` → the loopback redirect URI `http://127.0.0.1:<port>/oauth/callback`. It checks that `state` is single-use and less than 10 minutes old, then redeems the code, indexes the server if needed and answers with an HTML page.
+- Over MCP, a call to a server that needs sign-in returns a URL-mode elicitation (`inputRequests.signin`) when the client declares `elicitation.url`. The retry waits up to 5 minutes for the callback. Without URL-mode support the call returns `isError` with the URL in the text.
 
 ### Tester (connects lazily; same routes under `/api/transient/:handle`)
 
