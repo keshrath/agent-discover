@@ -9,7 +9,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { startDaemon, type Daemon, type DaemonOptions } from '../src/daemon.js';
 import type { Config } from '../src/config.js';
 
-export const FIXTURE = resolve(__dirname, 'fixtures', 'upstream.mjs').replace(/\\/g, '/');
+export const FIXTURE = resolve(import.meta.dirname, 'fixtures', 'upstream.mjs').replace(/\\/g, '/');
 
 export interface TestDaemon extends Daemon {
   base: string;
