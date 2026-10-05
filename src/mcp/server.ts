@@ -8,12 +8,14 @@
 // schemas are advertised verbatim without per-request conversion.
 // =============================================================================
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   ProtocolError,
   ProtocolErrorCode,
   Server,
   createRequestStateCodec,
+  inputRequired,
+  inputResponse,
   isInputRequiredResult,
   type CallToolResult,
   type InputRequiredResult,
@@ -23,10 +25,12 @@ import {
 } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
 import { splitToolName } from '../domain/lifecycle.js';
+import type { ElicitationAnswer, ElicitationContent } from '../domain/pool.js';
 import { readPackageMeta } from '../package-meta.js';
 import {
   META_TOOLS,
   META_TOOL_DEFS,
+  clientCanElicit,
   exposedName,
   runMetaTool,
   type McpRuntime,
@@ -40,6 +44,52 @@ const INSTRUCTIONS = `agent-discover is an MCP gateway: it installs other MCP se
 - Exposed tools appear as <server>__<tool>; call them directly. Others: call_tool({server, tool, arguments}) or enable_server first.
 - Nothing installed fits? search_servers, then install_server (the user confirms the command).
 - server_status shows what is installed, enabled and connected.`;
+
+/** How long an upstream call waits for the downstream to answer its question. */
+const PARK_TTL_MS = 2 * 60_000;
+
+interface Question {
+  message: string;
+  requestedSchema: Record<string, unknown>;
+  answer(answer: ElicitationAnswer): void;
+}
+
+interface RunningCall {
+  server: string;
+  tool: string;
+  /** The downstream round currently waiting on this call (progress goes there). */
+  ctx: ServerContext;
+  abort: AbortController;
+  questions: ReturnType<typeof queue<Question>>;
+  result: Promise<CallToolResult | InputRequiredResult>;
+}
+
+interface ParkedCall {
+  run: RunningCall;
+  question: Question;
+  timer: NodeJS.Timeout;
+}
+
+function queue<T>() {
+  const items: T[] = [];
+  let waiter: ((item: T) => void) | null = null;
+  return {
+    push(item: T) {
+      if (!waiter) return void items.push(item);
+      const w = waiter;
+      waiter = null;
+      w(item);
+    },
+    next(): Promise<T> {
+      if (items.length) return Promise.resolve(items.shift() as T);
+      return new Promise((resolve) => (waiter = resolve));
+    },
+  };
+}
+
+function errorResult(text: string): CallToolResult {
+  return { isError: true, content: [{ type: 'text', text }] };
+}
 
 export interface McpFactory {
   build(): Server;
@@ -62,49 +112,123 @@ export function createMcpFactory(app: AppContext): McpFactory {
     }));
   };
 
+  // Upstream calls parked on an elicitation/create push (2025 upstreams), by id.
+  const parked = new Map<string, ParkedCall>();
+
+  function startCall(
+    server: Server,
+    serverName: string,
+    tool: string,
+    args: Record<string, unknown> | undefined,
+    ctx: ServerContext,
+  ): RunningCall {
+    const state = ctx.mcpReq.requestState<McpState>();
+    const upstream =
+      state?.kind === 'upstream' && state.server === serverName && state.tool === tool
+        ? state
+        : undefined;
+    const questions = queue<Question>();
+    const abort = new AbortController();
+    const progressToken = ctx.mcpReq._meta?.progressToken;
+    const run: RunningCall = {
+      server: serverName,
+      tool,
+      ctx,
+      abort,
+      questions,
+      result: app.lifecycle
+        .callTool(serverName, tool, args, {
+          signal: abort.signal,
+          inputResponses: upstream ? (ctx.mcpReq.inputResponses as InputResponses) : undefined,
+          requestState: upstream?.state,
+          // A 2026 downstream answers through an MRTR round, a 2025 one through the SDK's
+          // legacy shim; without elicitation support the dashboard queue answers.
+          onElicit: clientCanElicit(server, ctx)
+            ? (q) => new Promise((answer) => questions.push({ ...q, answer }))
+            : undefined,
+          onprogress: (p) => {
+            if (progressToken === undefined) return;
+            void run.ctx.mcpReq.notify({
+              method: 'notifications/progress',
+              params: { ...p, progressToken },
+            });
+          },
+        })
+        .catch((err: unknown) => errorResult(err instanceof Error ? err.message : String(err))),
+    };
+    return run;
+  }
+
+  /** Wait for the call's result or its next upstream question, whichever comes first. */
+  async function relay(
+    run: RunningCall,
+    ctx: ServerContext,
+  ): Promise<CallToolResult | InputRequiredResult> {
+    run.ctx = ctx;
+    const onAbort = () => run.abort.abort();
+    ctx.mcpReq.signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      const next = await Promise.race([
+        run.result.then((result) => ({ result })),
+        run.questions.next().then((question) => ({ question })),
+      ]);
+      if ('result' in next) {
+        const { result } = next;
+        if (!isInputRequiredResult(result)) return result;
+        return {
+          ...result,
+          requestState: await codec.mint(
+            { kind: 'upstream', server: run.server, tool: run.tool, state: result.requestState },
+            ctx,
+          ),
+        };
+      }
+      const { question } = next;
+      const id = randomUUID();
+      const timer = setTimeout(() => {
+        if (parked.delete(id)) question.answer({ action: 'cancel' });
+      }, PARK_TTL_MS);
+      timer.unref();
+      parked.set(id, { run, question, timer });
+      return inputRequired({
+        inputRequests: {
+          elicit: inputRequired.elicit({
+            message: question.message,
+            requestedSchema: question.requestedSchema as never,
+          }),
+        },
+        requestState: await codec.mint({ kind: 'parked', id }, ctx),
+      });
+    } finally {
+      ctx.mcpReq.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   async function forward(
+    server: Server,
     serverName: string,
     tool: string,
     args: Record<string, unknown> | undefined,
     ctx: ServerContext,
   ): Promise<CallToolResult | InputRequiredResult> {
     const state = ctx.mcpReq.requestState<McpState>();
-    const upstreamState =
-      state?.kind === 'upstream' && state.server === serverName && state.tool === tool
-        ? state.state
-        : undefined;
-    const progressToken = ctx.mcpReq._meta?.progressToken;
-    let result: CallToolResult | InputRequiredResult;
-    try {
-      result = await app.lifecycle.callTool(serverName, tool, args, {
-        signal: ctx.mcpReq.signal,
-        inputResponses:
-          state?.kind === 'upstream' ? (ctx.mcpReq.inputResponses as InputResponses) : undefined,
-        requestState: upstreamState,
-        onprogress: (p) => {
-          if (progressToken === undefined) return;
-          void ctx.mcpReq.notify({
-            method: 'notifications/progress',
-            params: { ...p, progressToken },
-          });
-        },
-      });
-    } catch (err) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }],
-      };
+    if (state?.kind !== 'parked') return relay(startCall(server, serverName, tool, args, ctx), ctx);
+    const entry = parked.get(state.id);
+    if (!entry || entry.run.server !== serverName || entry.run.tool !== tool) {
+      return errorResult('The upstream question expired; call the tool again.');
     }
-    if (isInputRequiredResult(result)) {
-      return {
-        ...result,
-        requestState: await codec.mint(
-          { kind: 'upstream', server: serverName, tool, state: result.requestState },
-          ctx,
-        ),
-      };
-    }
-    return result;
+    parked.delete(state.id);
+    clearTimeout(entry.timer);
+    const response = inputResponse(ctx.mcpReq.inputResponses, 'elicit');
+    entry.question.answer(
+      response.kind === 'elicit'
+        ? {
+            action: response.action,
+            ...(response.content ? { content: response.content as ElicitationContent } : {}),
+          }
+        : { action: 'cancel' },
+    );
+    return relay(entry.run, ctx);
   }
 
   return {
@@ -119,7 +243,12 @@ export function createMcpFactory(app: AppContext): McpFactory {
           inputRequired: { maxRounds: 8 },
         },
       );
-      const rt: McpRuntime = { app, server, mint: (s, ctx) => codec.mint(s, ctx), forward };
+      const rt: McpRuntime = {
+        app,
+        server,
+        mint: (s, ctx) => codec.mint(s, ctx),
+        forward: (name, tool, args, ctx) => forward(server, name, tool, args, ctx),
+      };
       const allTools = () =>
         [...META_TOOL_DEFS, ...exposedTools()].sort((a, b) =>
           a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -140,7 +269,7 @@ export function createMcpFactory(app: AppContext): McpFactory {
         if (!parsed || !def || !app.servers.get(parsed.server)?.enabled) {
           throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown tool: ${name}`);
         }
-        const result = await forward(parsed.server, parsed.tool, args, ctx);
+        const result = await rt.forward(parsed.server, parsed.tool, args, ctx);
         if (isInputRequiredResult(result)) return result;
         return server.projectCallToolResult(result, def.output_schema ?? undefined);
       });

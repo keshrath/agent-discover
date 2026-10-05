@@ -12,7 +12,10 @@
 //     with SDK timeouts/abort instead of hand-rolled races;
 //   - real health probes (`ping` on 2025 connections, `server/discover` on
 //     2026 ones);
-//   - the dashboard-side elicitation queue, roots and sampling handlers.
+//   - upstream elicitation/create pushes (2025 servers) go to the caller's
+//     `onElicit` (the downstream client) when it is the only such call in
+//     flight on that connection, else to the dashboard queue; roots and
+//     sampling handlers.
 // =============================================================================
 
 import { spawn } from 'node:child_process';
@@ -92,6 +95,8 @@ interface Connection {
   config: ServerConfig;
   lastUsed: number;
   inflight: number;
+  /** In-flight calls whose caller can answer upstream elicitations itself. */
+  elicitors: Set<Elicitor>;
 }
 
 export interface PendingElicitation {
@@ -104,12 +109,19 @@ export interface PendingElicitation {
 
 export type ElicitationAction = 'accept' | 'decline' | 'cancel';
 export type ElicitationContent = Record<string, string | number | boolean | string[]>;
+export type ElicitationAnswer = { action: ElicitationAction; content?: ElicitationContent };
+export type Elicitor = (request: {
+  message: string;
+  requestedSchema: Record<string, unknown>;
+}) => Promise<ElicitationAnswer>;
 
 export interface CallOptions {
   signal?: AbortSignal;
   onprogress?: (p: { progress: number; total?: number; message?: string }) => void;
   inputResponses?: InputResponses;
   requestState?: string;
+  /** Answers upstream elicitation/create pushes made during this call. */
+  onElicit?: Elicitor;
 }
 
 export interface HealthResult {
@@ -165,7 +177,7 @@ export class ConnectionPool {
   private readonly elicitations = new Map<
     string,
     {
-      resolve: (v: { action: ElicitationAction; content?: ElicitationContent }) => void;
+      resolve: (v: ElicitationAnswer) => void;
       timer: NodeJS.Timeout;
       request: PendingElicitation;
     }
@@ -267,7 +279,13 @@ export class ConnectionPool {
       client.listen({ toolsListChanged: true }).catch(() => {});
     }
 
-    const conn: Connection = { client, config, lastUsed: Date.now(), inflight: 0 };
+    const conn: Connection = {
+      client,
+      config,
+      lastUsed: Date.now(),
+      inflight: 0,
+      elicitors: new Set(),
+    };
     client.onclose = () => {
       if (this.conns.get(name)?.client !== client) return;
       this.conns.delete(name);
@@ -377,7 +395,25 @@ export class ConnectionPool {
     client.setRequestHandler('roots/list', async () => ({ roots: this.deps.roots() }));
     client.setRequestHandler('elicitation/create', async (req) => {
       const params = req.params as { message?: string; requestedSchema?: Record<string, unknown> };
-      return this.queueElicitation(serverName, params.message ?? '', params.requestedSchema);
+      const message = params.message ?? '';
+      const requestedSchema = params.requestedSchema ?? { type: 'object', properties: {} };
+      // A push carries no reference to the call it belongs to: route it to the caller only
+      // when exactly one call that can answer is in flight.
+      const elicitors = this.conns.get(serverName)?.elicitors;
+      if (elicitors?.size === 1) {
+        const [onElicit] = elicitors;
+        this.deps.logs.push(
+          serverName,
+          'elicitation/create',
+          requestedSchema,
+          message,
+          0,
+          true,
+          'elicitation',
+        );
+        return onElicit({ message, requestedSchema });
+      }
+      return this.queueElicitation(serverName, message, requestedSchema);
     });
     const sampling = this.deps.sampling;
     if (sampling) {
@@ -419,6 +455,7 @@ export class ConnectionPool {
       await this.connect(name);
       conn = this.conns.get(name)!;
       conn.inflight++;
+      if (opts.onElicit) conn.elicitors.add(opts.onElicit);
       const params: Record<string, unknown> = { name: tool, arguments: args ?? {} };
       if (opts.inputResponses) params.inputResponses = opts.inputResponses;
       if (opts.requestState !== undefined) params.requestState = opts.requestState;
@@ -449,6 +486,7 @@ export class ConnectionPool {
       throw err instanceof RegistryError ? err : new UpstreamError(message, { cause: err });
     } finally {
       if (conn) {
+        if (opts.onElicit) conn.elicitors.delete(opts.onElicit);
         conn.inflight--;
         conn.lastUsed = Date.now();
       }
@@ -566,14 +604,14 @@ export class ConnectionPool {
   private queueElicitation(
     serverName: string,
     message: string,
-    requestedSchema: Record<string, unknown> | undefined,
-  ): Promise<{ action: ElicitationAction; content?: ElicitationContent }> {
+    requestedSchema: Record<string, unknown>,
+  ): Promise<ElicitationAnswer> {
     const id = `elicit-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
     const request: PendingElicitation = {
       id,
       serverName,
       message,
-      requestedSchema: requestedSchema ?? { type: 'object', properties: {} },
+      requestedSchema,
       createdAt: Date.now(),
     };
     this.deps.logs.push(
@@ -599,10 +637,7 @@ export class ConnectionPool {
     return [...this.elicitations.values()].map((e) => e.request);
   }
 
-  respondElicitation(
-    id: string,
-    response: { action: ElicitationAction; content?: ElicitationContent },
-  ): boolean {
+  respondElicitation(id: string, response: ElicitationAnswer): boolean {
     const entry = this.elicitations.get(id);
     if (!entry) return false;
     this.elicitations.delete(id);

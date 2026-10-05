@@ -32,7 +32,9 @@ import type { IndexedTool } from '../types.js';
 
 export type McpState =
   | { kind: 'install'; digest: string }
-  | { kind: 'upstream'; server: string; tool: string; state?: string };
+  | { kind: 'upstream'; server: string; tool: string; state?: string }
+  /** An upstream call parked on a pushed elicitation/create (2025 upstream). */
+  | { kind: 'parked'; id: string };
 
 export interface McpRuntime {
   app: AppContext;
@@ -96,9 +98,9 @@ function isExposed(rt: McpRuntime, enabled: boolean): boolean {
   return enabled && rt.app.config.mode === 'native';
 }
 
-function clientCanElicit(rt: McpRuntime, ctx: ServerContext): boolean {
+export function clientCanElicit(server: Server, ctx: ServerContext): boolean {
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
-  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? rt.server.getClientCapabilities()) as
+  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
     | { elicitation?: unknown }
     | undefined;
   return Boolean(caps?.elicitation);
@@ -371,7 +373,7 @@ export const META_TOOLS = {
           : undefined;
         if (consent && !consent.confirm) return summary('declined');
         if (!consent) {
-          if (!clientCanElicit(rt, ctx)) {
+          if (!clientCanElicit(rt.server, ctx)) {
             return {
               isError: true,
               content: [
