@@ -64,6 +64,10 @@ const serverStatus = z.object({
     .optional()
     .describe('While quarantined: tool changes since the last approval'),
   flagged_tools: flaggedTools,
+  registry_status: z
+    .enum(['active', 'deprecated', 'deleted'])
+    .nullable()
+    .describe('deleted = taken down from the MCP Registry (malware/spam): uninstall it'),
   health: z
     .object({ status: z.string(), latency_ms: z.number(), error: z.string().optional() })
     .optional(),
@@ -88,6 +92,7 @@ export const installPlan = z.object({
   args: z.array(z.string()).optional(),
   url: z.string().optional(),
   package: z.string().optional(),
+  repository: z.string().optional(),
   env_keys: z.array(z.string()),
   header_keys: z.array(z.string()),
   provenance: z.array(provenanceFact),
@@ -107,22 +112,25 @@ export const OUTPUTS = {
     ),
     marketplace: z.array(
       z.object({
-        name: z.string(),
+        source: z.enum(['registry', 'npm', 'pypi']),
+        name: z.string().describe('Exact name to pass to install_server as `server`'),
+        title: z.string().optional(),
         description: z.string(),
         version: z.string(),
+        status: z.enum(['active', 'deprecated', 'deleted']),
         repository: z.string().nullable(),
         packages: z.array(
           z.object({
-            registry: z.string(),
-            name: z.string(),
-            runtime: z.string(),
-            version: z.string(),
-            url: z.string().nullable(),
+            registry_type: z.string(),
+            identifier: z.string(),
+            version: z.string().nullable(),
+            transport: z.string(),
           }),
         ),
+        remotes: z.array(z.object({ type: z.string(), url: z.string() })),
       }),
     ),
-    marketplace_error: z.string().optional(),
+    marketplace_errors: z.record(z.string(), z.string()).optional(),
   }),
   install_server: z.object({
     name: z.string(),
@@ -131,6 +139,10 @@ export const OUTPUTS = {
     tool_count: z.number(),
     tools: z.array(z.string()),
     index_error: z.string().optional(),
+    missing: z
+      .array(z.string())
+      .optional()
+      .describe('Required env vars / headers without a value (set them as secrets)'),
     plan: installPlan.optional().describe('What was (or would be) installed'),
   }),
   enable_server: z.object({

@@ -23,20 +23,25 @@ import {
   type ToolAnnotations,
 } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
-import type { ServerInput } from '../types.js';
 import { validateServerInput } from '../domain/servers.js';
+import { manualPlan, type InstallPlan } from '../domain/install-plan.js';
+import { ValidationError } from '../types.js';
 import type { ServerStatus } from '../domain/lifecycle.js';
 import type { HealthResult } from '../domain/pool.js';
 import type { IndexedTool } from '../types.js';
 import type { TrustReport } from '../domain/trust/index.js';
 import { scanTool } from '../domain/trust/hygiene.js';
-import { OUTPUTS, type InstallPlan, type Outputs } from '../widgets/types.js';
+import { OUTPUTS, type InstallPlan as PlanView, type Outputs } from '../widgets/types.js';
 import { installPlanText, resultText } from '../widgets/text.js';
 import { DASHBOARD_META_KEY, WIDGET_META, WIDGET_TOOLS } from '../widgets/resources.js';
 
 export type McpState =
   | { kind: 'install' | 'approve'; digest: string }
-  | { kind: 'upstream'; server: string; tool: string; state?: string };
+  | { kind: 'upstream'; server: string; tool: string; state?: string }
+  /** An upstream call parked on a pushed elicitation/create (2025 upstream). */
+  | { kind: 'parked'; id: string }
+  /** The upstream needs OAuth sign-in; the client was handed the authorization URL. */
+  | { kind: 'auth'; server: string; tool: string };
 
 export interface McpRuntime {
   app: AppContext;
@@ -112,12 +117,17 @@ function isExposed(rt: McpRuntime, enabled: boolean): boolean {
   return enabled && rt.app.config.mode === 'native';
 }
 
-function clientCanElicit(rt: McpRuntime, ctx: ServerContext): boolean {
+/** Whether the downstream client accepts elicitation (`url` mode needs `elicitation.url`). */
+export function clientCanElicit(
+  server: Server,
+  ctx: ServerContext,
+  mode: 'form' | 'url' = 'form',
+): boolean {
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
-  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? rt.server.getClientCapabilities()) as
-    | { elicitation?: unknown }
+  const caps = (envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.getClientCapabilities()) as
+    | { elicitation?: { url?: unknown } }
     | undefined;
-  return Boolean(caps?.elicitation);
+  return mode === 'url' ? Boolean(caps?.elicitation?.url) : Boolean(caps?.elicitation);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,17 +138,28 @@ const transportEnum = z.enum(['stdio', 'sse', 'streamable-http']);
 const stringMap = z.record(z.string(), z.string());
 
 const installArgs = z.object({
-  name: z.string().describe('Local name for the server (letters, digits, . _ -)'),
-  package: z
+  server: z
     .string()
     .optional()
-    .describe('Package identifier; derives command/args from `runtime` (npx / uvx / docker)'),
-  runtime: z.enum(['node', 'python', 'docker']).optional(),
-  transport: transportEnum.optional(),
+    .describe(
+      'Exact name from search_servers: MCP Registry name (io.github.org/server), npm package or PyPI project. Omit for a manual command/url.',
+    ),
+  source: z
+    .enum(['registry', 'npm', 'pypi'])
+    .optional()
+    .describe('Where `server` comes from (default registry)'),
+  version: z.string().optional().describe('Exact version to install (default: latest)'),
+  name: z
+    .string()
+    .optional()
+    .describe('Local name (letters, digits, . _ -); default derived from `server`'),
+  transport: transportEnum
+    .optional()
+    .describe('Pick a remote (streamable-http/sse) over a package, or the manual transport'),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: stringMap.optional(),
-  url: z.string().optional().describe('Endpoint for sse / streamable-http servers'),
+  url: z.string().optional().describe('Endpoint for manual sse / streamable-http servers'),
   headers: stringMap.optional(),
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -149,56 +170,76 @@ const installArgs = z.object({
 // Tools
 // ---------------------------------------------------------------------------
 
-function proposedInput(rt: McpRuntime, a: z.infer<typeof installArgs>): ServerInput {
-  const base: ServerInput = {
+async function proposedPlan(rt: McpRuntime, a: z.infer<typeof installArgs>): Promise<InstallPlan> {
+  if (a.server) {
+    const server = a.name ? rt.app.servers.get(a.name) : null;
+    return rt.app.marketplace.plan({
+      source: a.source,
+      name: a.server,
+      version: a.version,
+      local_name: a.name,
+      transport: a.transport,
+      storedSecrets: server ? Object.keys(rt.app.secrets.getEnvForServer(server)) : [],
+    });
+  }
+  if (!a.name) throw new ValidationError('name is required for a manual install');
+  return manualPlan({
     name: a.name,
     description: a.description,
     tags: a.tags,
     env: a.env,
     headers: a.headers,
-    source: a.package ? 'registry' : 'manual',
-  };
-  if (a.package) {
-    const cfg = rt.app.installer.detectInstallConfig(a.package, a.runtime);
-    return {
-      ...base,
-      transport: 'stdio',
-      command: cfg.command,
-      args: cfg.args,
-      package_name: cfg.package_name,
-    };
-  }
-  return {
-    ...base,
+    source: 'manual',
     transport: a.transport ?? (a.url ? 'streamable-http' : 'stdio'),
     command: a.command,
     args: a.args,
     url: a.url,
-  };
+  });
 }
 
-/** An exact npm version (`pkg@1.2.3`); other package specs cannot carry a version yet. */
-const PINNED = /^(@[^/@]+\/)?[^@]+@\d+\.\d+\.\d+[\w.+-]*$/;
-
-function installPlan(input: ServerInput): InstallPlan {
-  const pkg = input.package_name;
+/** Presentation view of a domain InstallPlan for the consent prompt, widget and markdown. */
+function planView(plan: InstallPlan): PlanView {
+  const p = plan.provenance;
+  const facts: PlanView['provenance'] = [];
+  if (p.registry) {
+    facts.push({
+      label: `Registry: ${p.registry.name}`,
+      level: p.registry.status === 'active' ? 'ok' : 'warn',
+      detail: `${p.registry.status}, publisher ${p.registry.publisher}`,
+    });
+  } else if (plan.source === 'manual') {
+    facts.push({ label: 'Manual configuration', level: 'warn', detail: 'not from a registry' });
+  }
+  if (p.package) {
+    const v = p.package.version;
+    facts.push({
+      label: `${p.package.ecosystem} ${p.package.name}${v ? `@${v}` : ''}`,
+      level: 'info',
+    });
+  }
+  facts.push(
+    p.pinned
+      ? { label: 'Version pinned', level: 'ok' }
+      : { label: 'Unpinned version', level: 'warn', detail: 'resolves to latest at start' },
+  );
+  for (const c of p.checks) {
+    facts.push({
+      label: c.id,
+      level: c.status === 'pass' ? 'ok' : c.status === 'skipped' ? 'info' : 'warn',
+      detail: c.detail,
+    });
+  }
+  for (const w of plan.warnings) facts.push({ label: 'Warning', level: 'warn', detail: w });
   return {
-    name: input.name,
-    transport: input.transport ?? 'stdio',
-    ...(input.transport === 'stdio'
-      ? { command: input.command, args: input.args ?? [] }
-      : { url: input.url }),
-    ...(pkg ? { package: pkg } : {}),
-    env_keys: Object.keys(input.env ?? {}),
-    header_keys: Object.keys(input.headers ?? {}),
-    provenance: pkg
-      ? [
-          { label: `Package ${pkg}`, level: 'info' },
-          PINNED.test(pkg)
-            ? { label: 'Version pinned', level: 'ok' }
-            : { label: 'Unpinned version', level: 'warn', detail: 'resolves to latest at start' },
-        ]
-      : [{ label: 'Manual configuration', level: 'warn', detail: 'not from a registry' }],
+    name: plan.server,
+    transport: plan.transport,
+    ...(plan.command ? { command: plan.command, args: plan.args ?? [] } : {}),
+    ...(plan.url ? { url: plan.url } : {}),
+    ...(p.package ? { package: p.package.name } : {}),
+    ...(p.repository ? { repository: p.repository } : {}),
+    env_keys: plan.requirements.filter((r) => r.kind === 'env').map((r) => r.key),
+    header_keys: plan.requirements.filter((r) => r.kind === 'header').map((r) => r.key),
+    provenance: facts,
   };
 }
 
@@ -267,7 +308,7 @@ async function confirm(
     ? acceptedContent(ctx.mcpReq.inputResponses, 'consent', request.schema)
     : undefined;
   if (consent) return consent.confirm ? { kind: 'accepted' } : { kind: 'declined' };
-  if (!clientCanElicit(rt, ctx)) {
+  if (!clientCanElicit(rt.server, ctx)) {
     return { kind: 'pending', result: request.noElicitation() };
   }
   return {
@@ -312,24 +353,12 @@ export const META_TOOLS = {
         }));
       const out: Outputs['search_servers'] = { query, installed, marketplace: [] };
       if (marketplace) {
-        try {
-          const res = await rt.app.marketplace.browse(query, limit);
-          out.marketplace = res.servers.slice(0, limit).map((s) => ({
-            name: s.name,
-            description: rt.app.trust.cleanServerDescription(s.description),
-            version: s.version,
-            repository: s.repository,
-            packages: s.packages.map((p) => ({
-              registry: p.registry_name,
-              name: p.name,
-              runtime: p.runtime,
-              version: p.version,
-              url: p.url,
-            })),
-          }));
-        } catch (err) {
-          out.marketplace_error = err instanceof Error ? err.message : String(err);
-        }
+        const res = await rt.app.marketplace.search(query, limit);
+        out.marketplace = res.servers.map((m) => ({
+          ...m,
+          description: rt.app.trust.cleanServerDescription(m.description),
+        }));
+        if (Object.keys(res.errors).length) out.marketplace_errors = res.errors;
       }
       return ok(rt, 'search_servers', out);
     },
@@ -338,7 +367,7 @@ export const META_TOOLS = {
   install_server: defineTool({
     title: 'Install an MCP server',
     description:
-      'Install a server (from a package or a manual command/url) and index its tools. The user is asked to confirm the exact command first. Tools become searchable immediately; pass enable=true (or call enable_server) to expose them.',
+      'Install a server found by search_servers (exact `server` name; version pinned) or from a manual command/url, then index its tools. The user confirms the exact command and provenance first. Tools become searchable immediately; pass enable=true (or call enable_server) to expose them.',
     input: installArgs,
     output: OUTPUTS.install_server,
     annotations: {
@@ -350,52 +379,55 @@ export const META_TOOLS = {
     // Claude Code shows its permission prompt on every call, even in bypass/auto mode.
     meta: { 'anthropic/requiresUserInteraction': true },
     async run(rt, args, ctx) {
-      const existing = rt.app.servers.get(args.name);
-      const summary = (
-        status: Outputs['install_server']['status'],
-        plan?: InstallPlan,
-        indexError?: string,
-      ) => {
-        const s = rt.app.servers.get(args.name);
+      const plan = await proposedPlan(rt, args);
+      const view = planView(plan);
+      const missing = plan.requirements.filter((r) => r.required && !r.present).map((r) => r.key);
+      const summary = (status: Outputs['install_server']['status'], indexError?: string) => {
+        const s = rt.app.servers.get(plan.server);
         const tools = s ? rt.app.index.list(s.id).map((t) => t.name) : [];
         return ok(
           rt,
           'install_server',
           {
-            name: args.name,
+            name: plan.server,
             status,
             enabled: s?.enabled ?? false,
             tool_count: tools.length,
             tools,
             ...(indexError ? { index_error: indexError } : {}),
-            ...(plan ? { plan } : {}),
+            ...(missing.length ? { missing } : {}),
+            plan: view,
           },
           status === 'consent_required',
         );
       };
-      if (existing) return summary('already_installed');
-
-      const input = proposedInput(rt, args);
+      if (rt.app.servers.get(plan.server)) return summary('already_installed');
+      if (plan.blocked) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `Cannot install: ${plan.blocked}` }],
+        };
+      }
+      const input = plan.input;
       validateServerInput(input);
-      const plan = installPlan(input);
       const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
 
       if (!rt.app.config.allowUnconfirmedInstall) {
         const answer = await confirm(rt, ctx, {
           kind: 'install',
           digest,
-          message: installPlanText(plan),
+          message: installPlanText(view),
           schema: consentSchema,
-          noElicitation: () => summary('consent_required', plan),
+          noElicitation: () => summary('consent_required'),
         });
         if (answer.kind === 'pending') return answer.result;
         if (answer.kind === 'declined') {
-          rt.app.trust.record({ action: 'deny', server: args.name, detail: { kind: 'install' } });
-          return summary('declined', plan);
+          rt.app.trust.record({ action: 'deny', server: plan.server, detail: { kind: 'install' } });
+          return summary('declined');
         }
       }
       const { index_error } = await rt.app.lifecycle.install(input, { enable: args.enable });
-      return summary('installed', plan, index_error);
+      return summary('installed', index_error);
     },
   }),
 

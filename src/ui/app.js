@@ -650,49 +650,44 @@
 
     var html = browseResults
       .map(function (s, idx) {
+        var tag = function (color, text) {
+          return (
+            '<span class="tag" style="border-color:' +
+            color +
+            ';color:' +
+            color +
+            '">' +
+            esc(text) +
+            '</span>'
+          );
+        };
         var pkgs = (s.packages || [])
           .map(function (p) {
-            var rt = p.runtime || 'stdio';
-            var color =
-              rt === 'streamable-http'
-                ? 'var(--accent, #5d8da8)'
-                : rt === 'sse'
-                  ? 'var(--orange, #e67e22)'
-                  : 'var(--green, #27ae60)';
-            return (
-              '<span class="tag" style="border-color:' +
-              color +
-              ';color:' +
-              color +
-              '">' +
-              esc(rt) +
-              ': ' +
-              esc(p.name) +
-              '</span>'
+            return tag(
+              'var(--green, #27ae60)',
+              p.registry_type + ': ' + p.identifier + (p.version ? '@' + p.version : ''),
             );
           })
+          .concat(
+            (s.remotes || []).map(function (r) {
+              return tag(
+                r.type === 'sse' ? 'var(--orange, #e67e22)' : 'var(--accent, #5d8da8)',
+                r.type + ': ' + r.url,
+              );
+            }),
+          )
+          .concat(s.status && s.status !== 'active' ? [tag('var(--red, #c0392b)', s.status)] : [])
           .join('');
 
-        var safeName = (s.name || '').replace(/\//g, '-');
-        var isInstalled =
-          installedNames.indexOf(safeName) !== -1 || installedNames.indexOf(s.name) !== -1;
+        // The daemon names the local server after the last path segment (localNameFor).
+        var localName = (s.name || '').split('/').pop();
+        var isInstalled = installedNames.indexOf(localName) !== -1;
 
-        // All transport types are supported (stdio, sse, streamable-http)
-        var isRemoteOnly = false;
-
-        var installBtn;
-        if (isInstalled) {
-          installBtn =
-            '<button class="btn-install btn-installed" disabled><span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed</button>';
-        } else if (isRemoteOnly) {
-          installBtn =
-            '<button class="btn-install" disabled title="Remote server — not supported for local activation"><span class="material-symbols-outlined" style="font-size:14px">cloud_off</span>Remote only</button>';
-        } else {
-          installBtn =
-            '<button class="btn-install" data-action="install-browse" data-browse-idx="' +
+        var installBtn = isInstalled
+          ? '<button class="btn-install btn-installed" disabled><span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed</button>'
+          : '<button class="btn-install" data-action="install-browse" data-browse-idx="' +
             idx +
             '"><span class="material-symbols-outlined" style="font-size:14px">download</span>Install</button>';
-        }
 
         return (
           '<div class="server-card">' +
@@ -788,61 +783,48 @@
       });
   };
 
+  // Installs go through POST /api/install: the daemon resolves the exact entry, pins the
+  // version and builds the command (InstallPlan), so the dashboard never guesses one.
+  function installRequest(payload) {
+    return AD._fetch('/api/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error((data && data.error) || 'Install failed');
+        return data;
+      });
+    });
+  }
+
+  function installedToast(label, data) {
+    if (data && data.index_error) {
+      showToast('Installed ' + label + ', indexing failed: ' + data.index_error, 'error');
+    } else {
+      showToast(
+        'Installed ' + label + ' (' + ((data && data.tool_count) || 0) + ' tools)',
+        'success',
+      );
+    }
+  }
+
   window.__installFromBrowse = function (idx, btn) {
     var server = browseResults[idx];
     if (!server) return;
-
     btn.disabled = true;
     btn.innerHTML =
       '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span>Installing...';
-
-    var safeName = (server.name || '').replace(/@/g, '').replace(/\//g, '-');
-    // Detect transport and build config
-    var pkg = (server.packages || [])[0];
-    var runtime = (pkg && (pkg.transport || pkg.runtime)) || 'stdio';
-    var remoteUrl = pkg && pkg.url ? pkg.url : null;
-
-    var serverData = {
-      name: safeName,
-      description: server.description || '',
-      source: 'registry',
-      transport: runtime,
-      tags: ['marketplace'],
-    };
-
-    if (runtime === 'streamable-http' || runtime === 'sse') {
-      serverData.url = remoteUrl || '';
-    } else if (runtime === 'python' || (pkg && pkg.registry_name === 'pypi')) {
-      // PyPI package — install via uvx
-      serverData.transport = 'stdio';
-      serverData.command = 'uvx';
-      serverData.args = [pkg ? pkg.name || server.name : server.name || safeName];
-      serverData.tags = ['marketplace', 'pypi'];
-    } else {
-      // stdio / node — default to npx
-      serverData.transport = 'stdio';
-      serverData.command = 'npx';
-      serverData.args = ['-y', pkg ? pkg.name || server.name : server.name || safeName];
-    }
-
-    AD._fetch('/api/servers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(serverData),
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error('Install failed');
-        return r.json();
-      })
+    installRequest({ source: server.source, name: server.name })
       .then(function (data) {
-        if (data && data.index_error)
-          showToast('Installed, indexing failed: ' + data.index_error, 'error');
+        installedToast(server.name, data);
         btn.innerHTML =
           '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
         btn.classList.add('btn-installed');
       })
       .catch(function (err) {
         console.error('Install failed:', err);
+        showToast('Install failed: ' + err.message, 'error');
         btn.disabled = false;
         btn.innerHTML =
           '<span class="material-symbols-outlined" style="font-size:14px">error</span>Failed';
@@ -857,65 +839,23 @@
     var input = AD._root.getElementById('npm-package-input');
     var pkg = (input ? input.value : '').trim();
     if (!pkg) return;
-
-    // Find the install button and show spinner
     var btn = input ? input.parentElement.querySelector('.btn-install') : null;
     var origHtml = btn ? btn.innerHTML : '';
     if (btn) {
       btn.disabled = true;
       btn.innerHTML =
-        '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Checking...';
+        '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Installing...';
     }
-
-    AD._fetch('/api/npm-check?package=' + encodeURIComponent(pkg))
-      .then(function (r) {
-        return r.json();
-      })
+    installRequest({ source: 'npm', name: pkg })
       .then(function (data) {
-        if (!data.exists) {
-          showToast('Package not found on npm', 'error');
-          if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-          }
-          return;
-        }
-
-        var safeName = pkg.replace(/@/g, '').replace(/\//g, '-');
-        return AD._fetch('/api/servers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: safeName,
-            command: 'npx',
-            args: ['-y', pkg],
-            description: 'Installed from npm: ' + pkg,
-            source: 'registry',
-            tags: ['npm'],
-          }),
-        })
-          .then(function (r) {
-            if (!r.ok) throw new Error('Install failed');
-            return r.json();
-          })
-          .then(function (data) {
-            if (data && data.index_error) {
-              showToast('Installed ' + pkg + ', indexing failed: ' + data.index_error, 'error');
-            } else {
-              showToast('Installed ' + pkg + ' (' + (data.tool_count || 0) + ' tools)', 'success');
-            }
-          })
-          .then(function () {
-            if (input) input.value = '';
-            if (btn) {
-              btn.disabled = false;
-              btn.innerHTML = origHtml;
-            }
-          });
+        installedToast(pkg, data);
+        if (input) input.value = '';
       })
       .catch(function (err) {
         console.error('npm install failed:', err);
         showToast('Install failed: ' + err.message, 'error');
+      })
+      .then(function () {
         if (btn) {
           btn.disabled = false;
           btn.innerHTML = origHtml;

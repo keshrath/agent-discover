@@ -93,6 +93,15 @@ export class SecretsService {
     return true;
   }
 
+  /** One secret's value; null when it is not set. */
+  get(server: SecretOwner, key: string): string | null {
+    const known = this.db.queryOne<{ key: string }>(
+      'SELECT key FROM server_secrets WHERE server_id = ? AND key = ?',
+      [server.id, key],
+    );
+    return known ? this.backend.get(secretAccount(server.name, key)) : null;
+  }
+
   list(server: SecretOwner): SecretEntry[] {
     return this.db
       .queryAll<{
@@ -112,9 +121,11 @@ export class SecretsService {
     for (const { key } of this.list(server)) this.delete(server, key);
   }
 
+  /** Secrets that go into the server's env / headers (OAuth state is the transport's own). */
   getEnvForServer(server: SecretOwner): Record<string, string> {
     const env: Record<string, string> = {};
     for (const { key } of this.list(server)) {
+      if (key.startsWith('oauth:')) continue;
       const value = this.backend.get(secretAccount(server.name, key));
       if (value === null) {
         process.stderr.write(

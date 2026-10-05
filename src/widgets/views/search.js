@@ -23,13 +23,9 @@ export function renderSearchServers(sc, ctx) {
           sc.marketplace.map((s) => marketRow(s, ctx)),
         )
       : h('div', { class: 'empty' }, 'Try broader terms.'),
-    sc.marketplace_error
-      ? h(
-          'div',
-          { class: 'alert warning small' },
-          `Registry search failed: ${sc.marketplace_error}`,
-        )
-      : null,
+    ...Object.entries(sc.marketplace_errors ?? {}).map(([source, error]) =>
+      h('div', { class: 'alert warning small' }, `${source} search failed: ${error}`),
+    ),
   ];
 }
 
@@ -58,25 +54,9 @@ function installedRow(s, ctx) {
   );
 }
 
-/** install_server arguments for a registry entry: remote endpoint or package (npm pinned). */
+/** install_server arguments for a search result: its exact name and source; the server plans the rest. */
 export function installArgs(s) {
-  const p = s.packages[0];
-  const name = (s.name.split('/').pop() ?? s.name).replace(/[^a-zA-Z0-9._-]/g, '-');
-  if (!p) return { name, description: s.description };
-  if (p.url)
-    return {
-      name,
-      url: p.url,
-      transport: p.runtime === 'sse' ? 'sse' : 'streamable-http',
-      description: s.description,
-    };
-  const exact = p.runtime === 'node' && /^\d+\.\d+\.\d+/.test(p.version);
-  return {
-    name,
-    package: exact ? `${p.name}@${p.version}` : p.name,
-    ...(['node', 'python', 'docker'].includes(p.runtime) ? { runtime: p.runtime } : {}),
-    description: s.description,
-  };
+  return { server: s.name, source: s.source };
 }
 
 function marketRow(s, ctx) {
@@ -90,10 +70,11 @@ function marketRow(s, ctx) {
     ],
     s.description,
     [
-      p ? badge(`${p.registry} ${p.name}`, 'neutral', p.url ?? undefined) : null,
+      p ? badge(`${p.registry_type} ${p.identifier}`, 'neutral') : null,
+      s.status !== 'active' ? badge(s.status, 'warning') : null,
       s.repository ? dashLink(ctx, 'source ↗', s.repository) : null,
     ],
-    p
+    p || s.remotes.length
       ? action(
           'Install',
           async () => {

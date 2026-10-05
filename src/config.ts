@@ -16,6 +16,8 @@ export interface Config {
   readonly idleMs: number;
   /** Upstream connections idle longer than this are closed (AGENT_DISCOVER_CONN_IDLE_MS, default 10 min). */
   readonly connIdleMs: number;
+  /** Idle 2025 HTTP sessions (no open stream) are closed after this long (AGENT_DISCOVER_SESSION_IDLE_MS, default 30 min, 0 = never). */
+  readonly sessionIdleMs: number;
   /** native = enabled servers' tools exposed as <server>__<tool>; proxy = meta tools only (AGENT_DISCOVER_MODE). */
   readonly mode: ExposureMode;
   /** Operator opt-in: install_server may run without human consent when the client cannot elicit. */
@@ -28,6 +30,13 @@ export interface Config {
   readonly auditArgs: boolean;
   /** Audit log retention in rows (AGENT_DISCOVER_AUDIT_MAX_ROWS, default 50000, 0 = unlimited). */
   readonly auditMaxRows: number;
+  /** Official MCP Registry (or a compatible sub-registry) mirrored locally (AGENT_DISCOVER_REGISTRY_URL). */
+  readonly registryUrl: string;
+  /**
+   * HTTPS URL where the operator hosts agent-discover's OAuth Client ID Metadata Document
+   * (AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL). Unset: dynamic client registration.
+   */
+  readonly oauthClientMetadataUrl?: string;
 }
 
 function int(value: string | undefined, fallback: number): number {
@@ -41,11 +50,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.AGENT_DISCOVER_HOST || '127.0.0.1',
     idleMs: int(env.AGENT_DISCOVER_IDLE_MS, 30 * 60_000),
     connIdleMs: int(env.AGENT_DISCOVER_CONN_IDLE_MS, 10 * 60_000),
+    sessionIdleMs: int(env.AGENT_DISCOVER_SESSION_IDLE_MS, 30 * 60_000),
     mode: env.AGENT_DISCOVER_MODE === 'proxy' ? 'proxy' : 'native',
     allowUnconfirmedInstall: env.AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL === '1',
     maxToolDescription: int(env.AGENT_DISCOVER_MAX_TOOL_DESCRIPTION, 1024),
     maxServerDescription: int(env.AGENT_DISCOVER_MAX_SERVER_DESCRIPTION, 512),
     auditArgs: env.AGENT_DISCOVER_AUDIT_ARGS === '1',
     auditMaxRows: int(env.AGENT_DISCOVER_AUDIT_MAX_ROWS, 50_000),
+    registryUrl: (
+      env.AGENT_DISCOVER_REGISTRY_URL || 'https://registry.modelcontextprotocol.io'
+    ).replace(/\/+$/, ''),
+    oauthClientMetadataUrl: env.AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL || undefined,
   };
 }

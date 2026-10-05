@@ -21,6 +21,7 @@ import type { ServerEntry, ServerInput, ServerTransport, ServerUpdate } from '..
 import { NotFoundError, RegistryError, UpstreamError, ValidationError } from '../types.js';
 import { isCommandOnPath, type ElicitationContent } from '../domain/pool.js';
 import { maskEnv, restoreMaskedEnv } from '../domain/secrets.js';
+import type { PlanRequest } from '../domain/marketplace.js';
 import { version } from '../version.js';
 import { TOKEN_HEADER, mayReadToken, type RestToken } from './token.js';
 
@@ -58,6 +59,26 @@ function serverFields(body: Record<string, unknown>): ServerUpdate {
     repository: str(body.repository),
     homepage: str(body.homepage),
   };
+}
+
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+function page(res: ServerResponse, status: number, title: string, text: string): void {
+  const esc = (v: string) => v.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><h1>${esc(title)}</h1><p>${esc(text)}</p>`,
+  );
 }
 
 export function createRestHandler(
@@ -238,6 +259,47 @@ export function createRestHandler(
     json(res, { status: 'deleted', key: p.key });
   });
 
+  // -- OAuth (remote upstreams) ----------------------------------------------
+
+  const remote = (id: string): ServerEntry & { url: string } => {
+    const server = byId(id);
+    if (server.transport === 'stdio' || !server.url) {
+      throw new ValidationError(`"${server.name}" is not a remote server`);
+    }
+    return server as ServerEntry & { url: string };
+  };
+
+  route('GET', '/api/servers/:id/auth', (_req, res, p) => {
+    json(res, ctx.oauth.status(remote(p.id).name));
+  });
+
+  route('POST', '/api/servers/:id/auth', async (_req, res, p) => {
+    const server = remote(p.id);
+    json(res, await upstream(() => ctx.oauth.begin(server.name, server.url)));
+  });
+
+  // The authorization server redirects the user's browser here (loopback redirect URI).
+  route('GET', '/oauth/callback', async (req, res) => {
+    let name: string;
+    try {
+      name = await ctx.oauth.callback(query(req), (n) => servers.require(n).url ?? '');
+    } catch (err) {
+      return page(res, 400, 'Sign-in failed', err instanceof Error ? err.message : String(err));
+    }
+    if (!servers.require(name).indexed_at) {
+      lifecycle.reindex(name).catch((err) =>
+        process.stderr.write(`[agent-discover] indexing "${name}" failed: ${String(err)}
+`),
+      );
+    }
+    page(
+      res,
+      200,
+      'Signed in',
+      `agent-discover is authorized for "${name}". You can close this tab.`,
+    );
+  });
+
   route('GET', '/api/servers/:id/metrics', (_req, res, p) => {
     json(res, ctx.metrics.getServerMetrics(byId(p.id).id));
   });
@@ -249,12 +311,49 @@ export function createRestHandler(
   route('GET', '/api/browse', async (req, res) => {
     const q = query(req);
     const limit = Math.max(1, Math.min(parseInt(q.get('limit') ?? '20', 10) || 20, 100));
-    json(
-      res,
-      await upstream(() =>
-        ctx.marketplace.browse(q.get('query') ?? undefined, limit, q.get('cursor') ?? undefined),
-      ),
-    );
+    json(res, await upstream(() => ctx.marketplace.search(q.get('query') ?? '', limit)));
+  });
+
+  // Exact-name install from search results: the plan is what the dashboard shows for consent.
+  const planRequest = (src: { get(k: string): string | null | undefined }): PlanRequest => {
+    const source = src.get('source') ?? 'registry';
+    if (source !== 'registry' && source !== 'npm' && source !== 'pypi') {
+      throw new ValidationError('source must be registry, npm or pypi');
+    }
+    const name = src.get('name');
+    if (!name) throw new ValidationError('name is required');
+    const localName = src.get('local_name') ?? undefined;
+    const existing = localName ? servers.get(localName) : null;
+    return {
+      source,
+      name,
+      version: src.get('version') ?? undefined,
+      local_name: localName,
+      transport: (src.get('transport') ?? undefined) as ServerTransport | undefined,
+      storedSecrets: existing ? ctx.secrets.list(existing).map((s) => s.key) : [],
+    };
+  };
+
+  route('GET', '/api/install/plan', async (req, res) => {
+    const q = query(req);
+    json(res, await upstream(() => ctx.marketplace.plan(planRequest(q))));
+  });
+
+  route('POST', '/api/install', async (req, res) => {
+    const b = await body(req);
+    const plan = await upstream(() => ctx.marketplace.plan(planRequest({ get: (k) => str(b[k]) })));
+    if (plan.blocked) throw new ValidationError(`Cannot install: ${plan.blocked}`);
+    const { server, index_error } = await lifecycle.install(plan.input, {
+      enable: b.enable === true,
+      secrets: strMap(b.secrets),
+    });
+    json(res, { ...view(server), plan, ...(index_error ? { index_error } : {}) }, 201);
+  });
+
+  route('GET', '/api/registry', (_req, res) => json(res, ctx.registry.status()));
+
+  route('POST', '/api/registry/sync', async (_req, res) => {
+    json(res, await upstream(() => ctx.registry.sync()));
   });
 
   route('GET', '/api/prereqs', async (_req, res) => {
@@ -262,19 +361,6 @@ export function createRestHandler(
       ['npx', 'uvx', 'docker', 'uv'].map((c) => isCommandOnPath(c)),
     );
     json(res, { npx, uvx, docker, uv });
-  });
-
-  route('GET', '/api/npm-check', async (req, res) => {
-    const pkg = query(req).get('package') ?? '';
-    if (!pkg) throw new ValidationError('package query parameter is required');
-    const url = pkg.startsWith('@')
-      ? `https://registry.npmjs.org/${pkg.replace('/', '%2F')}`
-      : `https://registry.npmjs.org/${encodeURIComponent(pkg)}`;
-    try {
-      json(res, { exists: (await fetch(url, { signal: AbortSignal.timeout(10_000) })).ok });
-    } catch {
-      json(res, { exists: false });
-    }
   });
 
   route('POST', '/api/sync', async (_req, res) => json(res, await ctx.syncSetup()));

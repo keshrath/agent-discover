@@ -25,23 +25,37 @@ See [SECURITY.md](SECURITY.md) for the whole trust model.
 
 ## Environment
 
-| Variable                                              | Default                       | Meaning                                                                                  |
-| ----------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`                                 | `3424`                        | Daemon port                                                                              |
-| `AGENT_DISCOVER_HOST`                                 | `127.0.0.1`                   | Listen address                                                                           |
-| `AGENT_DISCOVER_DB`                                   | `~/.claude/agent-discover.db` | SQLite path (1.x location, migrated in place)                                            |
-| `AGENT_DISCOVER_MODE`                                 | `native`                      | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only  |
-| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                     | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)    |
-| `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                      | Idle upstream connections are closed                                                     |
-| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                         | `1` lets `install_server` run without an elicitation prompt (operator opt-in)            |
-| `AGENT_DISCOVER_SETUP_FILE`                           | unset                         | Declarative server list synced at daemon start                                           |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                        | `openai` / `local` adds semantic ranking                                                 |
-| `AGENT_DISCOVER_SECRETS`                              | auto                          | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file) |
-| `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`                 | `1024`                        | Cap (chars) on tool descriptions shown to models (`0` = none)                            |
-| `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`               | `512`                         | Same for server descriptions                                                             |
-| `AGENT_DISCOVER_AUDIT_ARGS`                           | unset                         | `1` also records (masked) tool-call arguments in the audit log                           |
-| `AGENT_DISCOVER_AUDIT_MAX_ROWS`                       | `50000`                       | Audit retention (oldest rows pruned)                                                     |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `AGENT_DISCOVER_OTEL` | unset                         | Either one (or `AGENT_DISCOVER_OTEL=1`) turns OpenTelemetry on                           |
+| Variable                                              | Default                                    | Meaning                                                                                                |
+| ----------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_PORT`                                 | `3424`                                     | Daemon port                                                                                            |
+| `AGENT_DISCOVER_HOST`                                 | `127.0.0.1`                                | Listen address                                                                                         |
+| `AGENT_DISCOVER_DB`                                   | `~/.claude/agent-discover.db`              | SQLite path (1.x location, migrated in place)                                                          |
+| `AGENT_DISCOVER_MODE`                                 | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                |
+| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                  |
+| `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                                   | Idle upstream connections are closed                                                                   |
+| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                                      | `1` lets `install_server` run without an elicitation prompt (operator opt-in)                          |
+| `AGENT_DISCOVER_SETUP_FILE`                           | unset                                      | Declarative server list synced at daemon start                                                         |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                                     | `openai` / `local` adds semantic ranking                                                               |
+| `AGENT_DISCOVER_SECRETS`                              | auto                                       | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file)               |
+| `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`                 | `1024`                                     | Cap (chars) on tool descriptions shown to models (`0` = none)                                          |
+| `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`               | `512`                                      | Same for server descriptions                                                                           |
+| `AGENT_DISCOVER_AUDIT_ARGS`                           | unset                                      | `1` also records (masked) tool-call arguments in the audit log                                         |
+| `AGENT_DISCOVER_AUDIT_MAX_ROWS`                       | `50000`                                    | Audit retention (oldest rows pruned)                                                                   |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `AGENT_DISCOVER_OTEL` | unset                                      | Either one (or `AGENT_DISCOVER_OTEL=1`) turns OpenTelemetry on                                         |
+| Variable                                              | Default                                    | Meaning                                                                                                |
+| ------------------------------------------            | ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_PORT`                                 | `3424`                                     | Daemon port                                                                                            |
+| `AGENT_DISCOVER_HOST`                                 | `127.0.0.1`                                | Listen address                                                                                         |
+| `AGENT_DISCOVER_DB`                                   | `~/.claude/agent-discover.db`              | SQLite path (1.x location, migrated in place)                                                          |
+| `AGENT_DISCOVER_MODE`                                 | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                |
+| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                  |
+| `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                                   | Idle upstream connections are closed                                                                   |
+| `AGENT_DISCOVER_SESSION_IDLE_MS`                      | `1800000`                                  | 2025 HTTP sessions with no open stream are closed after this long (`0` = never)                        |
+| `AGENT_DISCOVER_REGISTRY_URL`                         | `https://registry.modelcontextprotocol.io` | Official MCP Registry (or a compatible sub-registry) mirrored locally                                  |
+| `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL`            | unset                                      | HTTPS URL of an operator-hosted OAuth Client ID Metadata Document; unset = dynamic client registration |
+| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                                      | `1` lets `install_server` run without an elicitation prompt (operator opt-in)                          |
+| `AGENT_DISCOVER_SETUP_FILE`                           | unset                                      | Declarative server list synced at daemon start                                                         |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                                     | `openai` / `local` adds semantic ranking                                                               |
 
 ## MCP
 
@@ -68,7 +82,7 @@ All tools except `call_tool` declare an `outputSchema` and return `structuredCon
 
 ## REST
 
-Errors are `{ error, code? }` with 400 (validation), 404, 409, 413, 415, 502 (upstream failure) or 500.
+Errors are `{ error, code? }` with 400 (validation), 401 (`AUTH_REQUIRED`: a remote upstream needs OAuth sign-in), 404, 409, 413, 415, 502 (upstream failure) or 500.
 
 ### Health and status
 
@@ -95,7 +109,24 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete call_tool`.
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
-Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`.
+Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).
+
+### Marketplace and install
+
+- `GET /api/browse?query=&limit=` → `{servers: MarketplaceEntry[], registry: "mirror"|"live", errors: {registry?, npm?, pypi?}}`. `MarketplaceEntry = {source: "registry"|"npm"|"pypi", name, title?, description, version, status: "active"|"deprecated"|"deleted", repository, packages: [{registry_type, identifier, version, transport}], remotes: [{type, url}]}`. `name` is the exact name to install.
+- `GET /api/install/plan?source=&name=&version=&local_name=&transport=` → `InstallPlan` (the exact command or endpoint, the pinned version, env/header requirements, provenance checks, warnings, and `blocked` when it cannot be installed). `source` defaults to `registry`.
+- `POST /api/install` `{source?, name, version?, local_name?, transport?, enable?, secrets?}` → 201 server + `plan` (+ `index_error`). It returns 400 when the plan is blocked and 409 when the local name exists.
+- `GET /api/registry` → `{count, synced_at, syncing, last_error}` (local mirror of the official MCP Registry; the daemon syncs on start and on search when older than 1 h) · `POST /api/registry/sync` → `{mode: "full"|"incremental", fetched, pages, ms}`.
+- `ServerStatus.registry_status` (`GET /api/status`, `server_status`) is `deleted` when the entry an installed server came from was taken down.
+
+### OAuth (remote upstreams)
+
+Remote servers without their own `Authorization` header authenticate with OAuth 2.1. The SDK runs discovery (RFC 9728, RFC 8414), PKCE, refresh and the RFC 9207 `iss` check. The client registers dynamically unless `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL` names a Client ID Metadata Document. Credentials are stored as server secrets: `oauth:client:<issuer>`, `oauth:tokens:<issuer>`, `oauth:issuer`, `oauth:discovery` and `oauth:verifier`. These keys never go into env or headers. agent-discover never opens the authorization URL itself and only hands out http(s) URLs.
+
+- `GET /api/servers/:id/auth` → `{status: "authorized"|"required"|"unknown", authorize_url?, issuer?}`.
+- `POST /api/servers/:id/auth` → runs `auth()` now and returns the same shape. Use it to start sign-in before the first call.
+- `GET /oauth/callback?code&state&iss` → the loopback redirect URI `http://127.0.0.1:<port>/oauth/callback`. It checks that `state` is single-use and less than 10 minutes old, then redeems the code, indexes the server if needed and answers with an HTML page.
+- Over MCP, a call to a server that needs sign-in returns a URL-mode elicitation (`inputRequests.signin`) when the client declares `elicitation.url`. The retry waits up to 5 minutes for the callback. Without URL-mode support the call returns `isError` with the URL in the text.
 
 ### Tester (connects lazily; same routes under `/api/transient/:handle`)
 
@@ -104,7 +135,7 @@ Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `
 
 ### Other
 
-`GET /api/browse?query=&limit=&cursor=` · `GET /api/prereqs` · `GET /api/npm-check?package=` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
+`GET /api/prereqs` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
 
 ## WebSocket (`/ws`)
 

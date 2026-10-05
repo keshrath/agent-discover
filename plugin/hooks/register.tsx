@@ -43,8 +43,16 @@ async function tool(
 const origin = async ($: EngineInterface) =>
   `http://127.0.0.1:${(await $.env.get('AGENT_DISCOVER_PORT')) ?? '3424'}`;
 
+/** State-changing /api calls carry the daemon's per-launch token (GET /api/token, no Origin). */
 async function api($: EngineInterface, path: string, method = 'GET'): Promise<Json> {
-  const res = await $.http.fetch(`${await origin($)}${path}`, { method });
+  const base = await origin($);
+  const headers: Record<string, string> = {};
+  if (method !== 'GET') {
+    const t = await $.http.fetch(`${base}/api/token`);
+    if (!t.ok) throw new Error(`GET /api/token: ${t.status}`);
+    headers['X-Agent-Discover-Token'] = String((JSON.parse(t.text) as Json).token);
+  }
+  const res = await $.http.fetch(`${base}${path}`, { method, headers });
   if (!res.ok) throw new Error(`${method} ${path}: ${res.status}`);
   return JSON.parse(res.text) as Json;
 }
@@ -125,10 +133,13 @@ async function find($: EngineInterface, query: string) {
       .filter((m) => !installed.has(m.name))
       .map((m) => ({
         name: m.name,
+        source: String(m.source ?? 'registry'),
         description: String(m.description ?? ''),
         version: String(m.version ?? ''),
       })),
-    ...(servers.marketplace_error ? { error: String(servers.marketplace_error) } : {}),
+    ...(servers.marketplace_errors
+      ? { error: Object.values(servers.marketplace_errors as Record<string, string>).join('; ') }
+      : {}),
   };
   await update($, found, () => result);
 
@@ -168,8 +179,8 @@ const handlers = ($: EngineInterface): Handlers => ({
 
     return `re-indexed ${name}: +${r.added} ~${r.changed} -${r.removed}`;
   },
-  install: async (name) => {
-    const r = await tool($, 'install_server', { name });
+  install: async (name, source) => {
+    const r = await tool($, 'install_server', { server: name, source });
     if (r.status === 'installed') return `installed ${name} (${r.tool_count} tools)`;
     if (r.status === 'consent_required') return `${name}: consent needed, ask Claude to install it`;
 

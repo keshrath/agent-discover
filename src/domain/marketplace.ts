@@ -1,30 +1,43 @@
 // =============================================================================
-// agent-discover — Marketplace client
+// agent-discover — Marketplace
 //
-// Fetches MCP servers from the official MCP registry API at
-// registry.modelcontextprotocol.io. Provides search and browse capabilities.
+// search: the local MCP Registry mirror first (FTS, offline), then npm and
+// PyPI federation for servers that only live in a package registry. Every
+// result — registry or federated — is a normalized server.json, so install
+// plans are built by one builder (install-plan.ts).
+//
+// resolve/plan: exact-name lookup only (no fuzzy matching) of the entry to
+// install, then the InstallPlan with provenance checks.
 // =============================================================================
 
-import type { MarketplaceResult } from '../types.js';
+import {
+  buildInstallPlan,
+  type InstallCandidate,
+  type InstallPlan,
+  type InstallSource,
+  type RegistryStatus,
+  type ServerJson,
+} from './install-plan.js';
+import { checkProvenance, npmLatestVersion, pypiLatestVersion } from './provenance.js';
+import type { RegistryMirror } from './registry.js';
+import type { ServerTransport } from '../types.js';
+import { NotFoundError, ValidationError } from '../types.js';
 
-const REGISTRY_API = 'https://registry.modelcontextprotocol.io';
 const NPM_SEARCH_API = 'https://registry.npmjs.org/-/v1/search';
+const NPM_REGISTRY = 'https://registry.npmjs.org';
 const PYPI_JSON_API = 'https://pypi.org/pypi';
 const PYPI_SEARCH_HTML = 'https://pypi.org/search/';
 const REQUEST_TIMEOUT_MS = 15_000;
 
-// Curated list of well-known Python MCP server packages on PyPI. The PyPI
-// search HTML endpoint is brittle and the JSON XML-RPC search is deprecated,
-// so we keep a hand-maintained index of the popular ones and resolve their
-// metadata at query time via the per-package JSON API (which is stable).
+// Well-known Python MCP servers. PyPI has no search API (XML-RPC search is
+// gone, the HTML page is best-effort), so these are matched locally and
+// resolved through the stable per-project JSON API.
 const CURATED_PYPI_PACKAGES: ReadonlyArray<string> = [
-  // Anthropic / official reference servers
   'mcp-server-fetch',
   'mcp-server-git',
   'mcp-server-time',
   'mcp-server-sqlite',
   'mcp-server-filesystem',
-  // Community
   'mcp-server-aws',
   'mcp-server-bigquery',
   'mcp-server-docker',
@@ -48,7 +61,6 @@ const CURATED_PYPI_PACKAGES: ReadonlyArray<string> = [
   'mcp-server-spotify',
   'mcp-server-todoist',
   'mcp-server-weather',
-  // Anthropic-flavored helpers
   'mcp-python-interpreter',
   'mcp-text-editor',
   'mcp-installer',
@@ -56,326 +68,290 @@ const CURATED_PYPI_PACKAGES: ReadonlyArray<string> = [
   'mcp-cli',
 ];
 
-// Compare two semver-ish strings; returns >0 if a is newer
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
-  const pb = b.split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da !== db) return da - db;
-  }
-  return 0;
+const SAFE_PACKAGE_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+/** One search result, any source. */
+export interface MarketplaceEntry {
+  source: InstallSource;
+  name: string;
+  title?: string;
+  description: string;
+  version: string;
+  status: RegistryStatus;
+  repository: string | null;
+  packages: Array<{
+    registry_type: string;
+    identifier: string;
+    version: string | null;
+    transport: string;
+  }>;
+  remotes: Array<{ type: string; url: string }>;
+}
+
+export interface MarketplaceSearch {
+  servers: MarketplaceEntry[];
+  /** Where registry results came from, and per-source errors (federation is best-effort). */
+  registry: 'mirror' | 'live';
+  errors: Partial<Record<InstallSource, string>>;
+}
+
+export interface PlanRequest {
+  source?: InstallSource;
+  /** Exact registry name / npm package / PyPI project. */
+  name: string;
+  version?: string;
+  /** Local server name. */
+  local_name?: string;
+  transport?: ServerTransport;
+  storedSecrets?: string[];
+}
+
+function toEntry(c: InstallCandidate): MarketplaceEntry {
+  const s = c.server;
+  return {
+    source: c.source,
+    name: s.name,
+    ...(s.title ? { title: s.title } : {}),
+    description: s.description,
+    version: s.version,
+    status: c.registry?.status ?? 'active',
+    repository: s.repository ?? null,
+    packages: s.packages.map((p) => ({
+      registry_type: p.registryType,
+      identifier: p.identifier,
+      version: p.version ?? null,
+      transport: p.transport.type,
+    })),
+    remotes: s.remotes.map((r) => ({ type: r.type, url: r.url })),
+  };
+}
+
+/** A federated package as a server.json with one stdio package. */
+function packageServer(
+  registryType: 'npm' | 'pypi',
+  name: string,
+  version: string,
+  description: string,
+  repository: string | null,
+): ServerJson {
+  return {
+    name,
+    description,
+    version,
+    ...(repository ? { repository } : {}),
+    packages: [
+      {
+        registryType,
+        identifier: name,
+        version: version || undefined,
+        transport: { type: 'stdio' },
+        runtimeArguments: [],
+        packageArguments: [],
+        environmentVariables: [],
+      },
+    ],
+    remotes: [],
+  };
+}
+
+function looksMcp(text: string): boolean {
+  const t = text.toLowerCase();
+  return /\bmcp\b|mcp-|-mcp|model context protocol/.test(t);
+}
+
+function tokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 1 && t !== 'mcp' && t !== 'server');
+}
+
+async function getJson(url: string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  return res.json();
 }
 
 export class MarketplaceClient {
-  async browse(query?: string, limit = 20, cursor?: string): Promise<MarketplaceResult> {
-    const params = new URLSearchParams();
-    if (query) params.set('search', query);
-    params.set('limit', String(Math.min(limit, 100)));
-    if (cursor) params.set('cursor', cursor);
+  constructor(private readonly mirror: RegistryMirror) {}
 
-    const url = `${REGISTRY_API}/v0/servers?${params}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    let registryResult: MarketplaceResult;
-    try {
-      const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) {
-        throw new Error(`Registry API error: ${res.status} ${res.statusText}`);
-      }
-      const data = await res.json();
-      registryResult = this.parseResponse(data);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error('Registry API request timed out', { cause: err });
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    // Augment with npm + PyPI search when a query is provided. The official
-    // MCP registry is sparsely populated; many popular MCPs live only on
-    // npm (@playwright/mcp, @modelcontextprotocol/server-*) or PyPI
-    // (mcp-server-fetch, mcp-server-git, …).
-    //
-    // Dedupe key is `<source>:<name>` so cross-source name collisions
-    // (e.g. mcp-server-sqlite on both npm and PyPI as different projects)
-    // both remain visible, while same-source version dupes still collapse.
-    if (query && !cursor) {
-      const [npmResults, pypiResults] = await Promise.all([
-        this.searchNpm(query, limit).catch(() => []),
-        this.searchPypi(query, limit).catch(() => []),
-      ]);
-      const keyOf = (s: MarketplaceResult['servers'][number]): string => {
-        const runtime = (s.packages?.[0]?.runtime ?? '').toLowerCase();
-        const source = runtime === 'python' ? 'pypi' : runtime === 'node' ? 'npm' : 'registry';
-        return `${source}:${s.name}`;
-      };
-      const seen = new Set(registryResult.servers.map(keyOf));
-      for (const extra of [...npmResults, ...pypiResults]) {
-        const k = keyOf(extra);
-        if (!seen.has(k)) {
-          registryResult.servers.push(extra);
-          seen.add(k);
-        }
-      }
-    }
-
-    return registryResult;
+  async search(query: string, limit = 20): Promise<MarketplaceSearch> {
+    const errors: MarketplaceSearch['errors'] = {};
+    const synced = this.mirror.status().synced_at !== null;
+    this.mirror.syncIfStale();
+    const registry: Promise<InstallCandidate[]> = synced
+      ? Promise.resolve(this.mirror.search(query, limit))
+      : this.mirror.searchLive(query, limit);
+    const [reg, npm, pypi] = await Promise.all([
+      registry.catch((err: unknown) => {
+        errors.registry = err instanceof Error ? err.message : String(err);
+        return [];
+      }),
+      this.searchNpm(query, limit).catch((err: unknown) => {
+        errors.npm = err instanceof Error ? err.message : String(err);
+        return [];
+      }),
+      this.searchPypi(query, limit).catch((err: unknown) => {
+        errors.pypi = err instanceof Error ? err.message : String(err);
+        return [];
+      }),
+    ]);
+    // A federated package already published through a registry entry is the same artifact.
+    const published = new Set(
+      reg.flatMap((c) => c.server.packages.map((p) => `${p.registryType}:${p.identifier}`)),
+    );
+    const extra = [...npm, ...pypi].filter(
+      (c) => !published.has(`${c.source}:${c.server.packages[0]?.identifier}`),
+    );
+    return {
+      servers: [...reg, ...extra].slice(0, limit).map(toEntry),
+      registry: synced ? 'mirror' : 'live',
+      errors,
+    };
   }
 
-  /**
-   * Search for Python MCP servers via PyPI.
-   *
-   * Strategy (best-effort, never blocks the main response):
-   *   1. Match the query against a curated list of well-known Python MCP
-   *      package names.
-   *   2. In parallel, fetch live metadata for each match from the PyPI JSON
-   *      API (`/pypi/<name>/json`) — this endpoint IS stable, unlike the
-   *      deprecated XML-RPC search.
-   *   3. Also try the public PyPI search HTML page and parse out package
-   *      names with a forgiving regex; merge any extras found there.
-   */
-  private async searchPypi(query: string, limit: number): Promise<MarketplaceResult['servers']> {
-    const q = query.toLowerCase().trim();
-    const candidates = new Set<string>();
-
-    // (1) curated list — substring match against package name
-    for (const name of CURATED_PYPI_PACKAGES) {
-      if (!q || name.includes(q) || q.includes('mcp')) {
-        candidates.add(name);
-      }
-    }
-
-    // (2) HTML search — best-effort scrape; PyPI returns a deterministic
-    // listing with `<a class="package-snippet" href="/project/<name>/">`.
-    try {
-      const params = new URLSearchParams({ q: `${query} mcp` });
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  /** Exact-name lookup of an installable entry. */
+  async resolve(source: InstallSource, name: string, version?: string): Promise<InstallCandidate> {
+    if (source === 'registry') {
+      let candidate: InstallCandidate | null;
       try {
-        const res = await fetch(`${PYPI_SEARCH_HTML}?${params}`, {
-          signal: controller.signal,
-          headers: { Accept: 'text/html', 'User-Agent': 'agent-discover/1.x' },
-        });
-        if (res.ok) {
-          const html = await res.text();
-          const re = /<a[^>]+class="package-snippet"[^>]+href="\/project\/([^/"]+)\//g;
-          let match: RegExpExecArray | null;
-          let added = 0;
-          while ((match = re.exec(html)) && added < limit) {
-            const name = match[1].toLowerCase();
-            if (name.includes('mcp') || name.includes(q)) {
-              candidates.add(name);
-              added++;
-            }
-          }
-        }
-      } finally {
-        clearTimeout(timeoutId);
+        candidate = await this.mirror.fetchVersion(name, version ?? 'latest');
+      } catch (err) {
+        // Offline: the mirror still knows the latest version.
+        candidate = version ? null : this.mirror.get(name);
+        if (!candidate) throw err;
       }
-    } catch {
-      /* HTML scrape failure is fine, fall back to curated list only */
+      if (!candidate) {
+        throw new NotFoundError('MCP Registry server', version ? `${name}@${version}` : name);
+      }
+      return candidate;
     }
+    if (!SAFE_PACKAGE_NAME.test(name)) throw new ValidationError(`Invalid package name: "${name}"`);
+    if (source === 'npm') {
+      const path = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : name;
+      const data = (await getJson(`${NPM_REGISTRY}/${path}/${version ?? 'latest'}`)) as {
+        name?: string;
+        version?: string;
+        description?: string;
+        repository?: { url?: string } | string;
+      } | null;
+      if (!data?.version || data.name !== name) throw new NotFoundError('npm package', name);
+      const repo = typeof data.repository === 'string' ? data.repository : data.repository?.url;
+      return {
+        source,
+        server: packageServer('npm', name, data.version, data.description ?? '', repo ?? null),
+      };
+    }
+    const data = (await getJson(
+      `${PYPI_JSON_API}/${encodeURIComponent(name)}${version ? `/${encodeURIComponent(version)}` : ''}/json`,
+    )) as {
+      info?: {
+        name?: string;
+        version?: string;
+        summary?: string;
+        project_urls?: Record<string, string>;
+      };
+    } | null;
+    const info = data?.info;
+    if (!info?.version || info.name?.toLowerCase() !== name.toLowerCase()) {
+      throw new NotFoundError('PyPI project', name);
+    }
+    const repo = info.project_urls?.Repository ?? info.project_urls?.Source ?? null;
+    return {
+      source,
+      server: packageServer('pypi', info.name, info.version, info.summary ?? '', repo),
+    };
+  }
 
-    if (candidates.size === 0) return [];
+  /** Resolve + build + verify the plan for one install request. */
+  async plan(req: PlanRequest): Promise<InstallPlan> {
+    const candidate = await this.resolve(req.source ?? 'registry', req.name, req.version);
+    // Registry packages without a version (allowed since schema 2025-12-11) are pinned to the
+    // package registry's current release so the consent shows exactly what runs.
+    for (const pkg of candidate.server.packages) {
+      if (pkg.version) continue;
+      if (pkg.registryType === 'npm')
+        pkg.version = (await npmLatestVersion(pkg.identifier)) ?? undefined;
+      if (pkg.registryType === 'pypi')
+        pkg.version = (await pypiLatestVersion(pkg.identifier)) ?? undefined;
+    }
+    const plan = buildInstallPlan(candidate, {
+      name: req.local_name,
+      transport: req.transport,
+      storedSecrets: req.storedSecrets,
+    });
+    return checkProvenance(plan);
+  }
 
-    // (3) Resolve metadata for each candidate via the PyPI JSON API
-    const names = [...candidates].slice(0, limit);
-    const entries = await Promise.all(
-      names.map(async (name) => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-        try {
-          const res = await fetch(`${PYPI_JSON_API}/${encodeURIComponent(name)}/json`, {
-            signal: controller.signal,
-          });
-          if (!res.ok) return null;
-          const data = (await res.json()) as {
-            info?: {
-              name?: string;
-              version?: string;
-              summary?: string;
-              project_urls?: Record<string, string>;
-              home_page?: string;
-            };
-          };
-          const info = data.info ?? {};
-          const repository =
-            info.project_urls?.Repository ??
-            info.project_urls?.Source ??
-            info.project_urls?.Homepage ??
-            info.home_page ??
-            null;
-          return {
-            name: String(info.name ?? name),
-            description: String(info.summary ?? ''),
-            version: String(info.version ?? ''),
-            repository,
-            packages: [
-              {
-                registry_name: 'pypi',
-                name: String(info.name ?? name),
-                version: String(info.version ?? ''),
-                runtime: 'python',
-                license: null,
-                url: null,
-              },
-            ],
-          };
-        } catch {
-          return null;
-        } finally {
-          clearTimeout(timeoutId);
-        }
+  // ---------------------------------------------------------------------------
+  // Federation
+  // ---------------------------------------------------------------------------
+
+  private async searchNpm(query: string, limit: number): Promise<InstallCandidate[]> {
+    // `keywords:mcp` catches packages that opted in; the plain variant catches
+    // MCP servers that mention MCP only in their name/description (@playwright/mcp).
+    const size = String(Math.min(limit, 50));
+    const responses = await Promise.all(
+      [`${query} keywords:mcp`, `${query} mcp`].map(async (text) => {
+        const data = (await getJson(
+          `${NPM_SEARCH_API}?${new URLSearchParams({ text, size })}`,
+        )) as {
+          objects?: Array<{ package?: Record<string, unknown> }>;
+        } | null;
+        return Array.isArray(data?.objects) ? data.objects : [];
       }),
     );
-
-    // Filter out lookups that failed AND only keep entries that look
-    // MCP-related (defensive — the curated list is trusted, but the HTML
-    // scrape can pull in noise).
-    const result: MarketplaceResult['servers'] = [];
-    for (const e of entries) {
-      if (!e) continue;
-      const haystack = `${e.name} ${e.description}`.toLowerCase();
-      if (!haystack.includes('mcp') && !haystack.includes('model context protocol')) continue;
-      result.push(e);
+    const seen = new Set<string>();
+    const out: InstallCandidate[] = [];
+    for (const { package: pkg = {} } of responses.flat()) {
+      const name = String(pkg.name ?? '');
+      if (!name || seen.has(name)) continue;
+      const kw = Array.isArray(pkg.keywords) ? pkg.keywords.join(' ') : '';
+      const description = String(pkg.description ?? '');
+      if (!looksMcp(`${name} ${kw} ${description}`)) continue;
+      seen.add(name);
+      const links = (pkg.links ?? {}) as Record<string, string>;
+      out.push({
+        source: 'npm',
+        server: packageServer(
+          'npm',
+          name,
+          String(pkg.version ?? ''),
+          description,
+          links.repository ?? null,
+        ),
+      });
     }
-    return result;
+    return out;
   }
 
-  private async searchNpm(query: string, limit: number): Promise<MarketplaceResult['servers']> {
-    // Run two searches in parallel: one biased to keywords:mcp (catches
-    // packages that opted in) and one with " mcp" appended to the text
-    // (catches packages that mention MCP in name/description but didn't
-    // tag themselves — e.g. @playwright/mcp). Merge and dedupe.
-    const size = String(Math.min(limit, 50));
-    const variants = [`${query} keywords:mcp`, `${query} mcp`];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
+  private async searchPypi(query: string, limit: number): Promise<InstallCandidate[]> {
+    const words = tokens(query);
+    const candidates = new Set<string>(
+      CURATED_PYPI_PACKAGES.filter((name) => words.some((w) => name.includes(w))),
+    );
     try {
-      const responses = await Promise.all(
-        variants.map(async (text) => {
-          const params = new URLSearchParams({ text, size });
-          try {
-            const res = await fetch(`${NPM_SEARCH_API}?${params}`, { signal: controller.signal });
-            if (!res.ok) return [] as Array<{ package?: Record<string, unknown> }>;
-            const data = (await res.json()) as {
-              objects?: Array<{ package?: Record<string, unknown> }>;
-            };
-            return Array.isArray(data.objects) ? data.objects : [];
-          } catch {
-            return [] as Array<{ package?: Record<string, unknown> }>;
-          }
-        }),
-      );
-
-      const seen = new Set<string>();
-      const objects: Array<{ package?: Record<string, unknown> }> = [];
-      for (const list of responses) {
-        for (const entry of list) {
-          const name = String((entry.package as Record<string, unknown> | undefined)?.name ?? '');
-          if (!name || seen.has(name)) continue;
-          // Filter out packages that don't appear to be MCP-related: keep
-          // those whose name contains "mcp" OR whose keywords include "mcp"
-          // OR whose description mentions "MCP" / "Model Context Protocol".
-          const pkg = (entry.package ?? {}) as Record<string, unknown>;
-          const kw = Array.isArray(pkg.keywords) ? (pkg.keywords as string[]).join(' ') : '';
-          const desc = String(pkg.description ?? '');
-          const haystack = `${name} ${kw} ${desc}`.toLowerCase();
-          if (!haystack.includes('mcp') && !haystack.includes('model context protocol')) {
-            continue;
-          }
-          seen.add(name);
-          objects.push(entry);
+      const res = await fetch(`${PYPI_SEARCH_HTML}?${new URLSearchParams({ q: `${query} mcp` })}`, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: { Accept: 'text/html', 'User-Agent': 'agent-discover' },
+      });
+      if (res.ok) {
+        const html = await res.text();
+        for (const m of html.matchAll(/class="package-snippet"[^>]+href="\/project\/([^/"]+)\//g)) {
+          if (candidates.size >= limit) break;
+          if (looksMcp(m[1])) candidates.add(m[1].toLowerCase());
         }
       }
-
-      return objects.map((entry) => {
-        const pkg = (entry.package ?? {}) as Record<string, unknown>;
-        const name = String(pkg.name ?? '');
-        const version = String(pkg.version ?? '');
-        const description = String(pkg.description ?? '');
-        const links = (pkg.links ?? {}) as Record<string, string>;
-        return {
-          name,
-          description,
-          version,
-          repository: links.repository ?? null,
-          packages: [
-            {
-              registry_name: 'npm',
-              name,
-              version,
-              runtime: 'node',
-              license: null,
-              url: null,
-            },
-          ],
-        };
-      });
     } catch {
-      return [];
-    } finally {
-      clearTimeout(timeoutId);
+      /* the HTML page is best-effort (bot challenges); curated matches remain */
     }
-  }
-
-  private parseResponse(data: unknown): MarketplaceResult {
-    if (!data || typeof data !== 'object') {
-      return { servers: [], next_cursor: null };
-    }
-
-    const obj = data as Record<string, unknown>;
-    const rawServers = Array.isArray(obj.servers) ? obj.servers : [];
-
-    // API returns { servers: [{ server: {...}, _meta: {...} }], metadata: { nextCursor } }
-    const metadata = (obj.metadata ?? {}) as Record<string, unknown>;
-
-    const mapped = rawServers.map((entry: unknown) => {
-      const wrapper = entry as Record<string, unknown>;
-      // Each entry wraps the actual server data under a "server" key
-      const server = (wrapper.server ?? wrapper) as Record<string, unknown>;
-      const repo = server.repository as Record<string, unknown> | null;
-      const remotes = Array.isArray(server.remotes) ? server.remotes : [];
-      return {
-        name: String(server.name ?? ''),
-        description: String(server.description ?? ''),
-        version: String(server.version ?? ''),
-        repository: repo?.url ? String(repo.url) : null,
-        packages: remotes.map((r: unknown) => {
-          const remote = r as Record<string, unknown>;
-          return {
-            registry_name: String(remote.type ?? ''),
-            name: String(server.name ?? ''),
-            version: String(server.version ?? ''),
-            runtime: String(remote.type ?? ''),
-            license: null,
-            url: remote.url ? String(remote.url) : null,
-          };
-        }),
-      };
-    });
-
-    // Dedupe by name; the registry returns one row per version. Keep the
-    // entry with the highest version so the UI shows each package once.
-    const dedup = new Map<string, (typeof mapped)[number]>();
-    for (const s of mapped) {
-      if (!s.name) continue;
-      const existing = dedup.get(s.name);
-      if (!existing || compareVersions(s.version, existing.version) > 0) {
-        dedup.set(s.name, s);
-      }
-    }
-
-    return {
-      servers: [...dedup.values()],
-      next_cursor: metadata.nextCursor ? String(metadata.nextCursor) : null,
-    };
+    const resolved = await Promise.all(
+      [...candidates].slice(0, limit).map((name) => this.resolve('pypi', name).catch(() => null)),
+    );
+    return resolved.filter(
+      (c): c is InstallCandidate =>
+        c !== null && looksMcp(`${c.server.name} ${c.server.description}`),
+    );
   }
 }

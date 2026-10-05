@@ -10,16 +10,24 @@
 //   - close connections idle longer than `idleMs`;
 //   - forward tools/call verbatim (CallToolResult or MRTR input_required),
 //     with SDK timeouts/abort instead of hand-rolled races;
+//   - OAuth 2.1 for remote servers without their own Authorization header
+//     (oauth.ts); a 401 surfaces as AuthRequiredError with the sign-in URL;
 //   - real health probes (`ping` on 2025 connections, `server/discover` on
 //     2026 ones);
-//   - the dashboard-side elicitation queue, roots and sampling handlers.
+//   - upstream elicitation/create pushes (2025 servers) go to the caller's
+//     `onElicit` (the downstream client) when it is the only such call in
+//     flight on that connection, else to the dashboard queue; roots and
+//     sampling handlers.
 // =============================================================================
 
 import { spawn } from 'node:child_process';
 import {
   Client,
+  SdkError,
+  SdkErrorCode,
   SSEClientTransport,
   StreamableHTTPClientTransport,
+  UnauthorizedError,
   withInputRequired,
   type CallToolResult,
   type InputRequiredResult,
@@ -34,6 +42,7 @@ import type { ServerConfig } from '../types.js';
 import { RegistryError, UpstreamError } from '../types.js';
 import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
+import { AuthRequiredError, type OAuthManager } from './oauth.js';
 import { version } from '../version.js';
 
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -44,6 +53,30 @@ const MAX_BACKOFF_MS = 60_000;
 const ELICITATION_TIMEOUT_MS = 2 * 60_000;
 const TRANSIENT_TTL_MS = 15 * 60_000;
 const TRANSIENT_PREFIX = '__transient__';
+
+/**
+ * Probes the era in place: the SDK spawns a disposable sibling process for the
+ * `server/discover` probe only for its exact base class (16–35 s for an npx
+ * server vs 3.6 s in place). Servers that exit on a pre-initialize request
+ * close during the in-place probe; `open` then initializes them as legacy.
+ */
+class InPlaceStdioTransport extends StdioClientTransport {}
+
+/** `match` holds for the error or one of its causes. */
+function causedBy(err: unknown, match: (e: Error) => boolean): boolean {
+  for (let e: unknown = err; e instanceof Error; e = e.cause) if (match(e)) return true;
+  return false;
+}
+
+/** The in-place probe ended because the server closed the connection (a legacy server). */
+const closedDuringProbe = (err: unknown) =>
+  causedBy(
+    err,
+    (e) =>
+      e instanceof SdkError &&
+      e.code === SdkErrorCode.EraNegotiationFailed &&
+      e.message.includes('probed in place'),
+  );
 
 export type EraVerdict = { era: 'modern' | 'legacy'; discover: unknown; checked_at: string };
 
@@ -60,6 +93,8 @@ export interface PoolDeps {
   logs: LogService;
   roots: () => Array<{ uri: string; name?: string }>;
   sampling?: SamplingProvider;
+  /** OAuth for remote servers that do not send their own Authorization header. */
+  oauth?: OAuthManager;
   idleMs: number;
 }
 
@@ -68,6 +103,8 @@ interface Connection {
   config: ServerConfig;
   lastUsed: number;
   inflight: number;
+  /** In-flight calls whose caller can answer upstream elicitations itself. */
+  elicitors: Set<Elicitor>;
 }
 
 export interface PendingElicitation {
@@ -80,6 +117,11 @@ export interface PendingElicitation {
 
 export type ElicitationAction = 'accept' | 'decline' | 'cancel';
 export type ElicitationContent = Record<string, string | number | boolean | string[]>;
+export type ElicitationAnswer = { action: ElicitationAction; content?: ElicitationContent };
+export type Elicitor = (request: {
+  message: string;
+  requestedSchema: Record<string, unknown>;
+}) => Promise<ElicitationAnswer>;
 
 export interface CallOptions {
   signal?: AbortSignal;
@@ -88,6 +130,8 @@ export interface CallOptions {
   requestState?: string;
   /** Extra params._meta for the upstream request (W3C trace context). */
   _meta?: Record<string, string>;
+  /** Answers upstream elicitation/create pushes made during this call. */
+  onElicit?: Elicitor;
 }
 
 export interface HealthResult {
@@ -143,7 +187,7 @@ export class ConnectionPool {
   private readonly elicitations = new Map<
     string,
     {
-      resolve: (v: { action: ElicitationAction; content?: ElicitationContent }) => void;
+      resolve: (v: ElicitationAnswer) => void;
       timer: NodeJS.Timeout;
       request: PendingElicitation;
     }
@@ -216,16 +260,20 @@ export class ConnectionPool {
       );
     }
     const config = this.transient.get(name)?.config ?? this.deps.resolveConfig(name);
-    const prior = this.priorFor(name);
+    const cached = this.priorFor(name);
+    let prior = cached;
     let client: Client;
     try {
       client = await this.handshake(config, prior);
     } catch (err) {
-      if (!prior) throw await this.recordFailure(name, config, err);
-      // A stale cached verdict must never wedge a server: retry once negotiating fresh.
-      this.deps.setEraVerdict(name, null);
+      // Retry once: a stale cached verdict must never wedge a server (negotiate fresh), and
+      // a server that closed during the in-place probe is legacy.
+      if (prior) prior = undefined;
+      else if (closedDuringProbe(err)) prior = { kind: 'legacy' };
+      else throw await this.recordFailure(name, config, err);
+      if (cached) this.deps.setEraVerdict(name, null);
       try {
-        client = await this.handshake(config, undefined);
+        client = await this.handshake(config, prior);
       } catch (retryErr) {
         throw await this.recordFailure(name, config, retryErr);
       }
@@ -234,13 +282,20 @@ export class ConnectionPool {
 
     const era = client.getProtocolEra();
     if (era === 'modern') this.deps.setEraVerdict(name, 'modern', client.getDiscoverResult());
-    else if (!prior) this.deps.setEraVerdict(name, 'legacy');
+    // Legacy verdicts are dated when found, so re-using one never extends its TTL.
+    else if (prior !== cached || !cached) this.deps.setEraVerdict(name, 'legacy');
     if (era === 'modern' && prior && client.getServerCapabilities()?.tools?.listChanged) {
       // Connects that adopt a prior verdict are request-only until listen() is called.
       client.listen({ toolsListChanged: true }).catch(() => {});
     }
 
-    const conn: Connection = { client, config, lastUsed: Date.now(), inflight: 0 };
+    const conn: Connection = {
+      client,
+      config,
+      lastUsed: Date.now(),
+      inflight: 0,
+      elicitors: new Set(),
+    };
     client.onclose = () => {
       if (this.conns.get(name)?.client !== client) return;
       this.conns.delete(name);
@@ -302,6 +357,11 @@ export class ConnectionPool {
   }
 
   private async recordFailure(name: string, config: ServerConfig, err: unknown): Promise<Error> {
+    // Sign-in is the user's move, not an outage: no backoff, hand out the authorization URL.
+    const authorizeUrl = causedBy(err, (e) => e instanceof UnauthorizedError)
+      ? this.deps.oauth?.authorizeUrl(name)
+      : undefined;
+    if (authorizeUrl) return new AuthRequiredError(name, authorizeUrl);
     const count = (this.failures.get(name)?.count ?? 0) + 1;
     this.failures.set(name, {
       count,
@@ -323,7 +383,7 @@ export class ConnectionPool {
   } {
     if (config.transport === 'stdio') {
       if (!config.command) throw new Error(`Server "${config.name}" has no command configured`);
-      const transport = new StdioClientTransport({
+      const transport = new InPlaceStdioTransport({
         command: config.command,
         args: config.args,
         env: { ...(process.env as Record<string, string>), ...config.env },
@@ -339,10 +399,15 @@ export class ConnectionPool {
     const requestInit =
       Object.keys(config.headers).length > 0 ? { headers: config.headers } : undefined;
     const url = new URL(config.url);
+    const ownAuth = Object.keys(config.headers).some((h) => h.toLowerCase() === 'authorization');
+    const authProvider =
+      ownAuth || config.name.startsWith(TRANSIENT_PREFIX)
+        ? undefined
+        : this.deps.oauth?.provider(config.name);
     const transport =
       config.transport === 'sse'
-        ? new SSEClientTransport(url, { requestInit })
-        : new StreamableHTTPClientTransport(url, { requestInit });
+        ? new SSEClientTransport(url, { requestInit, authProvider })
+        : new StreamableHTTPClientTransport(url, { requestInit, authProvider });
     return { transport, stderrTail: () => '' };
   }
 
@@ -350,7 +415,25 @@ export class ConnectionPool {
     client.setRequestHandler('roots/list', async () => ({ roots: this.deps.roots() }));
     client.setRequestHandler('elicitation/create', async (req) => {
       const params = req.params as { message?: string; requestedSchema?: Record<string, unknown> };
-      return this.queueElicitation(serverName, params.message ?? '', params.requestedSchema);
+      const message = params.message ?? '';
+      const requestedSchema = params.requestedSchema ?? { type: 'object', properties: {} };
+      // A push carries no reference to the call it belongs to: route it to the caller only
+      // when exactly one call that can answer is in flight.
+      const elicitors = this.conns.get(serverName)?.elicitors;
+      if (elicitors?.size === 1) {
+        const [onElicit] = elicitors;
+        this.deps.logs.push(
+          serverName,
+          'elicitation/create',
+          requestedSchema,
+          message,
+          0,
+          true,
+          'elicitation',
+        );
+        return onElicit({ message, requestedSchema });
+      }
+      return this.queueElicitation(serverName, message, requestedSchema);
     });
     const sampling = this.deps.sampling;
     if (sampling) {
@@ -392,6 +475,7 @@ export class ConnectionPool {
       await this.connect(name);
       conn = this.conns.get(name)!;
       conn.inflight++;
+      if (opts.onElicit) conn.elicitors.add(opts.onElicit);
       const params: Record<string, unknown> = { name: tool, arguments: args ?? {} };
       if (opts.inputResponses) params.inputResponses = opts.inputResponses;
       if (opts.requestState !== undefined) params.requestState = opts.requestState;
@@ -423,6 +507,7 @@ export class ConnectionPool {
       throw err instanceof RegistryError ? err : new UpstreamError(message, { cause: err });
     } finally {
       if (conn) {
+        if (opts.onElicit) conn.elicitors.delete(opts.onElicit);
         conn.inflight--;
         conn.lastUsed = Date.now();
       }
@@ -540,14 +625,14 @@ export class ConnectionPool {
   private queueElicitation(
     serverName: string,
     message: string,
-    requestedSchema: Record<string, unknown> | undefined,
-  ): Promise<{ action: ElicitationAction; content?: ElicitationContent }> {
+    requestedSchema: Record<string, unknown>,
+  ): Promise<ElicitationAnswer> {
     const id = `elicit-${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
     const request: PendingElicitation = {
       id,
       serverName,
       message,
-      requestedSchema: requestedSchema ?? { type: 'object', properties: {} },
+      requestedSchema,
       createdAt: Date.now(),
     };
     this.deps.logs.push(
@@ -573,10 +658,7 @@ export class ConnectionPool {
     return [...this.elicitations.values()].map((e) => e.request);
   }
 
-  respondElicitation(
-    id: string,
-    response: { action: ElicitationAction; content?: ElicitationContent },
-  ): boolean {
+  respondElicitation(id: string, response: ElicitationAnswer): boolean {
     const entry = this.elicitations.get(id);
     if (!entry) return false;
     this.elicitations.delete(id);

@@ -34,6 +34,8 @@ export interface ServerEntry {
   readonly package_version: string | null;
   readonly repository: string | null;
   readonly homepage: string | null;
+  /** Official MCP Registry name this server was installed from. */
+  readonly registry_name: string | null;
   readonly enabled: boolean;
   readonly quarantined: boolean;
   readonly indexed_at: string | null;
@@ -59,9 +61,10 @@ export interface ServerInput {
   package_version?: string;
   repository?: string;
   homepage?: string;
+  registry_name?: string;
 }
 
-export type ServerUpdate = Partial<Omit<ServerInput, 'name' | 'source'>>;
+export type ServerUpdate = Partial<Omit<ServerInput, 'name' | 'source' | 'registry_name'>>;
 
 /** Everything needed to open a connection to an upstream server. Built only by `toConfig`. */
 export interface ServerConfig {
@@ -118,32 +121,6 @@ export interface MetricEntry {
   readonly error_count: number;
   readonly avg_latency_ms: number;
   readonly last_called_at: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Marketplace
-// ---------------------------------------------------------------------------
-
-export interface MarketplaceServer {
-  readonly name: string;
-  readonly description: string;
-  readonly version: string;
-  readonly repository: string | null;
-  readonly packages: MarketplacePackage[];
-}
-
-export interface MarketplacePackage {
-  readonly registry_name: string;
-  readonly name: string;
-  readonly version: string;
-  readonly runtime: string;
-  readonly license: string | null;
-  readonly url: string | null;
-}
-
-export interface MarketplaceResult {
-  readonly servers: MarketplaceServer[];
-  readonly next_cursor: string | null;
 }
 
 // ---------------------------------------------------------------------------

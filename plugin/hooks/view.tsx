@@ -15,7 +15,7 @@ export type Handlers = {
   enable: (name: string) => Promise<string>;
   disable: (name: string) => Promise<string>;
   reindex: (name: string) => Promise<string>;
-  install: (name: string) => Promise<string>;
+  install: (name: string, source: string) => Promise<string>;
   find: (query: string) => void;
   open: () => void;
   dismiss: () => void;
@@ -153,7 +153,7 @@ export function Panel({ el, snap, found, busy, notice, on }: PanelProps) {
                 key={`install:${m.name}`}
                 label="Install"
                 variant="primary"
-                onPress={() => on.run(`install ${m.name}`, () => on.install(m.name))}
+                onPress={() => on.run(`install ${m.name}`, () => on.install(m.name, m.source))}
               />
             </Box>
           ))}

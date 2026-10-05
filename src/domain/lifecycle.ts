@@ -29,6 +29,9 @@ import type { MetricsService } from './metrics.js';
 import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
 import { ConnectionPool, type CallOptions, type HealthResult } from './pool.js';
+import type { RegistryMirror } from './registry.js';
+import type { OAuthManager } from './oauth.js';
+import type { RegistryStatus } from './install-plan.js';
 
 export type CallResult = CallToolResult | InputRequiredResult;
 
@@ -78,6 +81,8 @@ export interface ServerStatus {
   /** Present while quarantined: what changed since the last approval. */
   drift?: TrustReport['drift'];
   flagged_tools: TrustReport['flagged_tools'];
+  /** Status of the MCP Registry entry the server was installed from (null: not from the registry or not mirrored). */
+  registry_status: RegistryStatus | null;
 }
 
 export interface LifecycleDeps {
@@ -86,8 +91,10 @@ export interface LifecycleDeps {
   secrets: SecretsService;
   metrics: MetricsService;
   logs: LogService;
+  registry: RegistryMirror;
   roots: () => Array<{ uri: string; name?: string }>;
   sampling?: SamplingProvider;
+  oauth?: OAuthManager;
   connIdleMs: number;
   hooks?: TrustHooks;
 }
@@ -122,6 +129,7 @@ export class ServerLifecycle {
       logs: deps.logs,
       roots: deps.roots,
       sampling: deps.sampling,
+      oauth: deps.oauth,
       idleMs: deps.connIdleMs,
     });
   }
@@ -372,6 +380,9 @@ export class ServerLifecycle {
 
   status(name?: string): ServerStatus[] {
     const rows = name ? [this.servers.require(name)] : this.servers.list();
+    const registry = this.deps.registry.statuses(
+      rows.flatMap((s) => (s.registry_name ? [s.registry_name] : [])),
+    );
     return rows.map((s) => {
       const trust = this.hooks.inspect?.(s);
       return {
@@ -390,6 +401,7 @@ export class ServerLifecycle {
         error_count: s.error_count,
         ...(s.quarantined && trust?.drift ? { drift: trust.drift } : {}),
         flagged_tools: trust?.flagged_tools ?? [],
+        registry_status: (s.registry_name && registry.get(s.registry_name)) || null,
       };
     });
   }

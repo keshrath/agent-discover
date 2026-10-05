@@ -76,7 +76,11 @@ export function searchServersText(r: Outputs['search_servers'], o: TextOptions =
             return [
               code(s.name),
               'available',
-              p ? `${p.registry} ${code(p.version ? `${p.name}@${p.version}` : p.name)}` : '',
+              p
+                ? `${p.registry_type} ${code(p.version ? `${p.identifier}@${p.version}` : p.identifier)}`
+                : s.remotes[0]
+                  ? `remote ${code(s.remotes[0].url)}`
+                  : '',
               cell(s.description),
             ];
           }),
@@ -86,12 +90,12 @@ export function searchServersText(r: Outputs['search_servers'], o: TextOptions =
     const next = [
       r.installed.some((s) => !s.enabled) && '`enable_server` exposes an installed server',
       r.marketplace.length &&
-        '`install_server` with `package` (+ `runtime`) installs an available one; the user confirms the command',
+        '`install_server` with `server` (exact name) installs an available one; the user confirms the command',
     ].filter(Boolean);
     if (next.length) lines.push('', `Next: ${next.join('; ')}.`);
   }
-  if (r.marketplace_error)
-    lines.push('', `Registry search failed: ${cell(r.marketplace_error, 200)}`);
+  for (const [source, error] of Object.entries(r.marketplace_errors ?? {}))
+    lines.push('', `${source} search failed: ${cell(error, 200)}`);
   if (o.dashboard) lines.push('', `${o.dashboard}/#/browse?q=${encodeURIComponent(r.query)}`);
   return lines.join('\n');
 }

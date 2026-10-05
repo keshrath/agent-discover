@@ -25,7 +25,7 @@ export type AgentDiscoverSearch = {
   /** Installed tools matching the query. */
   tools: { server: string; tool: string; description: string; isEnabled: boolean }[];
   /** Uninstalled servers from the registry. */
-  market: { name: string; description: string; version: string }[];
+  market: { name: string; source: string; description: string; version: string }[];
   error?: string;
 };
 
