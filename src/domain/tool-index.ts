@@ -256,7 +256,18 @@ export class ToolIndex {
   /** Top `limit` tools for a query, scores in 0..1; empty when the ranker finds no match. */
   async search(query: string, limit = 5): Promise<ToolHit[]> {
     if (!query.trim()) return [];
-    const hits = await this.ranker.rank(query.trim(), limit);
+    const quarantined = new Set(
+      this.db
+        .queryAll<{
+          id: number;
+        }>(
+          'SELECT t.id FROM server_tools t JOIN servers s ON s.id = t.server_id WHERE s.quarantined = 1',
+        )
+        .map((row) => row.id),
+    );
+    const hits = (await this.ranker.rank(query.trim(), limit + quarantined.size))
+      .filter((hit) => !quarantined.has(hit.id))
+      .slice(0, limit);
     if (hits.length === 0) return [];
     const rows = new Map(
       this.db
