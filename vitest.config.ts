@@ -7,6 +7,6 @@ export default defineConfig({
     // Never write test secrets into the developer's OS keychain.
     env: { AGENT_DISCOVER_SECRETS: 'file' },
     hookTimeout: 30_000,
-    exclude: ['**/node_modules/**', '**/dist/**', '**/.worktrees/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.worktrees/**', 'plugin/**'], // plugin tests run under `claude plugin test`,
   },
 });

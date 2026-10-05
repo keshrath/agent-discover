@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "agent-discover",
-      "source": "./",
+      "source": "./plugin",
       "description": "MCP server registry and marketplace. Discover, install, activate, and proxy stdio/HTTP MCP servers on-demand. Per-server secrets, health probes, tool-call metrics, real-time WebSocket log stream, and namespaced tool proxying. Dashboard on :3424.",
       "category": "workflow",
       "tags": ["mcp", "registry", "marketplace", "proxy"]

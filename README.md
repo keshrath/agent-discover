@@ -90,6 +90,23 @@ npm install
 npm run build
 ```
 
+### Claude Code
+
+Install the plugin for the full experience. It runs the stdio shim as the MCP server, adds the `find`, `install` and `dashboard` skills, a SessionStart hook, and a native UI:
+
+```bash
+claude plugin marketplace add keshrath/agent-discover
+claude plugin install agent-discover@agent-discover
+```
+
+- `/discover [what you need]` opens a panel in the terminal, the desktop Code tab or VS Code: servers by state with health, Enable / Disable / Re-index buttons, a search box over installed tools and the registry, and Install buttons (the consent step still gates every install).
+- A status line entry `MCP 2/6 !1`, a toast when a server is quarantined or goes unhealthy, and a band above the prompt that shows only while something needs you.
+- Needs Claude Code 2.1.289 or newer for the native UI. Older builds keep the skills and tools; add `node ~/.claude/plugins/data/agent-discover-agent-discover/statusline.mjs` to your own status line command for the `MCP n/m` segment.
+- Remove any hand-written `agent-discover` entry from `~/.claude.json` so tools do not appear twice.
+- In the desktop app, add `{ "name": "agent-discover", "url": "http://127.0.0.1:3424" }` to `.claude/launch.json` to open the dashboard in the preview pane.
+
+Other clients (Cursor, Codex, VS Code, Claude Desktop) and the http entry: [docs/SETUP.md](docs/SETUP.md#client-setup).
+
 ### Option 1: MCP server (for AI agents)
 
 Add to your MCP client config (Claude Code, Cline, Cursor, Windsurf, etc.):

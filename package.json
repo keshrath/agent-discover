@@ -24,12 +24,14 @@
     "agent-discover": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-ui.js",
+    "build": "tsc && node scripts/copy-ui.js && node src/widgets/build.mjs",
     "start": "node dist/index.js",
     "start:server": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:ui": "playwright test",
+    "plugin:check": "claude plugin validate plugin && claude plugin test plugin",
+    "widgets:shots": "tsx tests/widgets/shoot.ts",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint src/ tests/ --fix",
@@ -62,6 +64,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
     "@opentelemetry/sdk-metrics": "^2.11.0",
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@playwright/test": "^1.59.1",
@@ -69,6 +72,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.2.4",
+    "esbuild": "^0.28.2",
     "eslint": "^10.1.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
@@ -94,8 +98,6 @@
   "files": [
     "dist/",
     "scripts/",
-    ".claude-plugin/",
-    ".mcp.json",
     "agent-desk-plugin.json",
     "README.md",
     "CHANGELOG.md",

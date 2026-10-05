@@ -1,0 +1,14 @@
+{
+  "name": "agent-discover",
+  "displayName": "agent-discover",
+  "version": "2.0.0",
+  "description": "Find, install and enable MCP servers mid-session. Search tools across installed and marketplace servers, approve installs with full provenance, and test tools without restarting.",
+  "author": {
+    "name": "keshrath"
+  },
+  "homepage": "https://github.com/keshrath/agent-discover",
+  "repository": "https://github.com/keshrath/agent-discover",
+  "license": "MIT",
+  "keywords": ["mcp", "registry", "marketplace", "tool-search", "gateway"],
+  "types": "./types/index.d.ts"
+}
