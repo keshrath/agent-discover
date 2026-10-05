@@ -1,87 +1,198 @@
 import type { On } from 'claude-code';
 import { expect, mock, test } from 'claude-code/testing';
 
-type Server = { name: string; enabled: boolean; quarantined: boolean; health_status: string };
+type Row = {
+  id: number;
+  name: string;
+  description: string;
+  transport: string;
+  enabled: boolean;
+  quarantined: boolean;
+  tool_count: number;
+  health_status: string;
+  error_count: number;
+};
 
-const server = (name: string, over: Partial<Server> = {}) => ({
+const server = (id: number, name: string, over: Partial<Row> = {}): Row => ({
+  id,
   name,
-  description: '',
+  description: `${name} server`,
+  transport: 'stdio',
   enabled: false,
   quarantined: false,
-  tool_count: 4,
+  tool_count: 2,
   health_status: 'unknown',
+  error_count: 0,
   ...over,
 });
 
-const value = (body: unknown) => ({
-  value: { content: [{ type: 'text' as const, text: JSON.stringify(body) }], isError: false },
-});
+/** The owner's real 2.0.2 status: long descriptions, remote and stdio servers, nothing to review. */
+const REAL = [
+  server(1, 'lastloop-odoo', {
+    transport: 'streamable-http',
+    enabled: true,
+    tool_count: 26,
+    description: 'Lastloop Odoo MCP endpoint on my.lastloop.dev',
+  }),
+  server(2, 'mobile-mcp', {
+    enabled: true,
+    tool_count: 32,
+    description:
+      'Drive Android emulators/devices and iOS simulators over adb — Playwright-equivalent for mobile (tap, swipe, type, screenshot, list on-screen elements by ref, orientation, logs, screen recording). Env pinned to the local Android SDK so adb resolves.',
+  }),
+  server(3, 'mukit-odoo', { transport: 'streamable-http', enabled: true, tool_count: 26 }),
+  server(4, 'myetron-odoo', { transport: 'streamable-http', enabled: true, tool_count: 17 }),
+];
 
-/** The daemon beneath the plugin: server_status and friends answer from `world`, calls are recorded. */
-function daemon(on: On, world: { servers: ReturnType<typeof server>[]; pending?: number }) {
-  const calls: string[] = [];
+type World = {
+  servers: Row[];
+  elicitations?: unknown[];
+  drift?: unknown;
+  missing?: string[];
+};
+
+type Call = { method: string; path: string; body: Record<string, unknown> | undefined };
+
+/** The daemon's REST API beneath the plugin, answering from `world`; every request is recorded. */
+function daemon(on: On, world: World) {
+  const calls: Call[] = [];
   const toasts: string[] = [];
   const status: (string | undefined)[] = [];
+  const opens: Record<string, unknown>[] = [];
+  const placed = { value: { isPlaced: true } as { isPlaced: boolean; reason?: string } };
   const clock = mock.clock(on);
   mock.env(on, {});
   on('session.start', (_$, e) => ({ cwd: e.cwd }));
-  on('mcp.call', (_$, e) => {
-    calls.push(`${e.tool} ${JSON.stringify(e.args)}`);
-    if (e.tool === 'server_status') return value({ mode: 'native', servers: world.servers });
-    if (e.tool === 'search_tools')
-      return value({
-        results: [
+  on('http.fetch', (_$, e) => {
+    const url = new URL(e.url);
+    const method = e.init?.method ?? 'GET';
+    const body = e.init?.body ? (JSON.parse(e.init.body) as Record<string, unknown>) : undefined;
+    if (url.pathname !== '/api/token')
+      calls.push({ method, path: url.pathname + url.search, body });
+    const reply = (data: unknown, code = 200) => ({
+      value: { status: code, ok: code < 400, headers: {}, text: JSON.stringify(data) },
+    });
+    const p = url.pathname;
+    const one = world.servers.find((s) => p.startsWith(`/api/servers/${s.id}`));
+    if (p === '/api/token') return reply({ token: 't0k' });
+    if (method !== 'GET' && e.init?.headers?.['X-Agent-Discover-Token'] !== 't0k')
+      return reply({ error: 'token' }, 403);
+    if (p === '/api/status') return reply({ mode: 'native', servers: world.servers });
+    if (p === '/api/servers') return reply(world.servers);
+    if (p === '/api/elicitations') return reply({ entries: world.elicitations ?? [] });
+    if (p === '/api/browse')
+      return reply({
+        servers: [
           {
-            query: 'q',
-            matches: [{ server: 'github', tool: 'pr', description: 'x', enabled: false }],
+            source: 'registry',
+            name: 'io.example/pg',
+            description: 'Postgres',
+            version: '1.2.0',
+            status: 'active',
+            packages: [],
+            remotes: [],
+          },
+        ],
+        errors: {},
+      });
+    if (p === '/api/install/plan')
+      return reply({
+        server: 'pg',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@example/pg@1.2.0'],
+        provenance: {
+          pinned: true,
+          registry: { publisher: 'io.example', status: 'active' },
+          checks: [{ id: 'npm_mcp_name', status: 'pass', detail: 'mcpName matches' }],
+        },
+        warnings: [],
+        requirements: [
+          { key: 'PG_URL', kind: 'env', required: true, secret: true, present: false },
+        ],
+      });
+    if (p === '/api/install') return reply({ name: 'pg', tool_count: 3 }, 201);
+    if (p === '/api/logs')
+      return reply({
+        total: 1,
+        entries: [
+          {
+            id: 1,
+            timestamp: '2026-10-05T10:00:00Z',
+            server: 'pg',
+            tool: 'query',
+            latency_ms: 12,
+            success: false,
+            response: 'boom\nstack',
           },
         ],
       });
-    if (e.tool === 'search_servers')
-      return value({
-        query: 'q',
-        installed: [],
-        marketplace: [{ name: 'io.example/new', description: 'd', version: '1.0.0' }],
+    if (p === '/api/audit') {
+      const before = Number(url.searchParams.get('before') ?? 100);
+      const ids = [before - 1, before - 2].filter((id) => id > 0);
+      return reply({
+        total: 50,
+        entries: ids.map((id) => ({
+          id,
+          ts: '2026-10-05T10:00:00Z',
+          action: 'call',
+          server: 'pg',
+        })),
       });
-    if (e.tool === 'enable_server')
-      return value({ name: e.args.name, enabled: true, tool_count: 4, tools: [] });
+    }
+    if (p.startsWith('/api/elicitations/')) return reply({ ok: true });
+    if (one) {
+      const sub = p.slice(`/api/servers/${one.id}`.length);
+      if (sub === '')
+        return reply({
+          ...one,
+          command: 'node',
+          args: ['srv.js'],
+          url: null,
+          env: { API_KEY: 'sk-1****' },
+          headers: {},
+          tags: [],
+          source: 'manual',
+          missing_secrets: world.missing ?? [],
+          tools: [{ name: 'query', description: 'Run SQL', input_schema: { type: 'object' } }],
+        });
+      if (sub === '/secrets') return reply([{ key: 'TOKEN', masked_value: '********' }]);
+      if (sub === '/trust')
+        return reply({ ...(world.drift ? { drift: world.drift } : {}), hashes: ['h1', 'h2'] });
+      if (sub === '/metrics')
+        return reply([{ tool_name: 'query', call_count: 3, error_count: 1, avg_latency_ms: 20 }]);
+      if (sub === '/enable') {
+        one.enabled = true;
+        return reply({ ...one });
+      }
+      return reply({ status: 'ok' });
+    }
 
-    return value({ name: e.args.name, enabled: false });
+    return reply({ error: 'not found' }, 404);
   });
-  on('http.fetch', (_$, e) => ({
-    value: {
-      status: 200,
-      ok: true,
-      headers: {},
-      text: JSON.stringify(
-        e.url.endsWith('/api/elicitations')
-          ? { entries: new Array(world.pending ?? 0).fill({}) }
-          : {},
-      ),
-    },
-  }));
   on('command.register', (_$, e) => ({ value: { command: e.name } }));
   on('ui.status', (_$, e) => (status.push(e.text), { value: undefined }));
   on('ui.toast', (_$, e) => (toasts.push(e.text), { value: undefined }));
-  on('ui.open', () => ({ value: { isPlaced: true } }));
+  on('ui.open', (_$, e) => (opens.push({ ...e }), { value: placed.value }) as never);
   on('ui.panes', () => ({ value: [] }));
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}));
 
-  return { calls, toasts, status, clock };
+  return { calls, toasts, status, opens, placed, clock };
 }
 
 const RUN = {
   origin: { kind: 'composer' },
-  presentation: { isFullscreen: false, columns: 80 },
+  presentation: { isFullscreen: true, columns: 134 },
 } as const;
-const PANE = {
-  title: 'agent-discover',
-  isFocused: true,
-  bodyColumns: 80,
-  placement: 'inline',
-  scroll: { bodyRows: 20 },
-  view: {},
-} as never;
+const pane = (placement: 'dock' | 'inline', bodyColumns = 44) =>
+  ({
+    title: 'agent-discover',
+    isFocused: true,
+    bodyColumns,
+    placement,
+    scroll: { bodyRows: 30 },
+    view: {},
+  }) as never;
 const BAND = {
   hasSurvey: false,
   isWorking: false,
@@ -90,26 +201,45 @@ const BAND = {
   scroll: { bodyRows: 4 },
   view: {},
 } as never;
+const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const;
 
-test('/discover reports status and searches installed tools and the registry', async ($, on) => {
-  const d = daemon(on, { servers: [server('postgres', { enabled: true }), server('github')] });
+test('/discover opens a plain sidebar pane that draws on every surface (pane-not-showing regression)', async ($, on) => {
+  const d = daemon(on, { servers: REAL });
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
-  const out = await $.command.run({ command: 'discover', args: 'pull requests', ...RUN });
+  const out = await $.command.run({ command: 'discover', args: '', ...RUN });
 
-  expect(out.text).toContain('MCP 1/2');
-  expect(out.text).toContain('- github__pr');
-  expect(out.text).toContain('install: io.example/new 1.0.0');
-  expect(d.status.at(-1)).toBe('MCP 1/2');
+  expect(out.text).toBe('MCP 4/4');
+  expect(d.status.at(-1)).toBe('MCP 4/4');
+  // Dialog manners (closeOnEscape, holdToasts) closed the pane on the first Escape.
+  expect(d.opens).toEqual([expect.objectContaining({ id: 'agent-discover', focus: true })]);
+  expect(d.opens[0]).not.toHaveProperty('closeOnEscape');
+  expect(d.opens[0]).not.toHaveProperty('holdToasts');
+  for (const surface of SURFACES) {
+    for (const placement of ['dock', 'inline'] as const) {
+      const ui = await $.ui.mount({
+        plugin: 'agent-discover',
+        surface,
+        component: 'Pane',
+        props: pane(placement),
+        requestId: 'agent-discover',
+      });
+      await expect(ui.drawn()).resolves.toMatchObject({ type: 'Box' });
+      expect(await ui.find({ key: 'open:mobile-mcp' })).toBeDefined();
+      await ui.unmount();
+    }
+  }
 });
 
-test('the panel lists servers by state and its buttons call our MCP tools', async ($, on) => {
-  const d = daemon(on, {
-    servers: [
-      server('postgres', { enabled: true }),
-      server('github'),
-      server('sqlite', { enabled: true, quarantined: true }),
-    ],
-  });
+test('/discover says why when the pane is not placed', async ($, on) => {
+  const d = daemon(on, { servers: REAL });
+  d.placed.value = { isPlaced: false, reason: 'below 110 columns' };
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  const out = await $.command.run({ command: 'discover', args: '', ...RUN });
+  expect(out.text).toContain('pane not shown: below 110 columns');
+});
+
+test('server detail: config keys, secrets editor, tool schema, actions with confirm', async ($, on) => {
+  const d = daemon(on, { servers: [server(7, 'github')], missing: ['X-Api-Key'] });
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   await $.command.run({ command: 'discover', args: '', ...RUN });
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -117,20 +247,158 @@ test('the panel lists servers by state and its buttons call our MCP tools', asyn
       plugin: 'agent-discover',
       surface,
       component: 'Pane',
-      props: PANE,
+      props: pane('dock'),
       requestId: 'agent-discover',
     });
-    expect(await ui.find({ type: 'Text', text: 'Quarantined' })).toBeDefined();
-    expect(await ui.find({ key: 'toggle:sqlite' })).toBeUndefined(); // quarantined: review first, no toggle
-    expect((await ui.find({ key: 'toggle:github' }))?.props.label).toBe('Enable');
-    await ui.press({ key: 'toggle:github' });
+    await ui.press({ key: 'open:github' });
+    expect(await ui.find({ type: 'Text', text: /node srv\.js/ })).toBeDefined();
+    expect(await ui.find({ type: 'Text', text: /API_KEY/ })).toBeDefined();
+    expect(await ui.find({ type: 'Text', text: /sk-1/ })).toBeUndefined(); // keys only, never values
+    await ui.input({ key: 'secset:X-Api-Key', text: 'hunter2' });
+    expect(await ui.find({ text: /hunter2/ })).toBeUndefined();
+    await ui.press({ key: 'toolbtn:query' });
+    expect((await ui.find({ type: 'Code' }))?.text).toContain('"type": "object"');
+    await ui.press({ key: 'toggle' });
+    await ui.press({ key: 'uninstall' });
+    expect(await ui.find({ key: 'uninstall-yes' })).toBeDefined();
+    await ui.press({ key: 'uninstall-no' });
+    expect(await ui.find({ key: 'uninstall-yes' })).toBeUndefined();
+    await ui.press({ key: 'back' });
+    expect(await ui.find({ key: 'open:github' })).toBeDefined();
     await ui.unmount();
   }
-  expect(d.calls).toContain('enable_server {"name":"github"}');
+  expect(d.calls).toContainEqual({
+    method: 'PUT',
+    path: '/api/servers/7/secrets/X-Api-Key',
+    body: { value: 'hunter2' },
+  });
+  expect(d.calls.some((c) => c.method === 'POST' && c.path === '/api/servers/7/enable')).toBe(true);
+  expect(d.calls.some((c) => c.method === 'DELETE')).toBe(false);
+});
+
+test('quarantine: the drift is shown and Approve echoes the reviewed hashes', async ($, on) => {
+  const d = daemon(on, {
+    servers: [server(9, 'sqlite', { enabled: false, quarantined: true })],
+    drift: {
+      changed: [{ tool: 'query', input_schema: { added: ['x'] } }],
+      added: ['drop'],
+      removed: [],
+    },
+  });
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  await $.command.run({ command: 'discover', args: '', ...RUN });
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'terminal',
+    component: 'Pane',
+    props: pane('inline', 80),
+    requestId: 'agent-discover',
+  });
+  await ui.press({ key: 'open:sqlite' });
+  expect(await ui.find({ type: 'Text', text: /query: \+x/ })).toBeDefined();
+  expect(await ui.find({ key: 'toggle' })).toBeUndefined(); // review first
+  await ui.press({ key: 'approve' });
+  expect(d.calls).toContainEqual({
+    method: 'POST',
+    path: '/api/servers/9/approve',
+    body: { hashes: ['h1', 'h2'] },
+  });
+});
+
+test('browse: /discover <query> lists results; the plan shows the exact command; install sends typed secrets', async ($, on) => {
+  const d = daemon(on, { servers: [] });
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  const out = await $.command.run({ command: 'discover', args: 'postgres', ...RUN });
+  expect(out.text).toContain('1 result(s) for "postgres"');
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'desktop',
+    component: 'Pane',
+    props: pane('dock'),
+    requestId: 'agent-discover',
+  });
+  await ui.press({ key: 'plan:registry:io.example/pg' });
+  expect((await ui.find({ type: 'Code' }))?.text).toBe('npx -y @example/pg@1.2.0');
+  expect(await ui.find({ type: 'Text', text: /missing: PG_URL/ })).toBeDefined();
+  await ui.input({ key: 'reqset:PG_URL', text: 'postgres://secret' });
+  expect(await ui.find({ text: /postgres:\/\/secret/ })).toBeUndefined();
+  await ui.press({ key: 'install-enable' });
+  expect(d.calls).toContainEqual({
+    method: 'POST',
+    path: '/api/install',
+    body: {
+      source: 'registry',
+      name: 'io.example/pg',
+      version: '1.2.0',
+      enable: true,
+      secrets: { PG_URL: 'postgres://secret' },
+    },
+  });
+});
+
+test('logs and audit tabs page through the daemon', async ($, on) => {
+  const d = daemon(on, { servers: REAL });
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  await $.command.run({ command: 'discover', args: '', ...RUN });
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'terminal',
+    component: 'Pane',
+    props: pane('inline', 80),
+    requestId: 'agent-discover',
+  });
+  await ui.press({ key: 'tab:logs' });
+  expect(await ui.find({ type: 'Text', text: /pg\/query 12 ms boom stack/ })).toBeDefined();
+  await ui.press({ key: 'tab:audit' });
+  await ui.press({ key: 'audit-older' });
+  await ui.input({ key: 'audit-action', text: 'call' });
+  expect(d.calls.map((c) => c.path)).toEqual(
+    expect.arrayContaining([
+      '/api/audit?limit=20',
+      '/api/audit?limit=20&before=98',
+      '/api/audit?limit=20&action=call',
+    ]),
+  );
+});
+
+test('an upstream question is answered in the pane', async ($, on) => {
+  const d = daemon(on, {
+    servers: REAL,
+    elicitations: [
+      {
+        id: 'e1',
+        serverName: 'mobile-mcp',
+        message: 'Which device?',
+        requestedSchema: {
+          type: 'object',
+          properties: { device: { type: 'string' }, force: { type: 'boolean' } },
+          required: ['device'],
+        },
+      },
+    ],
+  });
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  await $.command.run({ command: 'discover', args: '', ...RUN });
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'terminal',
+    component: 'Pane',
+    props: pane('dock'),
+    requestId: 'agent-discover',
+  });
+  expect(await ui.find({ type: 'Text', text: 'Which device?' })).toBeDefined();
+  await ui.input({ key: 'q:e1:device', text: 'pixel' });
+  await ui.select({ key: 'q:e1:force', value: 'true' });
+  await ui.press({ key: 'q:e1:accept' });
+  expect(d.calls).toContainEqual({
+    method: 'POST',
+    path: '/api/elicitations/e1/respond',
+    body: { action: 'accept', content: { device: 'pixel', force: true } },
+  });
 });
 
 test('the attention band appears only when something needs the user', async ($, on) => {
-  const world = { servers: [server('postgres', { enabled: true })] };
+  const world: World = { servers: [server(1, 'postgres', { enabled: true })] };
   daemon(on, world);
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   const mount = () =>
@@ -142,7 +410,7 @@ test('the attention band appears only when something needs the user', async ($, 
     });
 
   expect(await (await mount()).find({ key: 'open' })).toBeUndefined();
-  world.servers = [server('postgres', { enabled: true, health_status: 'unhealthy' })];
+  world.servers = [server(1, 'postgres', { enabled: true, health_status: 'unhealthy' })];
   await $.command.run({ command: 'discover', args: '', ...RUN });
   const band = await mount();
   expect(await band.find({ type: 'Text', text: /postgres/ })).toBeDefined();
@@ -151,15 +419,14 @@ test('the attention band appears only when something needs the user', async ($, 
 });
 
 test('a toast names a server that newly gets quarantined', async ($, on) => {
-  const world = { servers: [server('postgres', { enabled: true })] };
+  const world: World = { servers: [server(1, 'postgres', { enabled: true })] };
   const d = daemon(on, world);
-  const { clock } = d;
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
-  await clock.advance(30_000);
+  await d.clock.advance(30_000);
   expect(d.toasts).toEqual([]);
-  world.servers = [server('postgres', { enabled: true, quarantined: true })];
-  await clock.advance(30_000);
+  world.servers = [server(1, 'postgres', { enabled: true, quarantined: true })];
+  await d.clock.advance(30_000);
   expect(d.toasts).toEqual(['agent-discover: postgres quarantined, review before use']);
-  await clock.advance(30_000);
+  await d.clock.advance(30_000);
   expect(d.toasts).toHaveLength(1); // once per change
 });
