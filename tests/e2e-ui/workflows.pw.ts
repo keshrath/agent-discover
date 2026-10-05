@@ -182,8 +182,13 @@ test.describe('deep links', () => {
 });
 
 test.describe('browse and install consent', () => {
-  const stub = (page: Page) =>
-    page.route('**/api/browse*', (route) =>
+  // Fixed prereqs: the banner they render above the list would otherwise pop in between a locator
+  // resolving and the click, shifting the cards on hosts without uvx/docker.
+  const stub = async (page: Page) => {
+    await page.route('**/api/prereqs', (route) =>
+      route.fulfill({ json: { npx: true, uvx: true, docker: true, uv: true } }),
+    );
+    await page.route('**/api/browse*', (route) =>
       route.fulfill({
         json: {
           registry: 'live',
@@ -251,6 +256,7 @@ test.describe('browse and install consent', () => {
         },
       }),
     );
+  };
 
   test('result cards show source, status and package/remote chips safely', async ({ page }) => {
     await stub(page);

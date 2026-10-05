@@ -4,14 +4,14 @@
     "name": "keshrath"
   },
   "metadata": {
-    "description": "MCP server registry and marketplace with on-demand proxying.",
+    "description": "Discover, install with consent and enable MCP servers at runtime, with a trust layer.",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "agent-discover",
       "source": "./plugin",
-      "description": "MCP server registry and marketplace. Discover, install, activate, and proxy stdio/HTTP MCP servers on-demand. Per-server secrets, health probes, tool-call metrics, real-time WebSocket log stream, and namespaced tool proxying. Dashboard on :3424.",
+      "description": "Find, install (with consent) and enable MCP servers in the middle of a session. Tool pinning and quarantine, keychain secrets, audit log, native Claude Code /discover panel. Dashboard on :3424.",
       "category": "workflow",
       "tags": ["mcp", "registry", "marketplace", "proxy"]
     }

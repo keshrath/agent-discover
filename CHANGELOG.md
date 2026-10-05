@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-05
 
 agent-discover 2.0 is a rewrite around one shared daemon. The pitch changed with it: hosts now ship their own tool search, so the point is no longer to save prompt tokens. It is to find, install (with consent and provenance) and enable or disable servers that are not installed yet, in the middle of a session, on any MCP host, while feeding the host's native tool search, and to guard what gets installed.
 
@@ -16,6 +16,7 @@ agent-discover 2.0 is a rewrite around one shared daemon. The pitch changed with
 - **REST renames and removals.** `/health` is `/api/health`. `/activate` and `/deactivate` are `/enable` and `/disable`. `/preinstall` and `/api/npm-check` are removed (use `POST /api/install`). Servers carry `url` and `headers` fields (remote URLs no longer live in `homepage`), and `active` is now `enabled`. `GET /api/browse` returns `{servers, registry, errors}` with structured `packages` and `remotes`.
 - **Every state-changing REST call needs `X-Agent-Discover-Token`** (`GET /api/token`). Without it the response is 403 `TOKEN_REQUIRED`. Scripts that POST, PUT, PATCH or DELETE must fetch the token first.
 - **Setup file:** the key `auto_activate` is renamed `enabled`. An entry that still uses `auto_activate` is reported as an error.
+- **Data directory moved.** The database and the file secret store now live in the per-user data directory: `AGENT_DISCOVER_DATA_DIR`, else `%LOCALAPPDATA%\agent-discover` (Windows), `~/Library/Application Support/agent-discover` (macOS), `$XDG_DATA_HOME/agent-discover` or `~/.local/share/agent-discover` (Linux). `AGENT_DISCOVER_DB` still overrides the DB file. A 1.x `~/.claude/agent-discover.db` (with `-wal`, `-shm`, `agent-discover-secrets.json` and `.key`) is moved there once on first start, only into the default directory. The daemon refuses to start while another process (a running 1.x) still holds the old database open.
 - **Database auto-migrates** from the 1.4 schema to schema 10 on first start.
 - **Secrets move to the OS keychain** (or an AES-256-GCM file when no keychain is available). Plaintext secrets from 1.x are moved on first start and wiped from SQLite.
 - **Dependencies:** the MCP SDK moved from `@modelcontextprotocol/sdk` 1.x to the v2 packages (`@modelcontextprotocol/server|client|node|core`), and the `agent-common` dependency is removed.

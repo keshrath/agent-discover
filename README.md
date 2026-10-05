@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-187%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-8-purple)]()
 
 **Find, install and enable MCP servers in the middle of a session, on any MCP host.** agent-discover is one local daemon that searches the official MCP Registry, npm and PyPI, installs a server after you approve the exact command and its provenance, and then exposes its tools to your host without a config edit or a restart. It also guards what it installs: tool definitions are pinned and a server whose tools change is quarantined, secrets live in the OS keychain, and every action is audited.
@@ -166,29 +166,37 @@ Methodology, per-category results and how to run it: [bench/retrieval/README.md]
 
 The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
 
-| Variable                            | Default                       | Description                                                              |
-| ----------------------------------- | ----------------------------- | ------------------------------------------------------------------------ |
-| `AGENT_DISCOVER_PORT`               | `3424`                        | Daemon port                                                              |
-| `AGENT_DISCOVER_HOST`               | `127.0.0.1`                   | Listen address                                                           |
-| `AGENT_DISCOVER_DB`                 | `~/.claude/agent-discover.db` | SQLite path (a 1.x database is migrated in place)                        |
-| `AGENT_DISCOVER_MODE`               | `native`                      | `native` lists enabled servers' tools; `proxy` lists only the meta tools |
-| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                     | Daemon idle exit (`0` = never)                                           |
-| `AGENT_DISCOVER_SETUP_FILE`         | unset                         | Declarative server list synced at start                                  |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                        | `local` or `openai` adds semantic ranking                                |
-| `AGENT_DISCOVER_SECRETS`            | auto                          | `keyring` or `file` forces the secret backend                            |
+| Variable                            | Default                   | Description                                                              |
+| ----------------------------------- | ------------------------- | ------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_PORT`               | `3424`                    | Daemon port                                                              |
+| `AGENT_DISCOVER_HOST`               | `127.0.0.1`               | Listen address                                                           |
+| `AGENT_DISCOVER_DATA_DIR`           | platform data dir         | Data directory (see Upgrading from 1.x)                                  |
+| `AGENT_DISCOVER_DB`                 | `agent-discover.db` in it | SQLite file path                                                         |
+| `AGENT_DISCOVER_MODE`               | `native`                  | `native` lists enabled servers' tools; `proxy` lists only the meta tools |
+| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                 | Daemon idle exit (`0` = never)                                           |
+| `AGENT_DISCOVER_SETUP_FILE`         | unset                     | Declarative server list synced at start                                  |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                    | `local` or `openai` adds semantic ranking                                |
+| `AGENT_DISCOVER_SECRETS`            | auto                      | `keyring` or `file` forces the secret backend                            |
 
 ---
 
 ## Upgrading from 1.x
 
-2.0 is a breaking release. The single `registry` tool is replaced by the eight tools above, REST routes were renamed, the setup file key `auto_activate` is now `enabled`, secrets move to the keychain, and the default bin is the shim. The database migrates itself. Full list in [CHANGELOG.md](CHANGELOG.md#200---unreleased).
+2.0 is a breaking release. The single `registry` tool is replaced by the eight tools above, REST routes were renamed, the setup file key `auto_activate` is now `enabled`, secrets move to the keychain, and the default bin is the shim. The database migrates itself and moves from `~/.claude` to the per-user data directory (`%LOCALAPPDATA%\agent-discover`, `~/Library/Application Support/agent-discover`, or `$XDG_DATA_HOME/agent-discover` / `~/.local/share/agent-discover`; `AGENT_DISCOVER_DATA_DIR` overrides) on first start, so stop any running 1.x process first. Full list in [CHANGELOG.md](CHANGELOG.md#200---2026-10-05).
+
+---
+
+## Known limitations
+
+- Claude Code forwards a tool's `structuredContent` to the model as JSON text instead of the markdown `content` (upstream behaviour, [anthropics/claude-code#55677](https://github.com/anthropics/claude-code/issues/55677) closed as not planned, see also [#15412](https://github.com/anthropics/claude-code/issues/15412)). Other hosts and the widget use the markdown / UI.
+- Docker sandboxing for stdio servers is not included yet (deferred).
 
 ---
 
 ## Testing
 
 ```bash
-npm test              # 187 tests across 23 files
+npm test              # 197 tests across 25 files (9 e2e skipped unless AGENT_DISCOVER_E2E=1)
 npm run check         # typecheck + lint + format + test
 npm run bench:retrieval
 npm run test:e2e:ui   # Playwright dashboard smoke tests

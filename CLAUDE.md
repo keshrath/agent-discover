@@ -50,7 +50,7 @@ Tool pinning with quarantine and re-approval (`pins.ts`), description hygiene (`
 - **Design tokens**: CSS custom properties (`--bg`, `--accent`, `--border`, `--shadow-*`, etc.)
 - **Accent color**: `#5d8da8`
 - **Port**: 3424 (`AGENT_DISCOVER_PORT`)
-- **Tabs**: Servers (Add Server form, health, secrets, metrics, config, tester), Browse (registry install), Logs (real-time call log)
+- **Tabs**: Servers (Add Server form, health, secrets, metrics, config, tester), Browse (install-consent modal), Logs (real-time call log), Audit; deep links `#/servers`, `#/servers/<name>`, `#/browse?q=`, `#/logs`, `#/audit`
 - **Theme sync**: agent-desk postMessage theme injection + reverse sync
 - Mutating REST calls from the UI go through `AD._fetch`, which adds `X-Agent-Discover-Token` (from `GET /api/token`).
 
@@ -69,7 +69,7 @@ Tool pinning with quarantine and re-approval (`pins.ts`), description hygiene (`
 
 ```
 npm run build              # tsc + copy UI + build the widget
-npm test                   # vitest (23 files, 187 tests)
+npm test                   # vitest (25 files, 197 tests; 9 e2e skipped unless AGENT_DISCOVER_E2E=1)
 npm run check              # typecheck + lint + format + test
 npm run bench:retrieval    # offline ranker bench; CI runs it with --check
 npm run plugin:check       # claude plugin validate + test (needs the claude CLI)
@@ -86,7 +86,7 @@ Full reference: `docs/API.md`.
 
 ## DB
 
-- SQLite at `~/.claude/agent-discover.db` (`AGENT_DISCOVER_DB`). A 1.x database migrates in place.
+- SQLite `agent-discover.db` in the data dir: `AGENT_DISCOVER_DATA_DIR`, else `%LOCALAPPDATA%\agent-discover` (Windows), `~/Library/Application Support/agent-discover` (macOS), `$XDG_DATA_HOME/agent-discover` or `~/.local/share/agent-discover` (Linux). `AGENT_DISCOVER_DB` overrides the file. A 1.x `~/.claude/agent-discover.db` (+ `-wal`/`-shm`, `agent-discover-secrets.json`/`.key`) is moved there once on first start (default dir only); startup fails while another process holds the old DB open.
 - Schema version: **10** (migrations in `src/storage/database.ts`, applied in version order; add a new one, never edit an old one).
 - Tables: `servers`, `server_tools` (+ `server_tools_fts`), `servers_fts`, `server_secrets` (key names and backend only), `server_metrics`, `server_pins`, `audit_log`, `registry_servers` (+ `registry_servers_fts`), `test_presets`, `_meta`.
 

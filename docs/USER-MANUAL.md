@@ -260,7 +260,7 @@ Point `AGENT_DISCOVER_SETUP_FILE` at a JSON file to have servers ensured at daem
 ## 10. Operations
 
 - **Daemon lifetime.** Exits after 30 minutes with no MCP streams and no dashboard clients (`AGENT_DISCOVER_IDLE_MS`, `0` = never). The next shim start brings it back. For an always-on daemon see the systemd example in [SETUP.md](SETUP.md#running-as-standalone-server).
-- **Data.** Database `~/.claude/agent-discover.db` (`AGENT_DISCOVER_DB`). Back it up by copying the file with the daemon stopped. Secret values are in the keychain or the encrypted file beside the database, not in the database.
+- **Data.** Database `agent-discover.db` in the data directory (`AGENT_DISCOVER_DATA_DIR`, else `%LOCALAPPDATA%\agent-discover` on Windows, `~/Library/Application Support/agent-discover` on macOS, `~/.local/share/agent-discover` on Linux; `AGENT_DISCOVER_DB` overrides the file). A 1.x database in `~/.claude` is moved there once on first start. Back it up by copying the file with the daemon stopped. Secret values are in the keychain or the encrypted file beside the database, not in the database.
 - **Upgrading from 1.x.** The database migrates itself. Re-run host config to the 2.x entry (`agent-discover@^2`), rename `auto_activate` to `enabled` in setup files, and update scripts for the REST renames listed in the [changelog](../CHANGELOG.md).
 - **Embeddings.** Optional. See [SETUP.md](SETUP.md#semantic-search-optional).
 
@@ -282,7 +282,7 @@ Point `AGENT_DISCOVER_SETUP_FILE` at a JSON file to have servers ensured at daem
 
 **403 `TOKEN_REQUIRED`.** A mutating REST call without `X-Agent-Discover-Token`. Fetch it from `GET /api/token`.
 
-**Database problems.** Stop the daemon, delete `~/.claude/agent-discover.db` and restart. Installed servers, metrics, pins and the audit log are lost.
+**Database problems.** Stop the daemon, delete `agent-discover.db` in the data directory and restart. Installed servers, metrics, pins and the audit log are lost.
 
 ---
 

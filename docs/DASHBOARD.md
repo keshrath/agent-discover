@@ -52,7 +52,9 @@ A **prereqs banner** is rendered above the result list when a package manager th
 
 Installing a server from Browse adds it to the Servers tab. The search runs against the local registry mirror, npm and PyPI (`GET /api/browse`).
 
-The dashboard does not yet have views for the 2.0 trust and OAuth features. Quarantine review and re-approval, the audit log and OAuth sign-in are available over REST (`GET /api/servers/:id/trust`, `POST /api/servers/:id/approve`, `GET /api/audit`, `GET|POST /api/servers/:id/auth`, see [API.md](API.md)) and re-approval also works through `enable_server`. The Claude Code `/discover` panel lists quarantined servers.
+Clicking **Install** opens the **install consent modal**. It loads `GET /api/install/plan` (source, name, optional `local_name` and `transport`) and shows what installing will do: the exact command to run on your machine or the endpoint to connect to, warnings, the pinned version or image digest, the registry entry and verified publisher, and each provenance check with its pass/fail result. Required environment variables and headers are entered here (secret ones as password fields) and stored as server secrets. You can change the local name and, for entries with both packages and remotes, the transport; the plan reloads on each change. There is also an "enable after install" choice. **Install** stays disabled while the plan is `blocked` or a required value is missing, and `POST /api/install` runs only after you confirm. On success the dashboard jumps to the new server.
+
+Entries the registry has marked `deleted` get a red border in the results.
 
 ### Logs
 
@@ -65,12 +67,29 @@ Real-time call log of all proxied MCP tool calls. Each row shows timestamp, serv
 - **Badge**: sidebar navigation shows the current log entry count.
 - **Retention**: entries older than 30 days are auto-pruned (configurable via `AGENT_DISCOVER_LOG_RETENTION_DAYS` env var). In-memory ring buffer capped at 500 entries.
 
+### Audit
+
+Read-only view of the append-only audit log (`GET /api/audit`, newest first). Filter by server, action and tool; **Load more** pages backwards with `before=<last id>`. Installs, approvals, quarantines, secret changes and tool calls are recorded here. See [API.md](API.md) for the entry shape.
+
+### Trust, registry and sign-in banners
+
+Server cards on the Servers tab show banners when something needs attention:
+
+- **Quarantined**: the server's tools changed since you approved them and agents cannot use it. The banner shows the drift diff (from `GET /api/servers/:id/trust`) with **Approve changes** (`POST /api/servers/:id/approve`, bound to the tool hashes you reviewed; a 409 means the tools changed again and the new diff is shown) or **Keep disabled**. Enable is disabled until the quarantine is reviewed.
+- **Flagged tools**: tools whose descriptions look suspicious (hidden characters, instruction override, hidden tags, possible exfiltration, secret access, concealing actions from the user) are listed in a banner and tagged `flagged` in the tools list.
+- **Removed from / Deprecated in the MCP Registry**: shown from the server's `registry_status`. A deleted entry is a registry takedown (used for malware and spam); consider uninstalling.
+- **Sign in**: a remote server that needs OAuth gets a **Sign in** button (`POST /api/servers/:id/auth` returns the authorization URL, the dashboard polls `GET /api/servers/:id/auth` until the callback finishes).
+
+## Routes
+
+The URL hash is a deep link and follows browser back/forward: `#/servers`, `#/servers/<name>` (a server's card), `#/browse?q=<query>`, `#/logs`, `#/audit`. Unknown hashes open Servers.
+
 ## Sidebar
 
 The sidebar contains:
 
 - **Header**: Widgets icon (Material Symbols `widgets`) and "agent-discover" title with version number.
-- **Navigation**: Three tab buttons -- Servers (with count badge), Browse, and Logs (with count badge).
+- **Navigation**: Four tab buttons -- Servers (with count badge), Browse, Logs (with count badge) and Audit.
 - **Footer**: Theme toggle button (moon/sun icon).
 
 ## Favicon

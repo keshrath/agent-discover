@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "1.4.1",
+  "version": "2.0.0",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "Find, install and enable MCP servers mid-session on any MCP host, with install consent, tool pinning and quarantine, keychain secrets and an audit log",
   "type": "module",
@@ -26,7 +26,6 @@
   "scripts": {
     "build": "tsc && node scripts/copy-ui.js && node src/widgets/build.mjs",
     "start": "node dist/index.js",
-    "start:server": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:ui": "playwright test",

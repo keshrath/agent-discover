@@ -48,7 +48,7 @@ node dist/index.js daemon   # starts the daemon; visit http://127.0.0.1:3424
 
 From an npm install use `agent-discover daemon` instead.
 
-The first run creates the SQLite DB at `~/.claude/agent-discover.db` (override with `AGENT_DISCOVER_DB`).
+The first run creates the SQLite DB `agent-discover.db` in the per-user data directory: `%LOCALAPPDATA%\agent-discover` (Windows), `~/Library/Application Support/agent-discover` (macOS), `$XDG_DATA_HOME/agent-discover` or `~/.local/share/agent-discover` (Linux). Override the directory with `AGENT_DISCOVER_DATA_DIR`, the DB file with `AGENT_DISCOVER_DB`. A 1.x `~/.claude/agent-discover.db` (with its `-wal`/`-shm` files and `agent-discover-secrets.json`/`.key`) is moved there once on first start. The daemon refuses to start while another process, such as a still-running 1.x, holds that old DB open; stop it and start again.
 
 ---
 
@@ -199,7 +199,7 @@ It prints nothing when the daemon is down. Do not use it together with the nativ
 The daemon is the single long-running process. The stdio shim starts it on demand; run it yourself (cron, systemd, login item) when you want http clients or a dashboard that outlives your editor:
 
 ```bash
-# Default 127.0.0.1:3424, DB at ~/.claude/agent-discover.db
+# Default 127.0.0.1:3424, DB in the data directory
 agent-discover daemon          # or: node dist/index.js daemon
 
 # Custom port / DB via env vars
@@ -234,16 +234,17 @@ WantedBy=multi-user.target
 
 The complete list with defaults is in [API.md](./API.md#environment). The ones most setups touch:
 
-| Variable                            | Default                       | Description                                                             |
-| ----------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`               | `3424`                        | Daemon port (dashboard, REST, `/mcp`)                                   |
-| `AGENT_DISCOVER_HOST`               | `127.0.0.1`                   | Listen address. Anything but loopback exposes the daemon to the network |
-| `AGENT_DISCOVER_DB`                 | `~/.claude/agent-discover.db` | SQLite database path                                                    |
-| `AGENT_DISCOVER_MODE`               | `native`                      | `native` or `proxy`, see below                                          |
-| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                     | Daemon idle exit (`0` = never)                                          |
-| `AGENT_DISCOVER_SETUP_FILE`         | unset                         | Declarative server list synced at daemon start                          |
-| `AGENT_DISCOVER_SECRETS`            | auto                          | `keyring` or `file` forces the secret backend                           |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                        | `local` or `openai` enables semantic ranking                            |
+| Variable                            | Default                   | Description                                                             |
+| ----------------------------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `AGENT_DISCOVER_PORT`               | `3424`                    | Daemon port (dashboard, REST, `/mcp`)                                   |
+| `AGENT_DISCOVER_HOST`               | `127.0.0.1`               | Listen address. Anything but loopback exposes the daemon to the network |
+| `AGENT_DISCOVER_DATA_DIR`           | platform data dir         | Data directory (DB, file secret store)                                  |
+| `AGENT_DISCOVER_DB`                 | `agent-discover.db` in it | SQLite database path                                                    |
+| `AGENT_DISCOVER_MODE`               | `native`                  | `native` or `proxy`, see below                                          |
+| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                 | Daemon idle exit (`0` = never)                                          |
+| `AGENT_DISCOVER_SETUP_FILE`         | unset                     | Declarative server list synced at daemon start                          |
+| `AGENT_DISCOVER_SECRETS`            | auto                      | `keyring` or `file` forces the secret backend                           |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                    | `local` or `openai` enables semantic ranking                            |
 
 Environment variables must reach the **daemon**. A shim spawns the daemon with its own environment, so set them in the host's MCP server entry (`env`) or in the shell that starts `agent-discover daemon`. A daemon that is already running keeps the environment it started with.
 
@@ -311,7 +312,7 @@ The host cannot show an elicitation prompt. Install from the dashboard's Browse 
 
 ### Database errors
 
-The database lives at `~/.claude/agent-discover.db` by default and migrates itself on start. To reset, stop the daemon and delete the file. Installed servers, metrics, pins and the audit log are lost. Secret values live in the OS keychain (service `agent-discover`) or in `agent-discover-secrets.json` next to the database, and are not removed with it.
+The database lives in the data directory (`%LOCALAPPDATA%\agent-discover`, `~/Library/Application Support/agent-discover` or `~/.local/share/agent-discover`) by default and migrates itself on start. To reset, stop the daemon and delete the file. Installed servers, metrics, pins and the audit log are lost. Secret values live in the OS keychain (service `agent-discover`) or in `agent-discover-secrets.json` next to the database, and are not removed with it.
 
 ### Permission prompts in Claude Code
 
