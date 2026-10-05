@@ -246,7 +246,7 @@
       esc(tool.name) +
       '"></div>' +
       '<div class="tester-form-actions">' +
-      '<button class="btn-activate" data-action="tester-call" data-id="' +
+      '<button class="btn-enable" data-action="tester-call" data-id="' +
       serverId +
       '">Call tool</button>' +
       '<select class="tester-preset-sel" data-action="tester-preset-load" data-id="' +
@@ -379,7 +379,7 @@
       esc(s.selectedResource) +
       '</strong></div>' +
       '<div class="tester-form-actions">' +
-      '<button class="btn-activate" data-action="tester-resource-read" data-id="' +
+      '<button class="btn-enable" data-action="tester-resource-read" data-id="' +
       serverId +
       '">Read</button>' +
       '<button class="btn-health" data-action="tester-resource-subscribe" data-id="' +
@@ -498,7 +498,7 @@
       (argsRows || '<div class="hint">No arguments.</div>') +
       '</div>' +
       '<div class="tester-form-actions">' +
-      '<button class="btn-activate" data-action="tester-prompt-get" data-id="' +
+      '<button class="btn-enable" data-action="tester-prompt-get" data-id="' +
       serverId +
       '">Get prompt</button>' +
       '</div>' +
@@ -616,7 +616,7 @@
       '<div class="tester-diagnostics">' +
       '<div class="tester-form-row"><label>Last ping</label>' +
       rtt +
-      ' <button class="btn-activate" data-action="tester-ping" data-id="' +
+      ' <button class="btn-enable" data-action="tester-ping" data-id="' +
       serverId +
       '">Ping</button></div>' +
       '<div class="tester-form-row"><label>Logging level</label>' +
@@ -636,7 +636,7 @@
           );
         })
         .join('') +
-      '</select> <button class="btn-activate" data-action="tester-set-logging" data-id="' +
+      '</select> <button class="btn-enable" data-action="tester-set-logging" data-id="' +
       serverId +
       '">Apply</button></div>' +
       '</div>'
@@ -1364,7 +1364,7 @@
       '</div>' +
       '<div class="tester-elicit-form"></div>' +
       '<div class="tester-elicit-actions">' +
-      '<button class="btn-activate" data-elicit="accept">Accept</button>' +
+      '<button class="btn-enable" data-elicit="accept">Accept</button>' +
       '<button class="btn-health" data-elicit="decline">Decline</button>' +
       '<button class="btn-delete" data-elicit="cancel">Cancel</button>' +
       '</div></div>';

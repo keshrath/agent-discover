@@ -45,13 +45,26 @@
   AD._wsUrl = null;
   AD._root = document;
 
-  let state = { servers: [], version: '0.0.0' };
+  let state = { servers: [], version: '0.0.0', loaded: false };
   let ws = null;
   let browseResults = [];
+  let browseMeta = null;
+  let browseQuery = '';
+  let browseSeq = 0;
   let currentTab = 'installed';
+  let selectedServer = '';
+  let pendingFocus = false;
   let searchTimeout = null;
+  let extrasTimer = null;
   let openSections = {};
   let prereqs = null;
+  let statusByName = {};
+  let trustCache = {};
+  let authCache = {};
+  let authPending = {};
+  let audit = { entries: [], total: 0, more: false, error: '' };
+  let auditFilter = { server: '', action: '', tool: '' };
+  let auditSeq = 0;
   let logEntries = [];
   let logFilter = { server: '', status: '', search: '', from: '', to: '' };
 
@@ -74,8 +87,10 @@
           state = {
             servers: msg.servers || state.servers,
             version: msg.version || state.version,
+            loaded: true,
           };
           render();
+          refreshExtras();
         } else if (msg.type === 'log_entry' && msg.entry) {
           logEntries.unshift(msg.entry);
           if (logEntries.length > 500) logEntries.length = 500;
@@ -110,40 +125,91 @@
   }
 
   // -------------------------------------------------------------------------
-  // Tab navigation
+  // Routing: #/servers, #/servers/<name>, #/browse?q=, #/logs, #/audit
   // -------------------------------------------------------------------------
 
-  function switchTab(tab) {
-    currentTab = tab;
-    var navItems = AD._root.querySelectorAll('.nav-item');
-    navItems.forEach(function (n) {
-      n.classList.remove('active');
-      if (n.dataset.tab === tab) n.classList.add('active');
+  var TABS = { servers: 'installed', browse: 'browse', logs: 'logs', audit: 'audit' };
+
+  function $id(id) {
+    return AD._root.getElementById(id);
+  }
+
+  function parseHash() {
+    var raw = location.hash.replace(/^#\/?/, '');
+    var qi = raw.indexOf('?');
+    var parts = (qi < 0 ? raw : raw.slice(0, qi)).split('/');
+    var arg = '';
+    try {
+      arg = parts[1] ? decodeURIComponent(parts[1]) : '';
+    } catch (e) {
+      /* malformed escape: treat as no server */
+    }
+    var view = parts[0] === 'installed' ? 'servers' : parts[0];
+    return {
+      view: TABS[view] ? view : 'servers',
+      arg: arg,
+      q: new URLSearchParams(qi < 0 ? '' : raw.slice(qi + 1)).get('q') || '',
+    };
+  }
+
+  function serverHref(name) {
+    return '#/servers/' + encodeURIComponent(name);
+  }
+
+  function setHash(hash, push) {
+    if (location.hash === hash) return;
+    try {
+      history[push ? 'pushState' : 'replaceState'](null, '', hash);
+    } catch (e) {
+      location.hash = hash;
+    }
+  }
+
+  function navigate(hash) {
+    setHash(hash, true);
+    applyRoute();
+  }
+
+  function applyRoute() {
+    var r = parseHash();
+    currentTab = TABS[r.view];
+    AD._root.querySelectorAll('.nav-item').forEach(function (n) {
+      n.classList.toggle('active', n.dataset.tab === currentTab);
     });
     AD._root.querySelectorAll('.tab-panel').forEach(function (p) {
-      p.classList.remove('active');
+      p.classList.toggle('active', p.id === 'tab-' + currentTab);
     });
-    AD._root.getElementById('tab-' + tab).classList.add('active');
-    if (tab === 'logs') renderLogs();
-    try {
-      history.replaceState(null, '', '#' + tab);
-    } catch (e) {
-      /* ignore */
+    selectedServer = currentTab === 'installed' ? r.arg : '';
+    if (currentTab === 'installed') {
+      pendingFocus = !!selectedServer;
+      renderInstalled();
+    } else if (currentTab === 'logs') {
+      renderLogs();
+    } else if (currentTab === 'audit') {
+      loadAudit(false);
+    } else {
+      var input = $id('browse-search');
+      if (input.value.trim() !== r.q) input.value = r.q;
+      if (!r.q) {
+        browseQuery = '';
+        browseResults = [];
+        browseSeq++;
+        renderBrowse();
+      } else if (r.q !== browseQuery) {
+        fetchBrowse(r.q);
+      }
     }
   }
 
   function initTabs() {
-    var navItems = AD._root.querySelectorAll('.nav-item');
-    navItems.forEach(function (item) {
+    AD._root.querySelectorAll('.nav-item').forEach(function (item) {
       item.addEventListener('click', function () {
-        switchTab(this.dataset.tab);
+        navigate('#/' + Object.keys(TABS).filter((k) => TABS[k] === this.dataset.tab)[0]);
       });
     });
-
-    var hash = location.hash.replace('#', '');
-    if (hash && AD._root.getElementById('tab-' + hash)) {
-      switchTab(hash);
-    }
+    window.addEventListener('hashchange', applyRoute);
+    window.addEventListener('popstate', applyRoute);
+    applyRoute();
   }
 
   // -------------------------------------------------------------------------
@@ -194,18 +260,16 @@
   // -------------------------------------------------------------------------
 
   function initSearch() {
-    var input = AD._root.getElementById('browse-search');
-    input.addEventListener('input', function () {
+    $id('browse-search').addEventListener('input', function () {
       clearTimeout(searchTimeout);
       var q = this.value.trim();
-      if (!q) {
-        browseResults = [];
-        renderBrowse();
-        return;
-      }
-      searchTimeout = setTimeout(function () {
-        fetchBrowse(q);
-      }, 400);
+      searchTimeout = setTimeout(
+        function () {
+          setHash('#/browse' + (q ? '?q=' + encodeURIComponent(q) : ''), false);
+          applyRoute();
+        },
+        q ? 400 : 0,
+      );
     });
   }
 
@@ -224,20 +288,30 @@
   }
 
   function fetchBrowse(query) {
-    var el = AD._root.getElementById('browse-list');
-    el.innerHTML = '<div class="loading">Searching...</div>';
-
+    browseQuery = query;
+    var seq = ++browseSeq;
+    $id('browse-list').innerHTML = '<div class="loading">Searching...</div>';
     AD._fetch('/api/browse?query=' + encodeURIComponent(query) + '&limit=20')
       .then(function (r) {
-        return r.json();
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error((data && data.error) || 'Search failed');
+          return data;
+        });
       })
       .then(function (data) {
+        if (seq !== browseSeq) return;
         browseResults = data.servers || [];
+        browseMeta = { registry: data.registry, errors: data.errors || {} };
         renderBrowse();
       })
-      .catch(function () {
-        el.innerHTML =
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">error</span><p>Failed to fetch from registry</p></div>';
+      .catch(function (err) {
+        if (seq !== browseSeq) return;
+        browseResults = [];
+        browseMeta = null;
+        $id('browse-list').innerHTML =
+          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">error</span><p>' +
+          esc('Search failed: ' + err.message) +
+          '</p></div>';
       });
   }
 
@@ -251,6 +325,8 @@
     updateLogCount();
     updateLogServerFilter();
     renderInstalled();
+    if (currentTab === 'browse') renderBrowse();
+    if (currentTab === 'audit') renderAudit();
   }
 
   function updateLogCount() {
@@ -288,30 +364,222 @@
     sel.innerHTML = opts;
   }
 
+  var FLAG_LABELS = {
+    'invisible-chars': 'hidden characters',
+    'instruction-override': 'tries to override instructions',
+    'hidden-tag': 'hidden instruction tag',
+    exfiltration: 'possible data exfiltration',
+    'secret-access': 'reads secrets or credentials',
+    'conceal-from-user': 'asks to hide actions from the user',
+  };
+
+  function banner(kind, icon, title, bodyHtml, actionsHtml) {
+    return (
+      '<div class="banner banner-' +
+      kind +
+      '"><span class="material-symbols-outlined banner-icon">' +
+      icon +
+      '</span><div class="banner-main"><div class="banner-title">' +
+      esc(title) +
+      '</div>' +
+      (bodyHtml ? '<div class="banner-body">' + bodyHtml + '</div>' : '') +
+      (actionsHtml ? '<div class="banner-actions">' + actionsHtml + '</div>' : '') +
+      '</div></div>'
+    );
+  }
+
+  // Escape, then expose characters that render as nothing (a tool-poisoning vector).
+  function visible(str) {
+    return esc(str).replace(/[​-‏‪-‮⁠-⁤﻿]/g, function (c) {
+      return (
+        '<span class="invis">U+' +
+        c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0') +
+        '</span>'
+      );
+    });
+  }
+
+  function diffRow(kind, text) {
+    return (
+      '<div class="diff-' +
+      kind +
+      '"><span class="diff-sign">' +
+      (kind === 'del' ? '−' : kind === 'add' ? '+' : '~') +
+      '</span><span class="diff-text">' +
+      visible(text) +
+      '</span></div>'
+    );
+  }
+
+  function renderDrift(d) {
+    if (!d) return '<div class="hint">No tool diff recorded.</div>';
+    var out = (d.changed || []).map(function (c) {
+      var rows = '';
+      if (c.description)
+        rows += diffRow('del', c.description.before) + diffRow('add', c.description.after);
+      if (c.input_schema) {
+        (c.input_schema.added || []).forEach(function (p) {
+          rows += diffRow('add', 'parameter ' + p);
+        });
+        (c.input_schema.removed || []).forEach(function (p) {
+          rows += diffRow('del', 'parameter ' + p);
+        });
+        (c.input_schema.changed || []).forEach(function (p) {
+          rows += diffRow('chg', 'parameter ' + p);
+        });
+      }
+      if (c.annotations)
+        rows +=
+          diffRow('del', 'annotations ' + JSON.stringify(c.annotations.before)) +
+          diffRow('add', 'annotations ' + JSON.stringify(c.annotations.after));
+      return (
+        '<div class="drift-tool"><div class="drift-tool-name">' +
+        esc(c.tool) +
+        ' <span class="tag">changed</span></div>' +
+        rows +
+        '</div>'
+      );
+    });
+    [
+      ['added', 'new tool'],
+      ['removed', 'removed'],
+    ].forEach(function (kind) {
+      (d[kind[0]] || []).forEach(function (n) {
+        out.push(
+          '<div class="drift-tool"><div class="drift-tool-name">' +
+            esc(n) +
+            ' <span class="tag">' +
+            kind[1] +
+            '</span></div></div>',
+        );
+      });
+    });
+    return '<div class="drift">' + out.join('') + '</div>';
+  }
+
+  function hasAuthHeader(s) {
+    return Object.keys(s.headers || {}).some(function (k) {
+      return k.toLowerCase() === 'authorization';
+    });
+  }
+
+  function needsSignIn(s) {
+    var a = authCache[s.id];
+    if (!a || s.transport === 'stdio' || !s.url) return false;
+    if (a.status === 'required') return true;
+    return a.status === 'unknown' && !s.indexed_at && !hasAuthHeader(s);
+  }
+
+  function renderBanners(s) {
+    var out = '';
+    var st = statusByName[s.name] || {};
+    if (s.quarantined) {
+      var t = trustCache[s.id];
+      out += banner(
+        'danger',
+        'gpp_maybe',
+        'Quarantined: tools changed since you approved them',
+        '<p>Agents cannot use this server until you review the changes below.</p>' +
+          renderDrift(t && t.drift),
+        '<button class="btn-approve" data-action="approve" data-id="' +
+          s.id +
+          '"' +
+          (t ? '' : ' disabled') +
+          '>Approve changes</button>' +
+          '<button class="btn-keep" data-action="keep-disabled" data-id="' +
+          s.id +
+          '">Keep disabled</button>',
+      );
+    }
+    var flagged = st.flagged_tools || [];
+    if (flagged.length) {
+      out += banner(
+        'warn',
+        'warning',
+        flagged.length +
+          ' tool' +
+          (flagged.length > 1 ? 's' : '') +
+          ' with suspicious descriptions',
+        flagged
+          .map(function (f) {
+            var flags = (f.flags || []).map(function (x) {
+              return FLAG_LABELS[x] || x;
+            });
+            return (
+              '<div><span class="tool-name">' +
+              esc(f.tool) +
+              '</span> ' +
+              esc(flags.join(', ')) +
+              '</div>'
+            );
+          })
+          .join(''),
+      );
+    }
+    if (st.registry_status === 'deleted') {
+      out += banner(
+        'danger',
+        'report',
+        'Removed from the MCP Registry',
+        '<p>The registry took this entry down (takedowns are used for malware and spam). Consider uninstalling it.</p>',
+      );
+    } else if (st.registry_status === 'deprecated') {
+      out += banner('warn', 'history', 'Deprecated in the MCP Registry', '');
+    }
+    if (needsSignIn(s)) {
+      var waiting = !!authPending[s.id];
+      out += banner(
+        'info',
+        'lock',
+        'Sign-in required',
+        '<p>This remote server uses OAuth. Sign in to let agent-discover connect.</p>',
+        '<button class="btn-signin" data-action="sign-in" data-id="' +
+          s.id +
+          '"' +
+          (waiting ? ' disabled' : '') +
+          '>' +
+          (waiting ? 'Waiting for sign-in...' : 'Sign in') +
+          '</button>',
+      );
+    }
+    return out;
+  }
+
   function renderInstalled() {
-    var el = AD._root.getElementById('installed-list');
+    var el = $id('installed-list');
+    var notFound =
+      selectedServer && state.loaded && !state.servers.some((s) => s.name === selectedServer)
+        ? '<div class="banner banner-warn grid-wide"><span class="material-symbols-outlined banner-icon">search_off</span><div class="banner-main"><div class="banner-title">' +
+          esc('No server named "' + selectedServer + '"') +
+          '</div></div></div>'
+        : '';
     if (!state.servers.length) {
-      el.innerHTML =
-        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">dns</span><p>No servers registered</p><p class="hint">Use install_server or browse the marketplace</p></div>';
+      morph(
+        el,
+        notFound +
+          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">dns</span><p>No servers registered</p><p class="hint">Use install_server or browse the marketplace</p></div>',
+      );
       return;
     }
 
     var html = state.servers
       .map(function (s) {
-        var statusClass = s.enabled
-          ? s.health_status === 'unhealthy'
-            ? 'unhealthy'
-            : 'active'
-          : 'inactive';
-        var statusLabel = s.enabled
-          ? s.health_status === 'unhealthy'
-            ? 'Unhealthy'
-            : s.connected
-              ? 'Enabled · connected'
-              : 'Enabled'
-          : 'Disabled';
-
-        var healthStatus = s.health_status || 'unknown';
+        var statusClass = s.quarantined
+          ? 'quarantined'
+          : s.enabled
+            ? s.health_status === 'unhealthy'
+              ? 'unhealthy'
+              : 'enabled'
+            : 'disabled';
+        var statusLabel = s.quarantined
+          ? 'Quarantined'
+          : s.enabled
+            ? s.health_status === 'unhealthy'
+              ? 'Unhealthy'
+              : s.connected
+                ? 'Enabled · connected'
+                : 'Enabled'
+            : 'Disabled';
 
         var errorCount =
           s.error_count > 0
@@ -332,13 +600,18 @@
             return '<span class="tag">' + esc(t) + '</span>';
           })
           .join('');
+        var flaggedTools = {};
+        ((statusByName[s.name] || {}).flagged_tools || []).forEach(function (f) {
+          flaggedTools[f.tool] = true;
+        });
         var tools = (s.tools || [])
           .map(function (t) {
             return (
               '<div class="tool-item"><span class="tool-name">' +
               esc(t.name) +
+              (flaggedTools[t.name] ? ' <span class="tag tag-warn">flagged</span>' : '') +
               '</span><span class="tool-desc">' +
-              esc(t.description || '') +
+              visible(t.description || '') +
               '</span></div>'
             );
           })
@@ -353,12 +626,14 @@
             : '';
 
         var actionBtn = s.enabled
-          ? '<button class="btn-deactivate" data-action="disable" data-id="' +
+          ? '<button class="btn-disable" data-action="disable" data-id="' +
             s.id +
             '"><span class="material-symbols-outlined" style="font-size:14px">stop_circle</span>Disable</button>'
-          : '<button class="btn-activate" data-action="enable" data-id="' +
+          : '<button class="btn-enable" data-action="enable" data-id="' +
             s.id +
-            '"><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Enable</button>';
+            '"' +
+            (s.quarantined ? ' disabled title="Review the quarantine first"' : '') +
+            '><span class="material-symbols-outlined" style="font-size:14px">play_circle</span>Enable</button>';
 
         var healthBtn =
           '<button class="btn-health" data-action="health" data-id="' +
@@ -372,10 +647,6 @@
           escAttr(s.name) +
           '"><span class="material-symbols-outlined" style="font-size:14px">delete</span>Delete</button>';
 
-        var actionsSection =
-          '<div class="server-actions">' + actionBtn + healthBtn + deleteBtn + '</div>';
-
-        // Expandable sections
         var secretsSection = renderSection(s.id, 'secrets', 'Secrets', renderSecretsContent(s));
         var metricsSection = renderSection(s.id, 'metrics', 'Metrics', renderMetricsContent(s));
         var testerSection = renderSection(
@@ -389,13 +660,17 @@
         var configSection = renderSection(s.id, 'config', 'Config', renderConfigContent(s));
 
         return (
-          '<div class="server-card">' +
+          '<div class="server-card' +
+          (s.name === selectedServer ? ' selected' : '') +
+          '" data-server="' +
+          escAttr(s.name) +
+          '">' +
           '<div class="server-card-header">' +
-          '<div style="display:flex;align-items:center;gap:8px">' +
-          '<span class="server-name">' +
+          '<a class="server-name" href="' +
+          escAttr(serverHref(s.name)) +
+          '">' +
           esc(s.name) +
-          '</span>' +
-          '</div>' +
+          '</a>' +
           '<div style="display:flex;align-items:center;gap:8px">' +
           errorCount +
           '<span class="server-status"><span class="status-dot ' +
@@ -408,25 +683,29 @@
           '<div class="server-description">' +
           esc(s.description || '') +
           '</div>' +
+          renderBanners(s) +
           (tags ? '<div class="server-tags">' + tags + '</div>' : '') +
           '<div class="server-meta">' +
           '<span>' +
           esc(s.source || 'local') +
           '</span>' +
           '<span>' +
-          (function () {
-            var t = s.transport || 'stdio';
-            if (t === 'sse') return 'remote sse';
-            if (t === 'streamable-http') return 'remote http';
-            return 'local stdio';
-          })() +
+          (s.transport === 'sse'
+            ? 'remote sse'
+            : s.transport === 'streamable-http'
+              ? 'remote http'
+              : 'local stdio') +
           '</span>' +
           (s.transport && s.transport !== 'stdio' && s.url
             ? '<span style="font-size:11px;color:var(--text-muted)">' + esc(s.url) + '</span>'
             : '') +
           '</div>' +
           toolSection +
-          actionsSection +
+          '<div class="server-actions">' +
+          actionBtn +
+          healthBtn +
+          deleteBtn +
+          '</div>' +
           testerSection +
           secretsSection +
           metricsSection +
@@ -436,8 +715,139 @@
       })
       .join('');
 
-    morph(el, html);
+    morph(el, notFound + html);
+    if (pendingFocus) {
+      var card = el.querySelector('.server-card.selected');
+      if (card) {
+        pendingFocus = false;
+        card.scrollIntoView({ block: 'start' });
+      }
+    }
   }
+
+  // Status (flagged tools, registry_status), per-server trust reports (drift plus the
+  // hashes an approval must echo) and OAuth state come from REST, not the WS push.
+  function getJson(url) {
+    return AD._fetch(url)
+      .then(function (r) {
+        return r.json();
+      })
+      .catch(function () {
+        return {};
+      });
+  }
+
+  function changed(a, b) {
+    return JSON.stringify(a) !== JSON.stringify(b);
+  }
+
+  function refreshExtras() {
+    clearTimeout(extrasTimer);
+    extrasTimer = setTimeout(function () {
+      getJson('/api/status').then(function (data) {
+        var next = {};
+        (data.servers || []).forEach(function (s) {
+          next[s.name] = s;
+        });
+        if (changed(statusByName, next)) {
+          statusByName = next;
+          renderInstalled();
+        }
+      });
+      state.servers.forEach(function (s) {
+        if (s.quarantined) {
+          getJson('/api/servers/' + s.id + '/trust').then(function (t) {
+            if (changed(trustCache[s.id], t)) {
+              trustCache[s.id] = t;
+              renderInstalled();
+            }
+          });
+        } else {
+          delete trustCache[s.id];
+        }
+        if (s.transport !== 'stdio' && s.url) {
+          getJson('/api/servers/' + s.id + '/auth').then(function (a) {
+            if (changed(authCache[s.id], a)) {
+              authCache[s.id] = a;
+              renderInstalled();
+            }
+          });
+        }
+      });
+    }, 100);
+  }
+
+  window.__approve = function (id) {
+    var t = trustCache[id];
+    if (!t) return;
+    AD._fetch('/api/servers/' + id + '/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hashes: t.hashes }),
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) {
+            if (r.status === 409) refreshExtras();
+            throw new Error(
+              r.status === 409 ? 'tools changed again, review the new diff' : data.error,
+            );
+          }
+          showToast('Approved: quarantine lifted', 'success');
+        });
+      })
+      .catch(function (err) {
+        showToast('Approve failed: ' + err.message, 'error');
+      });
+  };
+
+  window.__keepDisabled = function (id) {
+    AD._fetch('/api/servers/' + id + '/disable', { method: 'POST' }).then(function () {
+      showToast('Server stays disabled and quarantined', 'success');
+    });
+  };
+
+  // POST /auth returns the URL to open; the callback page finishes sign-in, so poll for it.
+  window.__signIn = function (id) {
+    authPending[id] = true;
+    renderInstalled();
+    var done = function () {
+      delete authPending[id];
+      refreshExtras();
+    };
+    AD._fetch('/api/servers/' + id + '/auth', { method: 'POST' })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error(data.error || 'Sign-in failed');
+          return data;
+        });
+      })
+      .then(function (a) {
+        if (a.status === 'authorized') {
+          showToast('Signed in', 'success');
+          return done();
+        }
+        if (!/^https?:\/\//i.test(a.authorize_url || '')) throw new Error('no authorization URL');
+        window.open(a.authorize_url, '_blank', 'noopener');
+        var tries = 0;
+        var poll = setInterval(function () {
+          getJson('/api/servers/' + id + '/auth').then(function (s) {
+            if (s.status === 'authorized') {
+              clearInterval(poll);
+              showToast('Signed in', 'success');
+              done();
+            } else if (++tries > 150) {
+              clearInterval(poll);
+              done();
+            }
+          });
+        }, 2000);
+      })
+      .catch(function (err) {
+        showToast('Sign-in failed: ' + err.message, 'error');
+        done();
+      });
+  };
 
   // -------------------------------------------------------------------------
   // Expandable section helper
@@ -607,40 +1017,57 @@
   function renderPrereqBanner() {
     if (!prereqs) return '';
     var missing = [];
-    if (!prereqs.npx) missing.push({ tool: 'npx', hint: 'install Node.js — npx ships with it' });
+    if (!prereqs.npx) missing.push({ tool: 'npx', hint: 'install Node.js, npx ships with it' });
     if (!prereqs.uvx && !prereqs.uv)
       missing.push({ tool: 'uvx', hint: 'install uv: https://docs.astral.sh/uv/' });
     if (!missing.length) return '';
-    return (
-      '<div class="prereq-banner" style="padding:10px 14px;margin-bottom:12px;border:1px solid var(--orange,#e67e22);border-radius:6px;background:rgba(230,126,34,0.08);font-size:13px"><strong>Heads up:</strong> ' +
+    return banner(
+      'warn',
+      'warning',
+      'Missing tools on PATH',
       missing
         .map(function (m) {
-          return '<code>' + esc(m.tool) + '</code> not found on PATH (' + esc(m.hint) + ')';
+          return '<div><code>' + esc(m.tool) + '</code> (' + esc(m.hint) + ')</div>';
         })
-        .join(' &nbsp;·&nbsp; ') +
-      '. Installs requiring those tools will fail until they are available.</div>'
+        .join('') + '<div>Installs that need them will fail until they are available.</div>',
     );
   }
 
+  function renderBrowseMeta() {
+    if (!browseMeta) return '';
+    var out = '';
+    Object.keys(browseMeta.errors).forEach(function (src) {
+      out += banner(
+        'warn',
+        'cloud_off',
+        'Could not search ' + src,
+        '<div>' + esc(browseMeta.errors[src]) + '</div>',
+      );
+    });
+    return out;
+  }
+
+  function tag(kind, text) {
+    return '<span class="tag tag-' + kind + '">' + esc(text) + '</span>';
+  }
+
   function renderBrowse() {
-    var el = AD._root.getElementById('browse-list');
-    var banner = renderPrereqBanner();
+    var el = $id('browse-list');
+    var head = renderPrereqBanner() + renderBrowseMeta();
     if (!browseResults.length) {
-      var q = AD._root.getElementById('browse-search').value.trim();
-      if (!q) {
-        el.innerHTML =
-          banner +
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry, npm and PyPI</p><p class="hint">Type a query above to discover servers</p></div>';
-      } else {
-        el.innerHTML =
-          banner +
-          '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results found</p>' +
-          '<a class="hint-link" data-action="show-npm-form">Can\'t find it? Install from npm</a>' +
-          '<div class="npm-install-form" style="display:none">' +
-          '<input type="text" id="npm-package-input" placeholder="npm package name (e.g. @modelcontextprotocol/server-everything)" />' +
-          '<button class="btn-install" data-action="install-npm"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
-          '</div></div>';
-      }
+      var q = $id('browse-search').value.trim();
+      morph(
+        el,
+        head +
+          (q
+            ? '<div class="empty-state"><span class="material-symbols-outlined empty-icon">search_off</span><p>No results found</p>' +
+              '<a class="hint-link" data-action="show-npm-form">Can\'t find it? Install from npm</a>' +
+              '<div class="npm-install-form" style="display:none">' +
+              '<input type="text" id="npm-package-input" placeholder="npm package name (e.g. @modelcontextprotocol/server-everything)" />' +
+              '<button class="btn-install" data-action="install-npm"><span class="material-symbols-outlined" style="font-size:14px">download</span> Install</button>' +
+              '</div></div>'
+            : '<div class="empty-state"><span class="material-symbols-outlined empty-icon">explore</span><p>Search the official MCP registry, npm and PyPI</p><p class="hint">Type a query above to discover servers</p></div>'),
+      );
       return;
     }
 
@@ -650,65 +1077,58 @@
 
     var html = browseResults
       .map(function (s, idx) {
-        var tag = function (color, text) {
-          return (
-            '<span class="tag" style="border-color:' +
-            color +
-            ';color:' +
-            color +
-            '">' +
-            esc(text) +
-            '</span>'
-          );
-        };
-        var pkgs = (s.packages || [])
-          .map(function (p) {
-            return tag(
-              'var(--green, #27ae60)',
-              p.registry_type + ': ' + p.identifier + (p.version ? '@' + p.version : ''),
-            );
-          })
-          .concat(
-            (s.remotes || []).map(function (r) {
+        var chips =
+          tag('source', s.source) +
+          (s.status && s.status !== 'active' ? tag(s.status, s.status) : '') +
+          (s.packages || [])
+            .map(function (p) {
               return tag(
-                r.type === 'sse' ? 'var(--orange, #e67e22)' : 'var(--accent, #5d8da8)',
-                r.type + ': ' + r.url,
+                'pkg',
+                p.registry_type + ': ' + p.identifier + (p.version ? '@' + p.version : ''),
               );
-            }),
-          )
-          .concat(s.status && s.status !== 'active' ? [tag('var(--red, #c0392b)', s.status)] : [])
-          .join('');
+            })
+            .join('') +
+          (s.remotes || [])
+            .map(function (r) {
+              return tag(r.type === 'sse' ? 'sse' : 'remote', r.type + ': ' + r.url);
+            })
+            .join('');
 
         // The daemon names the local server after the last path segment (localNameFor).
-        var localName = (s.name || '').split('/').pop();
-        var isInstalled = installedNames.indexOf(localName) !== -1;
-
+        var isInstalled = installedNames.indexOf((s.name || '').split('/').pop()) !== -1;
         var installBtn = isInstalled
           ? '<button class="btn-install btn-installed" disabled><span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed</button>'
           : '<button class="btn-install" data-action="install-browse" data-browse-idx="' +
             idx +
             '"><span class="material-symbols-outlined" style="font-size:14px">download</span>Install</button>';
+        var repo = safeHref(s.repository);
 
         return (
-          '<div class="server-card">' +
+          '<div class="server-card' +
+          (s.status === 'deleted' ? ' card-deleted' : '') +
+          '">' +
           '<div class="server-card-header">' +
           '<span class="server-name">' +
-          esc(s.name) +
+          esc(s.title && s.title !== s.name ? s.title : s.name) +
           '</span>' +
           '<div style="display:flex;align-items:center;gap:8px">' +
           (s.version ? '<span class="tag">' + esc(s.version) + '</span>' : '') +
           installBtn +
-          '</div>' +
-          '</div>' +
+          '</div></div>' +
+          (s.title && s.title !== s.name
+            ? '<div class="server-meta mono">' + esc(s.name) + '</div>'
+            : '') +
           '<div class="server-description">' +
           esc(s.description || '') +
           '</div>' +
-          (pkgs ? '<div class="server-tags">' + pkgs + '</div>' : '') +
-          (s.repository
+          '<div class="server-tags">' +
+          chips +
+          '</div>' +
+          (repo
             ? '<div class="server-meta"><span class="material-symbols-outlined">code</span><a href="' +
-              esc(s.repository) +
-              '" target="_blank" style="color:var(--accent)">' +
-              esc(s.repository) +
+              escAttr(repo) +
+              '" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">' +
+              esc(repo) +
               '</a></div>'
             : '') +
           '</div>'
@@ -716,7 +1136,11 @@
       })
       .join('');
 
-    morph(el, banner + html);
+    morph(el, head + html);
+  }
+
+  function safeHref(url) {
+    return /^https?:\/\//i.test(url || '') ? url : '';
   }
 
   function esc(str) {
@@ -733,7 +1157,17 @@
   function morph(el, newInnerHTML) {
     var wrap = document.createElement(el.tagName);
     wrap.innerHTML = newInnerHTML;
-    morphdom(el, wrap, { childrenOnly: true });
+    morphdom(el, wrap, {
+      childrenOnly: true,
+      // Pushed state must not wipe what the user is typing into a form control.
+      onBeforeElUpdated: function (from) {
+        if (from.tagName === 'INPUT' && (from.type === 'checkbox' || from.type === 'radio'))
+          return from.checked === from.defaultChecked;
+        if (from.tagName === 'INPUT' || from.tagName === 'TEXTAREA')
+          return from.value === from.defaultValue;
+        return true;
+      },
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -783,85 +1217,368 @@
       });
   };
 
-  // Installs go through POST /api/install: the daemon resolves the exact entry, pins the
-  // version and builds the command (InstallPlan), so the dashboard never guesses one.
-  function installRequest(payload) {
-    return AD._fetch('/api/install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).then(function (r) {
-      return r.json().then(function (data) {
-        if (!r.ok) throw new Error((data && data.error) || 'Install failed');
-        return data;
-      });
+  // -------------------------------------------------------------------------
+  // DOM builder: everything untrusted (registry text, plans) goes through
+  // textContent, never innerHTML.
+  // -------------------------------------------------------------------------
+
+  function h(tag, attrs, kids) {
+    var el = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      var v = attrs[k];
+      if (v == null || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
     });
+    (kids || []).forEach(function (kid) {
+      if (kid == null || kid === false) return;
+      el.appendChild(typeof kid === 'object' ? kid : document.createTextNode(String(kid)));
+    });
+    return el;
   }
 
-  function installedToast(label, data) {
-    if (data && data.index_error) {
-      showToast('Installed ' + label + ', indexing failed: ' + data.index_error, 'error');
-    } else {
-      showToast(
-        'Installed ' + label + ' (' + ((data && data.tool_count) || 0) + ' tools)',
-        'success',
+  function icon(name) {
+    return h('span', { class: 'material-symbols-outlined' }, [name]);
+  }
+
+  function overlayHost() {
+    return AD._root.querySelector('.layout') || document.body;
+  }
+
+  // -------------------------------------------------------------------------
+  // Install consent: shows GET /api/install/plan, installs via POST /api/install
+  // -------------------------------------------------------------------------
+
+  function shellQuote(tok) {
+    return /^[\w@%+=:,./-]+$/.test(tok) ? tok : "'" + tok.replace(/'/g, "'\\''") + "'";
+  }
+
+  function transportOptions(entry) {
+    var opts = [];
+    if ((entry.packages || []).length) opts.push('stdio');
+    (entry.remotes || []).forEach(function (r) {
+      if (opts.indexOf(r.type) === -1) opts.push(r.type);
+    });
+    return opts;
+  }
+
+  function openConsent(entry) {
+    var form = {
+      local_name: '',
+      transport: '',
+      enable: true,
+      secrets: {},
+    };
+    var plan = null;
+    var error = '';
+    var busy = false;
+    var seq = 0;
+    var backdrop;
+    var body = h('div', { class: 'consent-body' });
+    var errorEl = h('div', { class: 'consent-error', 'data-consent': 'error' });
+    var installBtn = h(
+      'button',
+      { class: 'btn-primary', 'data-consent': 'install', onclick: install },
+      ['Install'],
+    );
+
+    function planQuery() {
+      var q = new URLSearchParams({ source: entry.source, name: entry.name });
+      if (form.local_name) q.set('local_name', form.local_name);
+      if (form.transport) q.set('transport', form.transport);
+      return q.toString();
+    }
+
+    function missingRequired() {
+      return ((plan && plan.requirements) || []).some(function (r) {
+        return r.required && !r.present && !form.secrets[r.key];
+      });
+    }
+
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      backdrop.remove();
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') close();
+    }
+
+    function loadPlan() {
+      var mine = ++seq;
+      plan = null;
+      error = '';
+      draw();
+      AD._fetch('/api/install/plan?' + planQuery())
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || 'Could not build the install plan');
+            return data;
+          });
+        })
+        .then(function (p) {
+          if (mine !== seq) return;
+          plan = p;
+          if (!form.local_name) form.local_name = p.server;
+          draw();
+        })
+        .catch(function (err) {
+          if (mine !== seq) return;
+          error = err.message;
+          draw();
+        });
+    }
+
+    function install() {
+      busy = true;
+      error = '';
+      draw();
+      var secrets = {};
+      Object.keys(form.secrets).forEach(function (k) {
+        if (form.secrets[k]) secrets[k] = form.secrets[k];
+      });
+      AD._fetch('/api/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: entry.source,
+          name: entry.name,
+          local_name: form.local_name || undefined,
+          transport: form.transport || undefined,
+          enable: form.enable,
+          secrets: secrets,
+        }),
+      })
+        .then(function (r) {
+          return r.json().then(function (data) {
+            if (!r.ok) throw new Error(data.error || 'Install failed');
+            return data;
+          });
+        })
+        .then(function (data) {
+          close();
+          showToast(
+            data.index_error
+              ? 'Installed ' + data.name + ', indexing failed: ' + data.index_error
+              : 'Installed ' + data.name + ' (' + (data.tool_count || 0) + ' tools)',
+            data.index_error ? 'error' : 'success',
+          );
+          renderBrowse();
+          navigate(serverHref(data.name));
+        })
+        .catch(function (err) {
+          busy = false;
+          error = err.message;
+          draw();
+        });
+    }
+
+    function section(title, kids) {
+      return h(
+        'div',
+        { class: 'consent-section' },
+        [h('div', { class: 'consent-label' }, [title])].concat(kids),
       );
     }
-  }
 
-  window.__installFromBrowse = function (idx, btn) {
-    var server = browseResults[idx];
-    if (!server) return;
-    btn.disabled = true;
-    btn.innerHTML =
-      '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span>Installing...';
-    installRequest({ source: server.source, name: server.name })
-      .then(function (data) {
-        installedToast(server.name, data);
-        btn.innerHTML =
-          '<span class="material-symbols-outlined" style="font-size:14px">check_circle</span>Installed';
-        btn.classList.add('btn-installed');
-      })
-      .catch(function (err) {
-        console.error('Install failed:', err);
-        showToast('Install failed: ' + err.message, 'error');
-        btn.disabled = false;
-        btn.innerHTML =
-          '<span class="material-symbols-outlined" style="font-size:14px">error</span>Failed';
-        setTimeout(function () {
-          btn.innerHTML =
-            '<span class="material-symbols-outlined" style="font-size:14px">download</span>Install';
-        }, 2000);
+    function requirementRow(req) {
+      var input = h('input', {
+        type: req.secret ? 'password' : 'text',
+        class: 'consent-input',
+        'data-req': req.key,
+        autocomplete: 'off',
+        placeholder: req.present ? 'already set' : req.required ? 'required' : 'optional',
+        oninput: function () {
+          form.secrets[req.key] = this.value;
+          var btn = backdrop.querySelector('[data-consent="install"]');
+          if (btn) btn.disabled = busy || !!plan.blocked || missingRequired();
+        },
       });
-  };
-
-  window.__installFromNpm = function () {
-    var input = AD._root.getElementById('npm-package-input');
-    var pkg = (input ? input.value : '').trim();
-    if (!pkg) return;
-    var btn = input ? input.parentElement.querySelector('.btn-install') : null;
-    var origHtml = btn ? btn.innerHTML : '';
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML =
-        '<span class="material-symbols-outlined" style="font-size:14px">hourglass_top</span> Installing...';
+      input.value = form.secrets[req.key] || '';
+      return h('div', { class: 'consent-req' }, [
+        h('div', { class: 'consent-req-head' }, [
+          h('code', {}, [req.key]),
+          h('span', { class: 'tag' }, [req.kind]),
+          req.secret ? h('span', { class: 'tag tag-warn' }, ['secret']) : null,
+          req.required ? h('span', { class: 'tag tag-deprecated' }, ['required']) : null,
+        ]),
+        req.description ? h('div', { class: 'hint' }, [req.description]) : null,
+        input,
+      ]);
     }
-    installRequest({ source: 'npm', name: pkg })
-      .then(function (data) {
-        installedToast(pkg, data);
-        if (input) input.value = '';
-      })
-      .catch(function (err) {
-        console.error('npm install failed:', err);
-        showToast('Install failed: ' + err.message, 'error');
-      })
-      .then(function () {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = origHtml;
-        }
+
+    function provenanceFacts(p) {
+      var rows = [];
+      var fact = function (k, v) {
+        if (v != null && v !== '')
+          rows.push(h('div', { class: 'fact' }, [h('span', {}, [k]), h('span', {}, [v])]));
+      };
+      if (p.registry) {
+        fact('Registry entry', p.registry.name + ' (' + p.registry.status + ')');
+        fact('Verified publisher', p.registry.publisher);
+      }
+      if (p.package)
+        fact(
+          'Package',
+          p.package.ecosystem + ': ' + p.package.name + '@' + (p.package.version || 'latest'),
+        );
+      if (p.remote) fact('Endpoint', p.remote.type + ' ' + p.remote.url);
+      fact('Version pinned', p.pinned ? 'yes' : 'no (resolved at launch)');
+      fact('Image digest', p.digest);
+      var repo = safeHref(p.repository);
+      if (repo) fact('Repository', repo);
+      (p.checks || []).forEach(function (c) {
+        rows.push(
+          h('div', { class: 'fact check-' + c.status }, [
+            h('span', {}, [(c.status === 'pass' ? 'pass ' : c.status + ' ') + c.id]),
+            h('span', {}, [c.detail]),
+          ]),
+        );
       });
-  };
+      return rows;
+    }
+
+    function draw() {
+      installBtn.disabled = busy || !plan || !!plan.blocked || missingRequired();
+      installBtn.textContent = busy ? 'Installing...' : 'Install';
+      errorEl.textContent = plan ? error : '';
+      body.textContent = '';
+      var opts = transportOptions(entry);
+      if (!plan) {
+        body.appendChild(
+          error
+            ? h('div', { class: 'banner banner-danger' }, [
+                icon('error'),
+                h('div', { class: 'banner-main' }, [h('div', { class: 'banner-title' }, [error])]),
+              ])
+            : h('div', { class: 'loading' }, ['Building install plan...']),
+        );
+        return;
+      }
+      var cmd = plan.command
+        ? [plan.command]
+            .concat(plan.args || [])
+            .map(shellQuote)
+            .join(' ')
+        : plan.url + '  (' + plan.transport + ')';
+      body.appendChild(h('p', { class: 'consent-desc' }, [plan.description || '']));
+      if (plan.blocked)
+        body.appendChild(
+          h('div', { class: 'banner banner-danger', 'data-consent': 'blocked' }, [
+            icon('block'),
+            h('div', { class: 'banner-main' }, [
+              h('div', { class: 'banner-title' }, ['Cannot be installed']),
+              h('div', { class: 'banner-body' }, [plan.blocked]),
+            ]),
+          ]),
+        );
+      (plan.warnings || []).forEach(function (w) {
+        body.appendChild(
+          h('div', { class: 'banner banner-warn', 'data-consent': 'warning' }, [
+            icon('warning'),
+            h('div', { class: 'banner-main' }, [h('div', { class: 'banner-title' }, [w])]),
+          ]),
+        );
+      });
+      body.appendChild(
+        section(plan.command ? 'Runs this command on your machine' : 'Connects to', [
+          h('pre', { class: 'consent-cmd', 'data-consent': 'command' }, [cmd]),
+        ]),
+      );
+      var nameInput = h('input', {
+        class: 'consent-input',
+        'data-consent': 'local-name',
+        value: form.local_name,
+        onchange: function () {
+          form.local_name = this.value.trim();
+          loadPlan();
+        },
+      });
+      var nameRow = [h('label', {}, ['Local name ', nameInput])];
+      if (opts.length > 1)
+        nameRow.push(
+          h('label', {}, [
+            ' Install as ',
+            h(
+              'select',
+              {
+                class: 'consent-input',
+                onchange: function () {
+                  form.transport = this.value;
+                  loadPlan();
+                },
+              },
+              opts.map(function (o) {
+                return h('option', { value: o, selected: o === plan.transport }, [o]);
+              }),
+            ),
+          ]),
+        );
+      body.appendChild(h('div', { class: 'consent-row' }, nameRow));
+      if ((plan.requirements || []).length)
+        body.appendChild(section('Needs these values', plan.requirements.map(requirementRow)));
+      body.appendChild(
+        section('Provenance', [
+          h('div', { class: 'facts' }, provenanceFacts(plan.provenance || {})),
+        ]),
+      );
+    }
+
+    var enableBox = h('input', {
+      type: 'checkbox',
+      checked: true,
+      onchange: function () {
+        form.enable = this.checked;
+      },
+    });
+
+    backdrop = h(
+      'div',
+      {
+        class: 'modal-backdrop',
+        onmousedown: function (e) {
+          if (e.target === backdrop) close();
+        },
+      },
+      [
+        h(
+          'div',
+          {
+            class: 'modal consent',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': 'Install ' + entry.name,
+          },
+          [
+            h('div', { class: 'modal-header' }, [
+              h('div', {}, [
+                h('div', { class: 'modal-title' }, ['Install ' + (entry.title || entry.name)]),
+                h('div', { class: 'modal-sub' }, [
+                  entry.source + (entry.version ? ' · ' + entry.version : ''),
+                ]),
+              ]),
+              h('button', { class: 'modal-close', title: 'Close', onclick: close }, [
+                icon('close'),
+              ]),
+            ]),
+            body,
+            errorEl,
+            h('div', { class: 'modal-footer' }, [
+              h('label', { class: 'consent-check' }, [enableBox, ' Enable after install']),
+              h('div', { class: 'modal-actions' }, [
+                h('button', { class: 'btn-secondary', onclick: close }, ['Cancel']),
+                installBtn,
+              ]),
+            ]),
+          ],
+        ),
+      ],
+    );
+    document.addEventListener('keydown', onKey);
+    overlayHost().appendChild(backdrop);
+    loadPlan();
+  }
 
   // -------------------------------------------------------------------------
   // Enterprise feature actions
@@ -934,6 +1651,7 @@
         return r.json();
       })
       .then(function () {
+        keyEl.value = valEl.value = '';
         showToast('Secret "' + key + '" saved', 'success');
         // Reload secrets
         return AD._fetch('/api/servers/' + serverId + '/secrets').then(function (r) {
@@ -1026,7 +1744,7 @@
     var toast = document.createElement('div');
     toast.className = 'toast toast-' + (type || 'success');
     toast.textContent = message;
-    document.body.appendChild(toast);
+    overlayHost().appendChild(toast);
 
     setTimeout(function () {
       if (toast.parentNode) toast.remove();
@@ -1407,6 +2125,174 @@
   }
 
   // -------------------------------------------------------------------------
+  // Audit tab (GET /api/audit, newest first, paged backwards with before=<id>)
+  // -------------------------------------------------------------------------
+
+  var AUDIT_PAGE = 50;
+
+  function loadAudit(more) {
+    var q = new URLSearchParams({ limit: String(AUDIT_PAGE) });
+    ['server', 'action', 'tool'].forEach(function (k) {
+      if (auditFilter[k]) q.set(k, auditFilter[k]);
+    });
+    if (more && audit.entries.length)
+      q.set('before', String(audit.entries[audit.entries.length - 1].id));
+    var seq = ++auditSeq;
+    AD._fetch('/api/audit?' + q.toString())
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error(data.error || 'Failed to load audit log');
+          return data;
+        });
+      })
+      .then(function (data) {
+        if (seq !== auditSeq) return;
+        var page = data.entries || [];
+        audit = {
+          entries: more ? audit.entries.concat(page) : page,
+          total: data.total || 0,
+          more: page.length === AUDIT_PAGE,
+          error: '',
+        };
+        renderAudit();
+      })
+      .catch(function (err) {
+        if (seq !== auditSeq) return;
+        audit.error = err.message;
+        renderAudit();
+      });
+  }
+
+  function renderAudit() {
+    var el = $id('audit-list');
+    if (!el) return;
+    var sel = $id('audit-filter-server');
+    if (sel) {
+      var names = state.servers.map(function (s) {
+        return s.name;
+      });
+      if (auditFilter.server && names.indexOf(auditFilter.server) === -1)
+        names.push(auditFilter.server);
+      morph(
+        sel,
+        '<option value="">All servers</option>' +
+          names
+            .map(function (n) {
+              return (
+                '<option value="' +
+                escAttr(n) +
+                '"' +
+                (n === auditFilter.server ? ' selected' : '') +
+                '>' +
+                esc(n) +
+                '</option>'
+              );
+            })
+            .join(''),
+      );
+    }
+    var count = $id('audit-count');
+    if (count) count.textContent = audit.total ? audit.total + ' entries' : '';
+    if (audit.error) {
+      el.innerHTML =
+        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">error</span><p>' +
+        esc(audit.error) +
+        '</p></div>';
+      return;
+    }
+    if (!audit.entries.length) {
+      el.innerHTML =
+        '<div class="empty-state"><span class="material-symbols-outlined empty-icon">fact_check</span><p>No audit entries</p><p class="hint">Installs, approvals, quarantines, secret changes and tool calls are recorded here</p></div>';
+      return;
+    }
+    var rows = audit.entries
+      .map(function (e) {
+        var detail = e.detail ? JSON.stringify(e.detail) : '';
+        var result =
+          e.is_error === true
+            ? '<span class="log-badge log-fail">ERROR</span>'
+            : e.is_error === false
+              ? '<span class="log-badge log-success">OK</span>'
+              : '';
+        return (
+          '<tr class="audit-row" data-audit-id="' +
+          e.id +
+          '"><td class="log-ts">' +
+          esc(formatTs(e.ts)) +
+          '</td><td><span class="tag audit-action audit-' +
+          escAttr(e.action) +
+          '">' +
+          esc(e.action) +
+          '</span></td><td>' +
+          (e.server
+            ? '<a href="' + escAttr(serverHref(e.server)) + '">' + esc(e.server) + '</a>'
+            : '') +
+          '</td><td>' +
+          esc(e.tool || '') +
+          '</td><td>' +
+          result +
+          '</td><td class="log-latency">' +
+          (e.duration_ms != null ? esc(e.duration_ms) + 'ms' : '') +
+          '</td><td class="audit-detail">' +
+          esc(detail) +
+          '</td></tr>'
+        );
+      })
+      .join('');
+    morph(
+      el,
+      '<table class="logs-table"><thead><tr><th>Time</th><th>Action</th><th>Server</th><th>Tool</th><th>Result</th><th>Duration</th><th>Detail</th></tr></thead><tbody>' +
+        rows +
+        '</tbody></table>' +
+        (audit.more
+          ? '<div class="audit-more"><button class="btn-secondary" data-action="audit-more">Load older</button></div>'
+          : ''),
+    );
+  }
+
+  function formatTs(ts) {
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts || '');
+    var p = function (n) {
+      return String(n).padStart(2, '0');
+    };
+    return (
+      d.getFullYear() +
+      '-' +
+      p(d.getMonth() + 1) +
+      '-' +
+      p(d.getDate()) +
+      ' ' +
+      p(d.getHours()) +
+      ':' +
+      p(d.getMinutes()) +
+      ':' +
+      p(d.getSeconds())
+    );
+  }
+
+  function initAuditFilters() {
+    var bind = function (id, key, evt) {
+      var el = $id(id);
+      if (!el) return;
+      var t;
+      el.addEventListener(evt, function () {
+        auditFilter[key] = this.value.trim();
+        clearTimeout(t);
+        t = setTimeout(
+          function () {
+            loadAudit(false);
+          },
+          evt === 'input' ? 300 : 0,
+        );
+      });
+    };
+    bind('audit-filter-server', 'server', 'change');
+    bind('audit-filter-action', 'action', 'change');
+    bind('audit-filter-tool', 'tool', 'input');
+  }
+
+  // -------------------------------------------------------------------------
   // Init
   // -------------------------------------------------------------------------
 
@@ -1450,11 +2336,25 @@
         case 'save-config':
           window.__saveConfig(id);
           break;
-        case 'install-npm':
-          window.__installFromNpm();
+        case 'install-npm': {
+          var pkg = ($id('npm-package-input') || {}).value;
+          if (pkg && pkg.trim()) openConsent({ source: 'npm', name: pkg.trim() });
           break;
+        }
         case 'install-browse':
-          window.__installFromBrowse(parseInt(btn.dataset.browseIdx, 10), btn);
+          openConsent(browseResults[parseInt(btn.dataset.browseIdx, 10)]);
+          break;
+        case 'approve':
+          window.__approve(id);
+          break;
+        case 'keep-disabled':
+          window.__keepDisabled(id);
+          break;
+        case 'sign-in':
+          window.__signIn(id);
+          break;
+        case 'audit-more':
+          loadAudit(true);
           break;
         case 'show-npm-form':
           var form = btn.nextElementSibling;
@@ -1486,9 +2386,11 @@
   }
 
   function _init() {
+    if (!$id('tab-installed')) document.body.insertAdjacentHTML('afterbegin', AD._template());
     initTabs();
     initTheme();
     initSearch();
+    initAuditFilters();
     initAddServerForm();
     initLogFilters();
     _initDelegatedClicks();

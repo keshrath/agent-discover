@@ -374,11 +374,11 @@ body {
   border-radius: 50%;
 }
 
-.status-dot.active {
+.status-dot.enabled {
   background: var(--status-active);
 }
 
-.status-dot.inactive {
+.status-dot.disabled {
   background: var(--status-inactive);
 }
 
@@ -651,7 +651,7 @@ body {
   border-top: 1px solid var(--border);
 }
 
-.btn-activate {
+.btn-enable {
   border: 1px solid var(--status-active);
   color: var(--status-active);
   background: transparent;
@@ -667,12 +667,12 @@ body {
   transition: all 0.15s;
 }
 
-.btn-activate:hover {
+.btn-enable:hover {
   background: var(--status-active);
   color: var(--bg);
 }
 
-.btn-deactivate {
+.btn-disable {
   border: 1px solid #e57373;
   color: #e57373;
   background: transparent;
@@ -688,7 +688,7 @@ body {
   transition: all 0.15s;
 }
 
-.btn-deactivate:hover {
+.btn-disable:hover {
   background: #e57373;
   color: var(--bg);
 }
@@ -2350,4 +2350,498 @@ body {
   padding: 10px 14px;
   border-top: 1px solid var(--border);
   background: var(--bg-alt);
+}
+
+/* ---------------------------------------------------------------------------
+   Deep-linked card, status variants, tag kinds
+   --------------------------------------------------------------------------- */
+
+a.server-name {
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.server-name:hover {
+  color: var(--accent);
+}
+
+.server-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.server-card.card-deleted {
+  border-color: var(--red);
+}
+
+.status-dot.quarantined {
+  background: var(--red);
+}
+
+.tag-source {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
+
+.tag-pkg {
+  color: var(--green);
+}
+
+.tag-remote {
+  color: var(--accent);
+}
+
+.tag-sse,
+.tag-deprecated,
+.tag-warn {
+  color: var(--orange);
+  background: var(--orange-dim);
+}
+
+.tag-deleted {
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.server-meta.mono {
+  margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Banners (quarantine, flagged tools, registry status, sign-in, warnings)
+   --------------------------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: 13px;
+}
+
+.banner-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.banner-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-title {
+  font-weight: 600;
+}
+
+.banner-body {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.banner-body p {
+  margin: 0 0 6px;
+}
+
+.banner-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.banner-danger {
+  border-color: var(--red);
+  background: var(--red-dim);
+}
+
+.banner-danger .banner-icon {
+  color: var(--red);
+}
+
+.banner-warn {
+  border-color: var(--orange);
+  background: var(--orange-dim);
+}
+
+.banner-warn .banner-icon {
+  color: var(--orange);
+}
+
+.banner-info {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.banner-info .banner-icon {
+  color: var(--accent);
+}
+
+.grid-wide {
+  grid-column: 1 / -1;
+}
+
+.btn-approve,
+.btn-keep,
+.btn-signin {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.btn-keep {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-approve:disabled,
+.btn-signin:disabled,
+.btn-enable:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Drift diff */
+
+.drift {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.drift-tool {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.drift-tool:last-child {
+  border-bottom: 0;
+}
+
+.drift-tool-name {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.diff-add,
+.diff-del,
+.diff-chg {
+  display: flex;
+  gap: 8px;
+  padding: 1px 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.diff-add {
+  background: var(--green-dim);
+}
+
+.diff-del {
+  background: var(--red-dim);
+}
+
+.diff-chg {
+  background: var(--yellow-dim);
+}
+
+.diff-sign {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.invis {
+  background: var(--red);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   Install consent modal
+   --------------------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+}
+
+.modal-header,
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-footer {
+  border-top: 1px solid var(--border);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.modal-close {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.modal-actions button {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.modal-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.consent-body {
+  padding: 16px 18px;
+  overflow: auto;
+  flex: 1;
+}
+
+.consent-desc {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.consent-section {
+  margin-bottom: 14px;
+}
+
+.consent-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.consent-cmd {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.consent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.consent-input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.consent-req {
+  margin-bottom: 10px;
+}
+
+.consent-req .consent-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+.consent-req-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.facts {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.fact:last-child {
+  border-bottom: 0;
+}
+
+.fact span:first-child {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.fact span:last-child {
+  text-align: right;
+  word-break: break-all;
+}
+
+.check-pass span:first-child {
+  color: var(--green);
+}
+
+.check-fail span:first-child,
+.check-error span:first-child {
+  color: var(--red);
+}
+
+.consent-error {
+  padding: 0 18px;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.consent-error:not(:empty) {
+  padding-top: 8px;
+}
+
+.consent-check {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Audit tab
+   --------------------------------------------------------------------------- */
+
+.audit-detail {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.audit-more {
+  padding: 12px 0;
+  text-align: center;
+}
+
+.audit-more button {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.audit-quarantine,
+.audit-flag,
+.audit-deny,
+.audit-uninstall {
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.audit-approve,
+.audit-release,
+.audit-install {
+  color: var(--green);
+  background: var(--green-dim);
+}
+
+#audit-filter-tool {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.logs-table a {
+  color: var(--accent);
+}
+
+.consent-req .hint {
+  margin: 2px 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }

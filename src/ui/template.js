@@ -26,6 +26,10 @@ AD._template = function () {
     '<span>Logs</span>' +
     '<span class="badge" id="log-count">0</span>' +
     '</button>' +
+    '<button class="nav-item" data-tab="audit">' +
+    '<span class="material-symbols-outlined">fact_check</span>' +
+    '<span>Audit</span>' +
+    '</button>' +
     '</nav>' +
     '<div class="sidebar-footer">' +
     '<span class="connection-status" id="conn-status">' +
@@ -79,7 +83,7 @@ AD._template = function () {
     '<div class="empty-state">' +
     '<span class="material-symbols-outlined empty-icon">dns</span>' +
     '<p>No servers registered</p>' +
-    '<p class="hint">Use registry_install or browse the marketplace</p>' +
+    '<p class="hint">Use install_server or browse the marketplace</p>' +
     '</div>' +
     '</div>' +
     '</section>' +
@@ -124,6 +128,39 @@ AD._template = function () {
     '<p class="hint">Logs appear when proxied tools are called</p>' +
     '</div>' +
     '</div>' +
+    '</section>' +
+    '<section class="tab-panel" id="tab-audit">' +
+    '<div class="log-header">' +
+    '<div class="log-header-top">' +
+    '<h2 class="section-title">Audit Log</h2>' +
+    '<span class="hint" id="audit-count"></span>' +
+    '</div>' +
+    '<div class="log-filters">' +
+    '<select id="audit-filter-server"><option value="">All servers</option></select>' +
+    '<select id="audit-filter-action"><option value="">All actions</option>' +
+    [
+      'install',
+      'approve',
+      'deny',
+      'enable',
+      'disable',
+      'uninstall',
+      'quarantine',
+      'release',
+      'flag',
+      'secret-set',
+      'secret-delete',
+      'call_tool',
+    ]
+      .map(function (a) {
+        return '<option value="' + a + '">' + a + '</option>';
+      })
+      .join('') +
+    '</select>' +
+    '<input type="text" id="audit-filter-tool" placeholder="Tool name" autocomplete="off" />' +
+    '</div>' +
+    '</div>' +
+    '<div id="audit-list" class="logs-table-wrap"></div>' +
     '</section>' +
     '</main>' +
     '</div>'
