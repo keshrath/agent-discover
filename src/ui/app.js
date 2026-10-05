@@ -1161,6 +1161,8 @@
       childrenOnly: true,
       // Pushed state must not wipe what the user is typing into a form control.
       onBeforeElUpdated: function (from) {
+        // tester.js renders its own subtree; a pushed state must not reset it to the placeholder.
+        if (from.classList && from.classList.contains('tester-shell')) return false;
         if (from.tagName === 'INPUT' && (from.type === 'checkbox' || from.type === 'radio'))
           return from.checked === from.defaultChecked;
         if (from.tagName === 'INPUT' || from.tagName === 'TEXTAREA')
