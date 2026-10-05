@@ -29,7 +29,9 @@ export type Category =
   | 'cross-server'
   | 'multi-step'
   | 'short-typo'
-  | 'german';
+  | 'german'
+  /** Unanswerable by every tool in the catalog: targets = [], the right answer is no hit. */
+  | 'none';
 
 export interface Query {
   id: string;

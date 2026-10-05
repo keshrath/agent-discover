@@ -25,8 +25,6 @@ export {
   type Ranker,
   type RankedHit,
 } from './domain/ranker.js';
-export type { EnrichmentProvider } from './domain/enrichment.js';
-export type { Enrichment } from './domain/tool-doc.js';
 export { toolHash } from './domain/tool-hash.js';
 export {
   ServerLifecycle,

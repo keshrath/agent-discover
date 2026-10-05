@@ -52,25 +52,44 @@ agent-discover is an MCP server registry and marketplace. It lets AI agents disc
 - **MetricsService** (`src/domain/metrics.ts`): Tracks per-tool call counts, error counts, and total latency in the `server_metrics` table. Called automatically by the proxy on each tool call. Provides `getServerMetrics()` for per-server detail and `getOverview()` for a cross-server summary.
 - **LogService** (`src/domain/log.ts`): In-memory ring buffer of the last 500 proxied tool calls. Each entry records timestamp, server, tool, args, response text, latency, and success. Auto-prunes entries older than 30 days (configurable via `AGENT_DISCOVER_LOG_RETENTION_DAYS`). Exposes an `onEntry` callback used by the WS transport to broadcast new entries in real time.
 - **EventBus** (`src/domain/events.ts`): In-process pub/sub with typed events and wildcard support. Used internally to emit lifecycle events (`server:registered`, `server:activated`, `server:installed`, etc.).
-- **Embeddings subsystem** (`src/embeddings/`): Pluggable provider for semantic tool search. Mirrors agent-knowledge's pattern. Default provider is `none` (semantic search disabled, BM25-only ranking) so installs without an embedding key keep working unchanged. Selectable via `AGENT_DISCOVER_EMBEDDING_PROVIDER`:
-  - **`none`** (`src/embeddings/none.ts`) — `NoopEmbeddingProvider`. Reports unavailable so callers fall back to BM25.
-  - **`local`** (`src/embeddings/local.ts`) — `Xenova/all-MiniLM-L6-v2` (384 dims) via `@huggingface/transformers` (optional peer dep, dynamically imported via indirect string so the package isn't required at compile time). q8 quantized, configurable thread count + idle-unload timeout.
-  - **`openai`** (`src/embeddings/openai.ts`) — `text-embedding-3-small` (1536 dims), native `fetch`, batched 256 inputs per request. No SDK dependency.
-  - **Factory** (`src/embeddings/factory.ts`) caches the resolved provider, falls back to `NoopEmbeddingProvider` on any unavailable / API-key-missing / model-load-failure case so the registry never crashes on a misconfiguration.
-  - **Math + encoding helpers** (`src/embeddings/index.ts`) — `cosineSimilarity`, base64 `encodeEmbedding` / `decodeEmbedding` for SQLite TEXT storage.
 
-  `RegistryService` consumes the provider lazily via `getEmbeddings()` so the factory's dynamic imports only run when somebody actually saves or searches tools. `saveToolsWithEmbeddings()` and `searchToolsHybrid()` use the provider when available; both transparently fall back to BM25-only when the provider name is `none`.
+### Search (tool retrieval)
 
-### Hybrid retrieval pipeline (`searchToolsHybrid`)
+`search_tools` / `get_tool` read the persisted tool index (`ToolIndex`, `src/domain/tool-index.ts`), which covers every installed server whether it is enabled or not. Measured on the retrieval bench (`bench/retrieval/`, 50 real servers / 1674 tools / 468 labelled queries); every constant was tuned on its dev split only and is reported on the held-out test split.
 
-When semantic search is enabled, `find_tool` and `find_tools` route through hybrid retrieval instead of pure BM25:
+**Index (write path).** `ToolIndex.save(serverId, tools)` is the only writer. It diffs by `tool_hash`, builds each tool's search document (`src/domain/tool-doc.ts`) and writes `server_tools` + `server_tools_fts` in one transaction, then bumps `_meta.tool_index_generation` so rankers drop their caches. The document is a function of the tool definition alone, so `tool_hash` is the cache key for both the FTS row and the stored vector: identical tools on two servers embed once.
 
-1. **Semantic candidates**: brute-force cosine similarity over the entire embedded catalog. Brute force is fast enough for any realistic catalog (~60ms at N=10k with 1536-dim float32 vectors) and avoids a native ANN dependency.
-2. **BM25 candidates**: FTS5 over `server_tools_fts` with `name × 4 / description × 1` column weighting + a query preprocessor that expands verb synonyms (`fetch → get`, `cancel → delete`, …) and singularizes plurals (`subscriptions → subscription`).
-3. **Hybrid re-rank**: union of both candidate sets, scored `0.7 × cosine + 0.3 × normalized_BM25`. Semantic gets the higher weight because BM25 misses paraphrased queries (e.g. "billing arrangement" never matches "subscription") whereas embeddings handle them naturally.
-4. **Confidence label**: derived from the BM25 score gap between top-1 and top-2 — `high` (gap ≥ 0.5), `medium` (≥ 0.15), `low` otherwise.
-5. **No-match threshold**: if the top hybrid score falls below `0.25`, `find_tool` returns `{ found: false, top_score, hint }` instead of a low-confidence garbage match. Real queries typically score > 0.4; garbage matches sit around 0.05–0.15.
-6. **`did_you_mean` recovery**: when a proxied tool call fails, the proxy intercepts the error and runs a BM25 search by the failed tool name, attaching the top 3 alternatives so the agent can correct in one extra turn.
+- Fields: `name` (tool name + title), `description`, `args` (argument names + descriptions, one level deep).
+- Words: lower-case, split at non-alphanumerics; a mixed-case word is indexed whole and split (`GitLab` → `gitlab git lab`, `createTask` → `createtask create task`). FTS5 tokenizer `porter unicode61 remove_diacritics 2`.
+
+**Ranker (read path).** `HybridRanker` (`src/domain/ranker.ts`, options `DEFAULT_HYBRID`) behind the `Ranker` interface (`rank(query, limit)` → ids + scores in 0..1):
+
+1. Query terms: diacritic folding, EN + DE stopwords (a query of only stopwords keeps them), typo repair of terms missing from the index vocabulary (Damerau-Levenshtein 1-2, same first letter, most frequent candidate).
+2. Lexical: FTS5 `bm25()` with field weights name 6 / description 1.5 / args 0.5, saturated `raw / (raw + 6)`.
+3. Dense (opt-in): cosine over stored tool vectors, min-max rescaled per query, fused `0.5 × lexical + 0.5 × dense`. Weighted fusion beat RRF on dev. Query vectors are cached (LRU, 256).
+4. Server routing: tools of servers the query does not name (distinctive server-name terms, e.g. "github") are damped by 0.3; tools of servers other than the best-scoring one by up to 0.3 × their gap to it.
+5. Usage prior: `+min(0.05, 0.01 × ln(1 + calls))` from `server_metrics`.
+
+There is no score floor. On the bench, no signal (IDF-weighted query coverage, BM25, raw or rescaled cosine) separates the 20 unanswerable queries from answerable ones; any floor that rejected one would also drop correct answers. The ranker returns nothing only when no query term matches.
+
+**Embeddings** (`src/embeddings/`, `AGENT_DISCOVER_EMBEDDING_PROVIDER`). Providers embed with a side (`embed(texts, 'query' | 'document')`), because retrieval models format queries and documents differently. Any failure falls back to the no-op provider, which means lexical search only.
+
+- `none` (default): no key, no download.
+- `local`: `Xenova/multilingual-e5-small` via the optional `@huggingface/transformers` package. It is q8, about 130 MB, downloaded once, and uses the `query:` / `passage:` prefixes. This is the opt-in "best quality" configuration. `AGENT_DISCOVER_EMBEDDING_MODEL` selects another model, which then runs unprefixed.
+- `openai`: `text-embedding-3-small` via fetch.
+
+Results (test split, R@10 / MRR):
+
+| configuration   | R@10 | MRR  |
+| --------------- | ---- | ---- |
+| plain BM25      | .618 | .430 |
+| 1.4 ranker      | .642 | .446 |
+| 2.0 zero-config | .661 | .474 |
+| 2.0 + e5        | .722 | .522 |
+
+The full table is in `bench/retrieval/README.md`.
+
+LLM index-time enrichment is not shipped. The bench measures it offline from a committed cache: R@10 .922. That measurement is what to reconsider when a key is acceptable.
 
 ### Storage Layer
 
@@ -148,9 +167,9 @@ This means a server activated via the dashboard UI in the leader process is auto
 
 Unique constraint: `(server_id, name)`.
 
-### server_tools_fts (V4+)
+### server_tools_fts
 
-FTS5 virtual table over `server_tools(name, description)` with `tokenize='unicode61 remove_diacritics 1'`. Used by `searchTools()` for BM25 ranking with `name × 4 / description × 1` column weighting. Backed by `AFTER INSERT / UPDATE / DELETE` triggers on `server_tools` so it stays in sync automatically.
+FTS5 table (`name`, `description`, `args`; `porter unicode61 remove_diacritics 2`), rowid = `server_tools.id`. It is written only by `ToolIndex.save`; an `AFTER DELETE` trigger on `server_tools` removes rows. Migration 10 rebuilds it from `server_tools` and clears stored vectors, which were built from another text.
 
 ### server_secrets
 

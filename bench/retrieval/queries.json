@@ -3629,6 +3629,146 @@
       "category": "german",
       "targets": [["obsidian/obsidian_search_notes", "notion/API-post-search"]],
       "split": "test"
+    },
+    {
+      "id": "none-001",
+      "query": "book a flight from Berlin to Lisbon next Friday",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-002",
+      "query": "order a large pepperoni pizza for delivery",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-003",
+      "query": "play my workout playlist on Spotify",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-004",
+      "query": "turn off the living room lights",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-005",
+      "query": "set an alarm for 6:30 tomorrow morning",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-006",
+      "query": "call my mom on the phone",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-007",
+      "query": "buy 10 shares of Apple stock",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-008",
+      "query": "start the dishwasher",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-009",
+      "query": "send an SMS to my landlord",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-010",
+      "query": "rent a car at Frankfurt airport for the weekend",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-011",
+      "query": "book a hotel room in Vienna for two nights",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-012",
+      "query": "adjust the thermostat to 21 degrees",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-013",
+      "query": "renew my passport online",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-014",
+      "query": "scan the QR code with my webcam",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-015",
+      "query": "add a dentist appointment to my calendar",
+      "category": "none",
+      "targets": [],
+      "split": "dev"
+    },
+    {
+      "id": "none-016",
+      "query": "water the plants in the garden",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-017",
+      "query": "print this document on the office printer",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-018",
+      "query": "Bestelle mir ein Taxi zum Hauptbahnhof",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-019",
+      "query": "Spiel meine Lieblingsmusik ab",
+      "category": "none",
+      "targets": [],
+      "split": "test"
+    },
+    {
+      "id": "none-020",
+      "query": "Buche einen Tisch für zwei Personen heute Abend",
+      "category": "none",
+      "targets": [],
+      "split": "test"
     }
   ]
 }

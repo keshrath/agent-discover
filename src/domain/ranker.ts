@@ -2,22 +2,23 @@
 // agent-discover — Tool ranking
 //
 // `Ranker` is the retrieval extension point (SPEC §4 W1): given a query it
-// returns tool-row ids with scores in 0..1 (1 = certain match) plus the
-// calibrated score below which the best hit means "no match". The ToolIndex
-// owns persistence; a Ranker only reads.
+// returns tool-row ids with scores in 0..1, best first. The ToolIndex owns persistence; a Ranker only reads.
 //
 // HybridRanker, stage by stage (every constant was tuned on the dev split of
 // bench/retrieval and is reported on the held-out test split there):
-//   1. query terms     unicode/diacritic folding, identifier splitting,
-//                      EN+DE stopwords, typo repair against the index vocabulary
-//   2. lexical         FTS5 BM25 over five weighted fields (porter-stemmed):
-//                      name > enrichment > description > server > args,
-//                      saturated to 0..1 and scaled by IDF-weighted term coverage
-//   3. dense (opt.)    cosine over stored document vectors, rescaled per query
-//                      against the corpus median; fused by weighted sum
-//   4. routing         server-level evidence: a query naming a server confines
-//                      the ranking to it; tools of the best-scoring server win ties
+//   1. query terms     unicode/diacritic folding, EN+DE stopwords, typo
+//                      repair against the index vocabulary
+//   2. lexical         FTS5 BM25 over name / description / args (porter-
+//                      stemmed, weighted per field), saturated to 0..1
+//   3. dense (opt.)    cosine over stored tool vectors, min-max rescaled per
+//                      query; fused with the lexical score by weighted sum
+//   4. routing         server-level evidence: tools of servers the query does
+//                      not name are damped; tools of the best server win ties
 //   5. usage prior     small capped boost for tools that are actually called
+//
+// No score floor: on the bench no signal (query coverage, BM25, cosine)
+// separates unanswerable queries from answerable ones, so the ranker answers
+// with nothing only when no query term matches (bench/retrieval/README.md).
 // =============================================================================
 
 import type { Db } from '../storage/database.js';
@@ -27,7 +28,7 @@ import {
   type Embedding,
   type EmbeddingProvider,
 } from '../embeddings/index.js';
-import { splitIdentifier } from './tool-doc.js';
+import { indexWords } from './tool-doc.js';
 
 export interface RankedHit {
   /** server_tools.id */
@@ -38,18 +39,15 @@ export interface RankedHit {
 
 export interface Ranker {
   readonly name: string;
-  /** A best hit scoring below this means the index has nothing for the query. */
-  readonly noMatchBelow: number;
+  /** Best hits first; empty when nothing in the index matches the query at all. */
   rank(query: string, limit: number): Promise<RankedHit[]>;
 }
 
 export interface HybridOptions {
-  /** bm25() column weights: name, description, args, enrichment, server. */
-  readonly weights: readonly [number, number, number, number, number];
+  /** bm25() column weights: name, description, args. */
+  readonly weights: readonly [number, number, number];
   /** raw BM25 → raw / (raw + saturation). */
   readonly saturation: number;
-  /** Exponent of IDF-weighted query-term coverage multiplied into the lexical score. */
-  readonly coverage: number;
   /** Repair query terms missing from the index vocabulary (edit distance 1-2). */
   readonly fuzzy: boolean;
   /** Weight of the dense score in the fused score (0 = lexical only). */
@@ -61,22 +59,19 @@ export interface HybridOptions {
   /** Usage prior: +min(cap, weight * ln(1 + calls)). */
   readonly usageWeight: number;
   readonly usageCap: number;
-  readonly noMatchBelow: number;
   /** Lexical candidates fetched before re-scoring. */
   readonly pool: number;
 }
 
 export const DEFAULT_HYBRID: HybridOptions = {
-  weights: [6, 1.5, 0.5, 2, 1],
+  weights: [6, 1.5, 0.5],
   saturation: 6,
-  coverage: 1,
   fuzzy: true,
-  denseWeight: 0.6,
-  serverBoost: 0.15,
-  serverMention: 0.5,
+  denseWeight: 0.5,
+  serverBoost: 0.3,
+  serverMention: 0.3,
   usageWeight: 0.01,
   usageCap: 0.05,
-  noMatchBelow: 0.2,
   pool: 200,
 };
 
@@ -93,13 +88,25 @@ const STOPWORDS = new Set(
   ).split(' '),
 );
 
-/** Lower-case, diacritic-free, identifier-split words — mirrors FTS5 unicode61 remove_diacritics. */
-export function terms(text: string): string[] {
-  return splitIdentifier(text.normalize('NFD').replace(/\p{M}/gu, '')).split(' ').filter(Boolean);
+const fold = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '');
+
+/** Index-side words of a text, as FTS5 unicode61 remove_diacritics sees them. */
+function terms(text: string): string[] {
+  return indexWords(fold(text)).split(' ').filter(Boolean);
 }
 
+/**
+ * Content words of a query, as typed (no identifier splitting: "GitLab" stays
+ * "gitlab", which the index also holds). A query of nothing but function
+ * words ("do it" for a tool named do_it) keeps them.
+ */
 export function queryTerms(query: string): string[] {
-  return [...new Set(terms(query).filter((t) => t.length >= 2 && !STOPWORDS.has(t)))];
+  const words = fold(query)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length >= 2);
+  const content = words.filter((t) => !STOPWORDS.has(t));
+  return [...new Set(content.length > 0 ? content : words)];
 }
 
 /** Damerau-Levenshtein distance, early exit above `max`. */
@@ -135,18 +142,19 @@ interface Snapshot {
   vectors: { model: string; rows: Array<{ id: number; vec: Embedding }> } | null;
 }
 
+const QUERY_CACHE = 256;
+
 export class HybridRanker implements Ranker {
   readonly name = 'hybrid';
-  readonly noMatchBelow: number;
   private snapshot: Snapshot | null = null;
+  /** Query → vector, per model (LRU by insertion order). */
+  private readonly queryVectors = new Map<string, Embedding>();
 
   constructor(
     private readonly db: Db,
     private readonly embeddings: () => Promise<EmbeddingProvider>,
     private readonly options: HybridOptions = DEFAULT_HYBRID,
-  ) {
-    this.noMatchBelow = options.noMatchBelow;
-  }
+  ) {}
 
   async rank(query: string, limit: number): Promise<RankedHit[]> {
     const provider = await this.embeddings();
@@ -155,21 +163,15 @@ export class HybridRanker implements Ranker {
     const o = this.options;
 
     const qterms = queryTerms(query).map((t) => (o.fuzzy ? this.repair(t, snap) : t));
+    const lexical = this.lexical(qterms);
+    const dense =
+      o.denseWeight > 0 && snap.vectors?.model === provider.model
+        ? await this.dense(query, provider, snap.vectors.rows)
+        : null;
+    const w = dense ? o.denseWeight : 0;
     const scores = new Map<number, number>();
-    for (const [id, s] of this.lexical(qterms, snap)) scores.set(id, s);
-
-    if (o.denseWeight > 0 && snap.vectors && snap.vectors.model === provider.model) {
-      const dense = await this.dense(query, provider, snap.vectors.rows);
-      if (dense) {
-        const merged = new Map<number, number>();
-        for (const [id, d] of dense) {
-          merged.set(id, (1 - o.denseWeight) * (scores.get(id) ?? 0) + o.denseWeight * d);
-        }
-        for (const [id, l] of scores) if (!merged.has(id)) merged.set(id, (1 - o.denseWeight) * l);
-        scores.clear();
-        for (const [id, s] of merged) scores.set(id, s);
-      }
-    }
+    for (const [id, s] of lexical) scores.set(id, (1 - w) * s);
+    for (const [id, d] of dense ?? []) scores.set(id, (scores.get(id) ?? 0) + w * d);
     if (scores.size === 0) return [];
 
     this.route(scores, qterms, snap);
@@ -178,7 +180,6 @@ export class HybridRanker implements Ranker {
       if (calls)
         scores.set(id, Math.min(1, s + Math.min(o.usageCap, o.usageWeight * Math.log1p(calls))));
     }
-
     return [...scores.entries()]
       .sort((a, b) => b[1] - a[1] || a[0] - b[0])
       .slice(0, limit)
@@ -204,73 +205,50 @@ export class HybridRanker implements Ranker {
     return best;
   }
 
-  /** BM25F over the fielded index, saturated and scaled by IDF-weighted term coverage. */
-  private lexical(qterms: string[], snap: Snapshot): Map<number, number> {
+  /** FTS5 BM25 over the fielded index, saturated to 0..1. */
+  private lexical(qterms: string[]): Map<number, number> {
     const out = new Map<number, number>();
     if (qterms.length === 0) return out;
-    const quote = (t: string) => `"${t.replace(/"/g, '')}"`;
-    const [wn, wd, wa, we, ws] = this.options.weights;
-    let rows: Array<{ id: number; raw: number }>;
-    try {
-      rows = this.db.queryAll<{ id: number; raw: number }>(
-        `SELECT rowid AS id, -bm25(server_tools_fts, ?, ?, ?, ?, ?) AS raw
-         FROM server_tools_fts WHERE server_tools_fts MATCH ? ORDER BY raw DESC LIMIT ?`,
-        [wn, wd, wa, we, ws, qterms.map(quote).join(' OR '), this.options.pool],
-      );
-    } catch {
-      return out; // malformed MATCH expression
-    }
-    if (rows.length === 0) return out;
-
-    // Coverage: which candidates contain each term (stemmed match via FTS).
-    const ids = rows.map((r) => r.id);
-    const inList = ids.join(',');
-    let total = 0;
-    const covered = new Map<number, number>();
-    for (const t of qterms) {
-      const hits = this.db.queryAll<{ id: number }>(
-        `SELECT rowid AS id FROM server_tools_fts WHERE server_tools_fts MATCH ? AND rowid IN (${inList})`,
-        [quote(t)],
-      );
-      const df =
-        this.db.queryOne<{ n: number }>(
-          'SELECT COUNT(*) AS n FROM server_tools_fts WHERE server_tools_fts MATCH ?',
-          [quote(t)],
-        )?.n ?? 0;
-      const idf = Math.log(1 + (snap.docs - df + 0.5) / (df + 0.5));
-      total += idf;
-      for (const h of hits) covered.set(h.id, (covered.get(h.id) ?? 0) + idf);
-    }
-    for (const { id, raw } of rows) {
-      const sat = raw / (raw + this.options.saturation);
-      const cov = total > 0 ? (covered.get(id) ?? 0) / total : 0;
-      out.set(id, sat * Math.pow(cov, this.options.coverage));
-    }
+    const [wn, wd, wa] = this.options.weights;
+    const rows = this.db.queryAll<{ id: number; raw: number }>(
+      `SELECT rowid AS id, -bm25(server_tools_fts, ?, ?, ?) AS raw
+       FROM server_tools_fts WHERE server_tools_fts MATCH ? ORDER BY raw DESC LIMIT ?`,
+      [wn, wd, wa, qterms.map(quote).join(' OR '), this.options.pool],
+    );
+    for (const { id, raw } of rows) out.set(id, raw / (raw + this.options.saturation));
     return out;
   }
 
-  /** Cosine rescaled per query: corpus median → 0, 1 → 1. */
+  /** Cosine min-max rescaled per query (a model's cosines sit in a narrow band). */
   private async dense(
     query: string,
     provider: EmbeddingProvider,
     rows: Array<{ id: number; vec: Embedding }>,
   ): Promise<Map<number, number> | null> {
-    let qv: Embedding;
-    try {
-      const [vec] = await provider.embed([query], 'query');
-      if (!vec?.length) return null;
-      qv = Float32Array.from(vec);
-    } catch {
-      return null;
+    const key = `${provider.model}\n${query}`;
+    let qv = this.queryVectors.get(key);
+    if (!qv) {
+      try {
+        const [vec] = await provider.embed([query], 'query');
+        if (!vec?.length) return null;
+        qv = Float32Array.from(vec);
+      } catch {
+        return null;
+      }
+      if (this.queryVectors.size >= QUERY_CACHE) {
+        this.queryVectors.delete(this.queryVectors.keys().next().value!);
+      }
+      this.queryVectors.set(key, qv);
     }
     const cos = rows.map((r) => ({ id: r.id, c: cosineSimilarity(qv, r.vec) }));
-    const sorted = cos.map((x) => x.c).sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const out = new Map<number, number>();
-    for (const { id, c } of cos) {
-      const d = (c - median) / (1 - median || 1);
-      if (d > 0) out.set(id, Math.min(1, d));
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const { c } of cos) {
+      lo = Math.min(lo, c);
+      hi = Math.max(hi, c);
     }
+    const out = new Map<number, number>();
+    for (const { id, c } of cos) if (c > lo) out.set(id, (c - lo) / (hi - lo));
     return out;
   }
 
@@ -319,9 +297,8 @@ export class HybridRanker implements Ranker {
       name: string;
       description: string;
       args: string;
-      enrichment: string;
     }>(
-      `SELECT f.rowid AS id, s.name AS server, f.name, f.description, f.args, f.enrichment
+      `SELECT f.rowid AS id, s.name AS server, f.name, f.description, f.args
        FROM server_tools_fts f JOIN server_tools t ON t.id = f.rowid JOIN servers s ON s.id = t.server_id`,
     );
     const vocab = new Map<string, number>();
@@ -329,7 +306,8 @@ export class HybridRanker implements Ranker {
     const termServers = new Map<string, Set<string>>();
     for (const d of docs) {
       serverOf.set(d.id, d.server);
-      for (const t of new Set(terms(`${d.name} ${d.description} ${d.args} ${d.enrichment}`))) {
+      for (const t of new Set(`${d.name} ${d.description} ${d.args}`.split(' '))) {
+        if (!t) continue;
         vocab.set(t, (vocab.get(t) ?? 0) + 1);
         let set = termServers.get(t);
         if (!set) termServers.set(t, (set = new Set()));
@@ -369,3 +347,5 @@ export class HybridRanker implements Ranker {
     return this.snapshot;
   }
 }
+
+const quote = (t: string) => `"${t.replace(/"/g, '')}"`;

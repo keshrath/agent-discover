@@ -281,7 +281,7 @@ npm install @huggingface/transformers       # optional peer dep
 export AGENT_DISCOVER_EMBEDDING_PROVIDER=local
 ```
 
-The default model is `Xenova/all-MiniLM-L6-v2` (384 dims, q8 quantized). The first call downloads and caches the model — subsequent calls reuse it. Idle for `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` seconds and the model is unloaded from RAM until needed again.
+The default model is `Xenova/multilingual-e5-small` (384 dims, q8 quantized, ~130 MB, multilingual). The first call downloads and caches the model — subsequent calls reuse it. Idle for `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` seconds and the model is unloaded from RAM until needed again.
 
 **To use the OpenAI provider**:
 

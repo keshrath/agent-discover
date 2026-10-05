@@ -43,7 +43,7 @@ Static MCP configs mean every server is always running, even when unused. Adding
 - **Single-call tool discovery (`find_tool`)** — hybrid BM25 + semantic ranking returns the top match with a confidence label, compact `required_args`, and 4 ranked alternatives. Auto-activates the owning child server so the agent can call the proxied tool immediately on the next turn. Replaces the multi-step `search → list → activate` dance with one round-trip.
 - **Batch discovery (`find_tools`)** — pass an array of intents to discover N tools in a single round-trip for multi-step tasks.
 - **Indirect invocation (`proxy_call`)** — call a discovered tool **through** agent-discover without exposing it to the host catalog. Keeps the host MCP surface at exactly 5 actions regardless of how many tools the registered child servers expose — critical for very large catalogs where flooding the host with thousands of schemas would blow the model's context budget.
-- **Pluggable embeddings (`AGENT_DISCOVER_EMBEDDING_PROVIDER`)** — semantic search is opt-in via `none` (default, BM25 only) / `local` (Xenova/all-MiniLM-L6-v2 via `@huggingface/transformers`) / `openai` (`text-embedding-3-small`). Provider failures fall back to BM25 cleanly. Mirrors agent-knowledge's pattern so the same model can be reused.
+- **Pluggable embeddings (`AGENT_DISCOVER_EMBEDDING_PROVIDER`)** — semantic search is opt-in via `none` (default, BM25 only) / `local` (Xenova/multilingual-e5-small via `@huggingface/transformers`) / `openai` (`text-embedding-3-small`). Provider failures fall back to BM25 cleanly. Mirrors agent-knowledge's pattern so the same model can be reused.
 - **`did_you_mean` recovery** — when a proxied tool call fails, the proxy attaches BM25-ranked similar-tool suggestions to the error response so the agent can correct in one extra turn instead of giving up.
 - **Local registry** -- register MCP servers in a SQLite database with name, command, args, env, tags
 - **Federated marketplace search** -- a single query hits the official MCP registry, npm, and PyPI in parallel, dedupes by `<source>:<name>`, and collapses version duplicates
@@ -236,7 +236,7 @@ Embeddings are **opt-in**. The default is `none`, which means `find_tool` ranks 
 | `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM       |
 | `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to `OPENAI_API_KEY` if unset) |
 
-**Local provider** uses `Xenova/all-MiniLM-L6-v2` (384 dims) via `@huggingface/transformers`. Install the optional peer dependency with `npm install @huggingface/transformers` if you want to use it. No network calls, no API key.
+**Local provider** uses `Xenova/multilingual-e5-small` (384 dims, multilingual) via `@huggingface/transformers`. Install the optional peer dependency with `npm install @huggingface/transformers` if you want to use it. No network calls, no API key.
 
 **OpenAI provider** uses `text-embedding-3-small` (1536 dims). Same model as agent-knowledge so the two servers can share an embedding key.
 

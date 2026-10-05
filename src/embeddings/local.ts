@@ -5,37 +5,21 @@
 // (optional dependency: `npm install @huggingface/transformers`). No API key;
 // one model download on first use, then fully offline.
 //
-// Retrieval models need model-specific query/document formatting and pooling,
-// so known models carry a preset. Default: multilingual-e5-small — the best
-// quality/size trade-off on the retrieval bench (bench/retrieval/README.md),
-// and multilingual, so non-English queries match English tool metadata.
+// Default: multilingual-e5-small (~130 MB, q8) — the model measured on the
+// retrieval bench (bench/retrieval/README.md); multilingual, so German queries
+// match English tool metadata. It gets its trained "query: " / "passage: "
+// prefixes; any other model id (AGENT_DISCOVER_EMBEDDING_MODEL) runs
+// unprefixed with mean pooling.
 // =============================================================================
 
 import type { EmbedKind, EmbeddingProvider } from './types.js';
 
-interface Preset {
-  readonly query: string;
-  readonly document: string;
-  readonly pooling: 'mean' | 'cls' | 'last_token';
-}
-
 export const DEFAULT_LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 
-const PRESETS: Record<string, Preset> = {
-  'Xenova/multilingual-e5-small': { query: 'query: ', document: 'passage: ', pooling: 'mean' },
-  'Xenova/bge-small-en-v1.5': {
-    query: 'Represent this sentence for searching relevant passages: ',
-    document: '',
-    pooling: 'cls',
-  },
-  'onnx-community/Qwen3-Embedding-0.6B-ONNX': {
-    query: 'Instruct: Given a user request, retrieve the tool that fulfils it\nQuery: ',
-    document: '',
-    pooling: 'last_token',
-  },
-  'Xenova/all-MiniLM-L6-v2': { query: '', document: '', pooling: 'mean' },
-};
-const GENERIC: Preset = { query: '', document: '', pooling: 'mean' };
+/** Input prefixes per side; e5 is trained with "query: " / "passage: ". */
+type Prefixes = Record<EmbedKind, string>;
+const E5: Prefixes = { query: 'query: ', document: 'passage: ' };
+const NONE: Prefixes = { query: '', document: '' };
 
 const BATCH_SIZE = 16;
 
@@ -73,7 +57,7 @@ async function loadPipeline(model: string, threads: number): Promise<PipelineFn 
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   readonly name = 'local';
   readonly model: string;
-  private readonly preset: Preset;
+  private readonly prefixes: Prefixes;
   private pipeline: Promise<PipelineFn | null> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -83,7 +67,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     private readonly threads = 1,
   ) {
     this.model = model;
-    this.preset = PRESETS[model] ?? GENERIC;
+    this.prefixes = model === DEFAULT_LOCAL_MODEL ? E5 : NONE;
   }
 
   /** Loads the model; false when the package or the model is unavailable. */
@@ -95,12 +79,12 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   async embed(texts: string[], kind: EmbedKind): Promise<number[][]> {
     if (!(await this.load())) return texts.map(() => []);
     const pipe = (await this.pipeline)!;
-    const prefix = kind === 'query' ? this.preset.query : this.preset.document;
+    const prefix = this.prefixes[kind];
     const out: number[][] = [];
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE).map((t) => prefix + t);
       try {
-        const res = await pipe(batch, { pooling: this.preset.pooling, normalize: true });
+        const res = await pipe(batch, { pooling: 'mean', normalize: true });
         out.push(...res.tolist());
       } catch (err) {
         process.stderr.write(

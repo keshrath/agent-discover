@@ -1,15 +1,20 @@
 // =============================================================================
 // Retrieval-only bench. Deterministic, offline, no LLM calls.
 //
-//   npm run bench:retrieval                       # all rankers, test split
+//   npm run bench:retrieval                       # zero-config rankers, test split
 //   npm run bench:retrieval -- --split=dev        # tune on dev ONLY
 //   npm run bench:retrieval -- --ranker=bm25,regex
+//   npm run bench:retrieval -- --ranker=agent-discover-v2-e5   # opt-in, see README
+//   npm run bench:retrieval -- --check            # CI: fail if R@10 or MRR fell
+//                                                 # below the committed _results
 //
 // Writes bench/retrieval/_results/<ranker>.json (both splits, per category,
-// per-query ranks) and prints a table for the selected split.
+// per-query ranks) and prints a table for the selected split. Frozen results
+// (_results/*.frozen.json: rankers whose code no longer exists) are printed
+// as rows too.
 // =============================================================================
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -17,7 +22,7 @@ import type { Category, Hit, Query, Ranker, ToolDoc } from './types.js';
 import { toolKey } from './types.js';
 import { Bm25Ranker } from './baselines/bm25.js';
 import { RegexRanker } from './baselines/regex.js';
-import { AgentDiscoverV1Ranker } from './baselines/agent-discover-v1.js';
+import { AgentDiscoverV2Ranker } from './baselines/agent-discover-v2.js';
 import { toJson } from './json.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +33,40 @@ export const RANKERS: Record<string, () => Ranker> = {
   bm25: () => new Bm25Ranker(false),
   'bm25-args': () => new Bm25Ranker(true),
   regex: () => new RegexRanker(),
-  'agent-discover-v1': () => new AgentDiscoverV1Ranker(),
+  'agent-discover-v2': () =>
+    new AgentDiscoverV2Ranker('agent-discover-v2', async () => {
+      const { NoopEmbeddingProvider } = await import('../../src/embeddings/index.js');
+      return new NoopEmbeddingProvider();
+    }),
+  'agent-discover-v2-enriched': () =>
+    new AgentDiscoverV2Ranker(
+      'agent-discover-v2-enriched',
+      async () => {
+        const { NoopEmbeddingProvider } = await import('../../src/embeddings/index.js');
+        return new NoopEmbeddingProvider();
+      },
+      { enrichment: true },
+    ),
+  'agent-discover-v2-e5': () => {
+    // One provider (one model load) per run, shared by every save and search.
+    const provider = (async () => {
+      const { createProvider } = await import('../../src/embeddings/index.js');
+      const p = await createProvider({ provider: 'local' });
+      if (p.name === 'none') throw new Error('local embeddings unavailable (see README)');
+      return p;
+    })();
+    return new AgentDiscoverV2Ranker('agent-discover-v2-e5', () => provider);
+  },
 };
+
+/** Run when no --ranker is given: no model download, no key — what CI runs. */
+const ZERO_CONFIG = [
+  'bm25',
+  'bm25-args',
+  'regex',
+  'agent-discover-v2',
+  'agent-discover-v2-enriched',
+];
 
 interface Catalog {
   servers: { server: string; provenance: string; tools: Omit<ToolDoc, 'server'>[] }[];
@@ -59,6 +96,15 @@ interface QueryScore {
   rr: number;
   ndcg10: number;
   ms: number;
+  /** The ranker answered with nothing. */
+  empty: boolean;
+}
+
+/** An unanswerable query (category `none`): right when the ranker answers with nothing. */
+interface NoneScore {
+  id: string;
+  split: Query['split'];
+  rejected: boolean;
 }
 
 function scoreQuery(q: Query, hits: Hit[], ms: number): QueryScore {
@@ -86,6 +132,7 @@ function scoreQuery(q: Query, hits: Hit[], ms: number): QueryScore {
     rr: Number.isFinite(first) ? 1 / first : 0,
     ndcg10: dcg / idcg,
     ms,
+    empty: hits.length === 0,
   };
 }
 
@@ -98,6 +145,15 @@ interface Agg {
   ndcg10: number;
   p50ms: number;
   p95ms: number;
+}
+
+interface NoMatch {
+  /** Unanswerable queries in the split. */
+  n: number;
+  /** Share of unanswerable queries answered with nothing (higher is better). */
+  rejected: number;
+  /** Share of answerable queries answered with nothing (lower is better). */
+  falseRejected: number;
 }
 
 function pct(sorted: number[], p: number): number {
@@ -121,10 +177,16 @@ function aggregate(rows: QueryScore[]): Agg {
   };
 }
 
-function breakdown(rows: QueryScore[]) {
+function breakdown(rows: QueryScore[], none: NoneScore[]) {
   const cats = [...new Set(rows.map((r) => r.category))].sort();
+  const noMatch: NoMatch = {
+    n: none.length,
+    rejected: none.filter((r) => r.rejected).length / (none.length || 1),
+    falseRejected: rows.filter((r) => r.empty).length / (rows.length || 1),
+  };
   return {
     overall: aggregate(rows),
+    noMatch,
     byCategory: Object.fromEntries(
       cats.map((c) => [c, aggregate(rows.filter((r) => r.category === c))]),
     ),
@@ -138,38 +200,58 @@ export async function evaluate(ranker: Ranker, tools: ToolDoc[], queries: Query[
   await ranker.index(tools);
   const indexMs = performance.now() - t0;
   const scores: QueryScore[] = [];
+  const none: NoneScore[] = [];
   for (const q of queries) {
     const s = performance.now();
     const hits = await ranker.search(q.query, K);
-    scores.push(scoreQuery(q, hits, performance.now() - s));
+    const ms = performance.now() - s;
+    if (q.targets.length === 0)
+      none.push({ id: q.id, split: q.split, rejected: hits.length === 0 });
+    else scores.push(scoreQuery(q, hits, ms));
   }
   await ranker.close?.();
+  const split = (s: Query['split']) =>
+    breakdown(
+      scores.filter((r) => r.split === s),
+      none.filter((r) => r.split === s),
+    );
   return {
     ranker: ranker.name,
     corpus: { tools: tools.length, servers: new Set(tools.map((t) => t.server)).size },
     indexMs,
-    dev: breakdown(scores.filter((s) => s.split === 'dev')),
-    test: breakdown(scores.filter((s) => s.split === 'test')),
-    queries: scores.map(({ id, split, stepRanks }) => ({ id, split, stepRanks })),
+    dev: split('dev'),
+    test: split('test'),
+    queries: [
+      ...scores.map(({ id, split, stepRanks }) => ({ id, split, stepRanks })),
+      ...none.map(({ id, split, rejected }) => ({ id, split, rejected })),
+    ],
   };
 }
+
+type Result = Awaited<ReturnType<typeof evaluate>>;
 
 const f3 = (x: number) => x.toFixed(3);
 const f1 = (x: number) => x.toFixed(1);
 
-function printTable(title: string, rows: [string, Agg][]) {
+function printTable(title: string, rows: [string, Agg, NoMatch?][]) {
   const head = ['', 'n', 'R@1', 'R@5', 'R@10', 'MRR', 'nDCG@10', 'p50ms', 'p95ms'];
-  const body = rows.map(([label, a]) => [
-    label,
-    String(a.n),
-    f3(a.recall1),
-    f3(a.recall5),
-    f3(a.recall10),
-    f3(a.mrr),
-    f3(a.ndcg10),
-    f1(a.p50ms),
-    f1(a.p95ms),
-  ]);
+  const withNoMatch = rows.some(([, , nm]) => nm);
+  if (withNoMatch) head.push('none-rejected', 'false-rejected');
+  const body = rows.map(([label, a, nm]) => {
+    const cells = [
+      label,
+      String(a.n),
+      f3(a.recall1),
+      f3(a.recall5),
+      f3(a.recall10),
+      f3(a.mrr),
+      f3(a.ndcg10),
+      f1(a.p50ms),
+      f1(a.p95ms),
+    ];
+    if (withNoMatch) cells.push(nm ? f3(nm.rejected) : '-', nm ? f3(nm.falseRejected) : '-');
+    return cells;
+  });
   const w = head.map((h, i) => Math.max(h.length, ...body.map((r) => r[i].length)));
   const line = (r: string[]) => r.map((c, i) => (i === 0 ? c.padEnd(w[i]) : c.padStart(w[i])));
   console.log(`\n${title}`);
@@ -181,36 +263,61 @@ function printTable(title: string, rows: [string, Agg][]) {
 async function main() {
   const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split('=')[1];
   const split = (arg('split') ?? 'test') as 'dev' | 'test';
-  const names = arg('ranker')?.split(',') ?? Object.keys(RANKERS);
+  const names = arg('ranker')?.split(',') ?? ZERO_CONFIG;
+  const check = process.argv.includes('--check');
+  const regressions: string[] = [];
   const tools = loadCatalog();
   const queries = loadQueries();
   const outDir = path.join(HERE, '_results');
   mkdirSync(outDir, { recursive: true });
 
-  const results = [];
+  const results: Result[] = [];
   for (const name of names) {
     const make = RANKERS[name];
     if (!make) throw new Error(`unknown ranker "${name}" (have: ${Object.keys(RANKERS)})`);
     const r = await evaluate(make(), tools, queries);
-    writeFileSync(path.join(outDir, `${name}.json`), toJson(r));
+    const file = path.join(outDir, `${name}.json`);
+    if (check) {
+      const prior = JSON.parse(readFileSync(file, 'utf8')) as Result;
+      for (const s of ['dev', 'test'] as const) {
+        for (const m of ['recall10', 'mrr'] as const) {
+          if (r[s].overall[m] < prior[s].overall[m] - 1e-9) {
+            regressions.push(
+              `${name} ${s} ${m}: ${f3(r[s].overall[m])} < ${f3(prior[s].overall[m])}`,
+            );
+          }
+        }
+      }
+    }
+    writeFileSync(file, toJson(r));
     results.push(r);
   }
+  const frozen = readdirSync(outDir)
+    .filter((f) => f.endsWith('.frozen.json'))
+    .map((f) => JSON.parse(readFileSync(path.join(outDir, f), 'utf8')) as Result);
+  const rows = [...frozen, ...results];
 
+  const count = (f: (q: Query) => boolean) => queries.filter(f).length;
   console.log(
     `corpus: ${results[0].corpus.servers} servers / ${results[0].corpus.tools} tools; ` +
-      `queries: ${queries.length} (dev ${queries.filter((q) => q.split === 'dev').length}, ` +
-      `test ${queries.filter((q) => q.split === 'test').length}); split shown: ${split}`,
+      `queries: ${queries.length} (dev ${count((q) => q.split === 'dev')}, ` +
+      `test ${count((q) => q.split === 'test')}; ${count((q) => q.targets.length === 0)} unanswerable); ` +
+      `split shown: ${split}`,
   );
   printTable(
-    `overall (${split})`,
-    results.map((r) => [r.ranker, r[split].overall]),
+    `overall (${split}) — recall over answerable queries; none-rejected / false-rejected: ` +
+      'share of unanswerable / answerable queries answered with nothing',
+    rows.map((r) => [r.ranker, r[split].overall, r[split].noMatch]),
   );
-  const cats = Object.keys(results[0][split].byCategory);
-  for (const c of cats) {
+  for (const c of Object.keys(results[0][split].byCategory)) {
     printTable(
       `${c} (${split})`,
-      results.map((r) => [r.ranker, r[split].byCategory[c]]),
+      rows.map((r) => [r.ranker, r[split].byCategory[c]]),
     );
+  }
+  if (regressions.length > 0) {
+    console.error(['', 'retrieval regressed vs committed _results:', ...regressions].join('\n  '));
+    process.exit(1);
   }
 }
 

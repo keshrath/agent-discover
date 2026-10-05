@@ -104,10 +104,7 @@ describe('ToolIndex', () => {
   ];
 
   it('diffs by tool hash and keeps ids stable', async () => {
-    const index = new ToolIndex(db, {
-      embeddings: async () => new NoopEmbeddingProvider(),
-      enrichment: null,
-    });
+    const index = new ToolIndex(db, { embeddings: async () => new NoopEmbeddingProvider() });
     const s = servers.create({ name: 'a', command: 'x' });
     expect(await index.save(s.id, tools)).toMatchObject({
       added: ['slack_post_message', 'github_create_issue'],
@@ -129,10 +126,7 @@ describe('ToolIndex', () => {
   });
 
   it('search scores are normalized to 0..1 and rank name matches first', async () => {
-    const index = new ToolIndex(db, {
-      embeddings: async () => new NoopEmbeddingProvider(),
-      enrichment: null,
-    });
+    const index = new ToolIndex(db, { embeddings: async () => new NoopEmbeddingProvider() });
     const s = servers.create({ name: 'a', command: 'x' });
     await index.save(s.id, tools);
     const hits = await index.search('post slack message', 5);
@@ -154,7 +148,7 @@ describe('ToolIndex', () => {
         return texts.map((t) => (t.includes('slack') ? [1, 0] : [0, 1]));
       },
     };
-    const index = new ToolIndex(db, { embeddings: async () => provider, enrichment: null });
+    const index = new ToolIndex(db, { embeddings: async () => provider });
     const a = servers.create({ name: 'a', command: 'x' });
     const b = servers.create({ name: 'b', command: 'x' });
     expect((await index.save(a.id, tools)).embedded).toBe(2);
@@ -165,5 +159,50 @@ describe('ToolIndex', () => {
     expect(calls).toBe(2);
     const hits = await index.search('chat', 2);
     expect(hits[0].name).toBe('github_create_issue'); // purely semantic: "chat" embeds to [0,1]
+  });
+});
+
+describe('HybridRanker', () => {
+  const lexical = () => new ToolIndex(db, { embeddings: async () => new NoopEmbeddingProvider() });
+
+  it('matches mixed-case words whole and split, and repairs typos', async () => {
+    const index = lexical();
+    const s = servers.create({ name: 'gl', command: 'x' });
+    await index.save(s.id, [
+      { name: 'search_repositories', description: 'Search for GitLab projects' },
+      { name: 'create_issue', description: 'Create an issue' },
+    ]);
+    for (const q of ['gitlab projects', 'GitLab projects', 'git lab projects', 'gitlab projetcs']) {
+      expect((await index.search(q, 1))[0]?.name, q).toBe('search_repositories');
+    }
+    expect(await index.search('zzzz qqqq', 5)).toEqual([]); // nothing matches → no hits
+  });
+
+  it('confines the ranking toward a server the query names', async () => {
+    const index = lexical();
+    const a = servers.create({ name: 'linear', command: 'x' });
+    const b = servers.create({ name: 'jira', command: 'x' });
+    await index.save(a.id, [{ name: 'create_ticket', description: 'Create a ticket' }]);
+    await index.save(b.id, [{ name: 'create_ticket', description: 'Create a new ticket' }]);
+    expect((await index.search('create a ticket in jira', 2))[0].server).toBe('jira');
+    expect((await index.search('create a ticket in linear', 2))[0].server).toBe('linear');
+  });
+
+  it('boosts tools that are actually called (usage prior from metrics)', async () => {
+    const index = lexical();
+    const a = servers.create({ name: 'a', command: 'x' });
+    const b = servers.create({ name: 'b', command: 'x' });
+    const tools = [{ name: 'list_items', description: 'List items' }];
+    await index.save(a.id, tools);
+    await index.save(b.id, tools);
+    const before = await index.search('list items', 2);
+    const loser = before[1];
+    db.run('INSERT INTO server_metrics (server_id, tool_name, call_count) VALUES (?, ?, 50)', [
+      loser.server_id,
+      loser.name,
+    ]);
+    const after = await index.search('list items', 2);
+    expect(after[0].id).toBe(loser.id);
+    expect(after[0].score).toBeLessThanOrEqual(1);
   });
 });

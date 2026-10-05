@@ -30,6 +30,7 @@ const CATEGORIES: Category[] = [
   'multi-step',
   'short-typo',
   'german',
+  'none',
 ];
 
 interface SrcQuery {
@@ -82,7 +83,8 @@ writeFileSync(
 // Label-policy check: share of queries with no content word (>= 3 chars) in
 // common with any acceptable target's tool name.
 const words = (s: string) => new Set(tokenize(s).filter((w) => w.length >= 3));
-const disjoint = out.filter((q) => {
+const answerable = out.filter((q) => q.targets.length > 0);
+const disjoint = answerable.filter((q) => {
   const names = new Set(q.targets.flat().flatMap((k) => [...words(k.split('/')[1])]));
   return ![...words(q.query)].some((w) => names.has(w));
 }).length;
@@ -90,5 +92,5 @@ const by = (c: string) => out.filter((q) => q.category === c).length;
 console.warn(
   `${out.length} queries (${CATEGORIES.map((c) => `${c} ${by(c)}`).join(', ')}); ` +
     `dev ${out.filter((q) => q.split === 'dev').length} / test ${out.filter((q) => q.split === 'test').length}; ` +
-    `no tool-name word overlap: ${((100 * disjoint) / out.length).toFixed(1)}%`,
+    `no tool-name word overlap: ${((100 * disjoint) / answerable.length).toFixed(1)}% of answerable`,
 );

@@ -1951,5 +1951,87 @@
       "query": "Durchsuche meine Notizen nach Kubernetes",
       "t": ["obsidian/obsidian_search_notes|notion/API-post-search"]
     }
+  ],
+  "none": [
+    {
+      "query": "book a flight from Berlin to Lisbon next Friday",
+      "t": []
+    },
+    {
+      "query": "order a large pepperoni pizza for delivery",
+      "t": []
+    },
+    {
+      "query": "play my workout playlist on Spotify",
+      "t": []
+    },
+    {
+      "query": "turn off the living room lights",
+      "t": []
+    },
+    {
+      "query": "set an alarm for 6:30 tomorrow morning",
+      "t": []
+    },
+    {
+      "query": "call my mom on the phone",
+      "t": []
+    },
+    {
+      "query": "buy 10 shares of Apple stock",
+      "t": []
+    },
+    {
+      "query": "start the dishwasher",
+      "t": []
+    },
+    {
+      "query": "send an SMS to my landlord",
+      "t": []
+    },
+    {
+      "query": "rent a car at Frankfurt airport for the weekend",
+      "t": []
+    },
+    {
+      "query": "book a hotel room in Vienna for two nights",
+      "t": []
+    },
+    {
+      "query": "adjust the thermostat to 21 degrees",
+      "t": []
+    },
+    {
+      "query": "renew my passport online",
+      "t": []
+    },
+    {
+      "query": "scan the QR code with my webcam",
+      "t": []
+    },
+    {
+      "query": "add a dentist appointment to my calendar",
+      "t": []
+    },
+    {
+      "query": "water the plants in the garden",
+      "t": []
+    },
+    {
+      "query": "print this document on the office printer",
+      "t": []
+    },
+    {
+      "query": "Bestelle mir ein Taxi zum Hauptbahnhof",
+      "t": []
+    },
+    {
+      "query": "Spiel meine Lieblingsmusik ab",
+      "t": []
+    },
+    {
+      "query": "Buche einen Tisch für zwei Personen heute Abend",
+      "t": []
+    }
   ]
 }

@@ -1,39 +1,26 @@
 // =============================================================================
 // agent-discover — Tool search documents
 //
-// Turns an upstream tool definition (+ its server, + optional enrichment)
-// into the fielded text the FTS index and the embedding model see. Pure and
-// deterministic: the same inputs always produce the same document, and
-// `docHash` changes exactly when the embedded text would.
+// Turns an upstream tool definition into the fielded text the FTS index and
+// the embedding model see. Pure and deterministic, and a function of the
+// tool definition alone — so the tool hash is the cache key for both the FTS
+// row and the stored vector, and identical tools on two servers embed once.
 //
-// Fields (weighted separately by the ranker, BM25F-style):
-//   name        identifier split into words ("createTask" → "create task") + title
+// Fields (weighted separately by the ranker):
+//   name        tool name + title, identifier-split ("createTask" → "createtask create task")
 //   description the tool description
 //   args        argument names (split) + argument descriptions, one level deep
-//   enrichment  index-time enrichment: when-to-use, synthetic queries, keywords
-//   server      server name (split) + server description
 // =============================================================================
-
-import { createHash } from 'node:crypto';
 
 /** The search index: one row per server_tools row (rowid = id), written only by ToolIndex.save. */
 export const FTS_SCHEMA = `
   CREATE VIRTUAL TABLE IF NOT EXISTS server_tools_fts USING fts5(
-    name, description, args, enrichment, server,
+    name, description, args,
     tokenize = 'porter unicode61 remove_diacritics 2'
   );
   CREATE TRIGGER IF NOT EXISTS server_tools_fts_ad AFTER DELETE ON server_tools BEGIN
     DELETE FROM server_tools_fts WHERE rowid = old.id;
   END;`;
-
-export interface Enrichment {
-  /** One or two sentences: the situations in which this tool is the right call. */
-  readonly whenToUse: string;
-  /** Realistic user requests this tool answers, in the user's words. */
-  readonly queries: readonly string[];
-  /** Synonyms and non-English (e.g. German) keywords for the tool's purpose. */
-  readonly keywords: readonly string[];
-}
 
 export interface DocTool {
   readonly name: string;
@@ -42,21 +29,12 @@ export interface DocTool {
   readonly inputSchema?: Record<string, unknown> | null;
 }
 
-export interface DocServer {
-  readonly name: string;
-  readonly description?: string | null;
-}
-
 export interface ToolDocument {
   readonly name: string;
   readonly description: string;
   readonly args: string;
-  readonly enrichment: string;
-  readonly server: string;
   /** Text given to the embedding model. */
   readonly embedText: string;
-  /** sha256 over every field — changes exactly when the indexed text does; embedding cache key. */
-  readonly docHash: string;
 }
 
 /** "slack_post_message" / "createTask" / "API-get-self" / "maps.v2" → lower-case words. */
@@ -70,6 +48,22 @@ export function splitIdentifier(id: string): string {
     .toLowerCase();
 }
 
+/**
+ * Index-side words: lower-case, split at every non-alphanumeric; a mixed-case
+ * word is kept whole AND split ("GitLab" → "gitlab git lab"), so a query
+ * matches whether the user types "gitlab", "GitLab" or "git lab".
+ */
+export function indexWords(text: string): string {
+  const out: string[] = [];
+  for (const w of text.split(/[^\p{L}\p{N}]+/u)) {
+    if (!w) continue;
+    const parts = splitIdentifier(w);
+    if (parts.includes(' ')) out.push(w.toLowerCase());
+    out.push(parts);
+  }
+  return out.join(' ');
+}
+
 interface SchemaProp {
   description?: unknown;
   properties?: Record<string, SchemaProp>;
@@ -80,7 +74,7 @@ function argsText(schema: Record<string, unknown> | null | undefined, depth = 0)
   const props = (schema?.properties ?? {}) as Record<string, SchemaProp>;
   const out: string[] = [];
   for (const [key, prop] of Object.entries(props)) {
-    out.push(splitIdentifier(key));
+    out.push(key);
     if (typeof prop?.description === 'string') out.push(prop.description);
     if (depth < 1) {
       const nested = prop?.properties ? prop : prop?.items?.properties ? prop.items : null;
@@ -92,31 +86,16 @@ function argsText(schema: Record<string, unknown> | null | undefined, depth = 0)
 
 const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max) : s);
 
-export function buildDocument(
-  tool: DocTool,
-  server: DocServer,
-  enrichment?: Enrichment | null,
-): ToolDocument {
-  const name = [splitIdentifier(tool.name), tool.title ?? ''].filter(Boolean).join(' ');
+export function buildDocument(tool: DocTool): ToolDocument {
   const description = clip(tool.description ?? '', 4000);
-  const args = clip(argsText(tool.inputSchema).join(' '), 4000);
-  const enrichmentText = enrichment
-    ? [enrichment.whenToUse, ...enrichment.queries, ...enrichment.keywords].join(' ')
-    : '';
-  const serverText = [splitIdentifier(server.name), server.description ?? ''].join(' ').trim();
-  const embedText = clip(
-    [
-      `${name} (${splitIdentifier(server.name)})`,
-      description,
-      enrichment ? [enrichment.whenToUse, ...enrichment.queries].join(' ') : '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    2000,
-  );
-  const fields = { name, description, args, enrichment: enrichmentText, server: serverText };
-  const docHash = createHash('sha256')
-    .update(JSON.stringify([fields, embedText]))
-    .digest('hex');
-  return { ...fields, embedText, docHash };
+  const title = tool.title ?? '';
+  return {
+    name: indexWords(`${tool.name} ${title}`),
+    description: indexWords(description),
+    args: indexWords(clip(argsText(tool.inputSchema).join(' '), 4000)),
+    embedText: clip(
+      [`${splitIdentifier(tool.name)} ${title}`.trim(), description].filter(Boolean).join('\n'),
+      2000,
+    ),
+  };
 }
