@@ -20,7 +20,11 @@ import { PresetsService } from './domain/presets.js';
 import { maybeCreateDefaultSamplingProvider } from './domain/sampling.js';
 import { syncSetupFile, type SyncResult } from './domain/setup.js';
 import { TrustService } from './domain/trust/index.js';
-import { resolveSecretBackend, type SecretBackend } from './domain/trust/secret-store.js';
+import {
+  openSecretBackend,
+  resolveSecretBackend,
+  type SecretBackend,
+} from './domain/trust/secret-store.js';
 import type { Telemetry } from './domain/trust/telemetry.js';
 
 export interface AppContext {
@@ -67,7 +71,11 @@ export function createContext(options: ContextOptions = {}): AppContext {
   const db = createDb({ path });
   const servers = new ServerStore(db);
   const index = options.index?.(db) ?? new ToolIndex(db);
-  const secrets = new SecretsService(db, options.secretBackend ?? resolveSecretBackend(path));
+  const secrets = new SecretsService(
+    db,
+    options.secretBackend ?? resolveSecretBackend(path),
+    (name) => openSecretBackend(name, path),
+  );
   const trust = new TrustService({ db, config, index, secrets, telemetry: options.telemetry });
   const metrics = new MetricsService(db);
   const logs = new LogService();

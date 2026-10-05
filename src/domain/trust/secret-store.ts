@@ -147,6 +147,28 @@ function loadKeyring(): KeyringSecretBackend {
 
 let announced = false;
 
+function fileBackend(dbPath: string): EncryptedFileSecretBackend {
+  const dir = dirname(dbPath);
+  return new EncryptedFileSecretBackend(
+    join(dir, 'agent-discover-secrets.json'),
+    join(dir, 'agent-discover-secrets.key'),
+  );
+}
+
+/**
+ * Open a named backend for the database at `dbPath` so secrets stored there can move to the
+ * active one; null when it cannot be reached (no keychain on this machine).
+ */
+export function openSecretBackend(name: string, dbPath: string): SecretBackend | null {
+  try {
+    if (name === 'keyring') return loadKeyring();
+    if (name === 'file') return fileBackend(dbPath);
+  } catch {
+    /* unreachable store: its secrets stay where they are */
+  }
+  return null;
+}
+
 /** Pick the backend for a database at `dbPath` (see header). */
 export function resolveSecretBackend(
   dbPath: string,
@@ -165,10 +187,7 @@ export function resolveSecretBackend(
     }
   }
   const dir = dirname(dbPath);
-  backend ??= new EncryptedFileSecretBackend(
-    join(dir, 'agent-discover-secrets.json'),
-    join(dir, 'agent-discover-secrets.key'),
-  );
+  backend ??= fileBackend(dbPath);
   if (!announced) {
     announced = true;
     process.stderr.write(

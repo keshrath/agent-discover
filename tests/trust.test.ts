@@ -308,6 +308,36 @@ describe('secret backends', () => {
     db.close();
   });
 
+  it('moves secrets stored in another backend into the active one', () => {
+    const db = createDb({ path: ':memory:' });
+    const srv = new ServerStore(db).create({ name: 'a', command: 'node' });
+    const file = new EncryptedFileSecretBackend(join(dir, 's.json'), join(dir, 's.key'));
+    new SecretsService(db, file).set(srv, 'TOKEN', 'from-file');
+
+    const keychain = new MemorySecretBackend();
+    const secrets = new SecretsService(db, keychain, (name) => (name === 'file' ? file : null));
+    expect(secrets.getEnvForServer(srv)).toEqual({ TOKEN: 'from-file' });
+    expect(db.queryOne<{ backend: string }>('SELECT backend FROM server_secrets')!.backend).toBe(
+      'memory',
+    );
+    expect(file.get('a/TOKEN')).toBeNull();
+    db.close();
+  });
+
+  it('leaves secrets of an unreachable backend in place', () => {
+    const db = createDb({ path: ':memory:' });
+    const srv = new ServerStore(db).create({ name: 'a', command: 'node' });
+    db.run(
+      "INSERT INTO server_secrets (server_id, key, value, backend) VALUES (?, 'TOKEN', '', 'keyring')",
+      [srv.id],
+    );
+    new SecretsService(db, new MemorySecretBackend(), () => null);
+    expect(db.queryOne<{ backend: string }>('SELECT backend FROM server_secrets')!.backend).toBe(
+      'keyring',
+    );
+    db.close();
+  });
+
   it('REST secrets reach the backend, stay masked in output and out of the audit log', async () => {
     await startDaemon();
     await installFixture(d!);

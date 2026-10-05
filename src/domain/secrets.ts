@@ -51,8 +51,41 @@ export class SecretsService {
   constructor(
     private readonly db: Db,
     readonly backend: SecretBackend,
+    /** Opens the backend a row was stored in, so it can move to `backend`. */
+    openBackend: (name: string) => SecretBackend | null = () => null,
   ) {
     this.migratePlaintext();
+    this.migrateBackends(openBackend);
+  }
+
+  /** Secrets stored in another backend (e.g. the file store before a keychain was available) move here. */
+  private migrateBackends(openBackend: (name: string) => SecretBackend | null): void {
+    const rows = this.db.queryAll<{ id: number; server: string; key: string; backend: string }>(
+      `SELECT x.id, s.name AS server, x.key, x.backend FROM server_secrets x
+       JOIN servers s ON s.id = x.server_id WHERE x.backend IS NOT NULL AND x.backend != ?`,
+      [this.backend.name],
+    );
+    const sources = new Map<string, SecretBackend | null>();
+    let moved = 0;
+    for (const row of rows) {
+      if (!sources.has(row.backend)) sources.set(row.backend, openBackend(row.backend));
+      const source = sources.get(row.backend);
+      const account = secretAccount(row.server, row.key);
+      const value = source?.get(account) ?? null;
+      if (value === null) continue;
+      this.backend.set(account, value);
+      this.db.run('UPDATE server_secrets SET backend = ? WHERE id = ?', [
+        this.backend.name,
+        row.id,
+      ]);
+      source?.delete(account);
+      moved++;
+    }
+    if (moved) {
+      process.stderr.write(
+        `[agent-discover] moved ${moved} secret(s) into the ${this.backend.name} backend\n`,
+      );
+    }
   }
 
   private migratePlaintext(): void {
