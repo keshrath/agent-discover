@@ -1,7 +1,7 @@
 {
   "name": "agent-discover",
   "displayName": "agent-discover",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Find, install and enable MCP servers mid-session. Search tools across installed and marketplace servers, approve installs with full provenance, and test tools without restarting.",
   "author": {
     "name": "keshrath"
