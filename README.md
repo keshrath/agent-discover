@@ -2,14 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-8-purple)]()
 
 **Find, install and enable MCP servers in the middle of a session, on any MCP host.** agent-discover is one local daemon that searches the official MCP Registry, npm and PyPI, installs a server after you approve the exact command and its provenance, and then exposes its tools to your host without a config edit or a restart. It also guards what it installs: tool definitions are pinned and a server whose tools change is quarantined, secrets live in the OS keychain, and every action is audited.
-
-| Light Theme                                | Dark Theme                               |
-| ------------------------------------------ | ---------------------------------------- |
-| ![Light Theme](docs/screenshots/light.png) | ![Dark Theme](docs/screenshots/dark.png) |
 
 ---
 
@@ -30,7 +26,7 @@ Current hosts (Claude Code, Codex, the Anthropic and OpenAI APIs) have their own
 | **Enablement**    | All configured servers always load | Enable and disable mid-session; the index stays searchable    |
 | **Secrets**       | Keys in config files or env        | OS keychain (or an encrypted file), injected on connect       |
 | **Changed tools** | Silent                             | Pinned hashes, drift quarantines the server until you approve |
-| **Visibility**    | Per-host logs                      | Dashboard, health, per-tool metrics, audit log, OpenTelemetry |
+| **Visibility**    | Per-host logs                      | `/discover` pane, health, per-tool metrics, audit log, OTel   |
 
 ---
 
@@ -38,16 +34,17 @@ Current hosts (Claude Code, Codex, the Anthropic and OpenAI APIs) have their own
 
 ### Claude Code
 
-Install the plugin. It runs the stdio shim as the MCP server, adds the `find`, `install` and `dashboard` skills, a SessionStart hook and a native UI:
+Install the plugin. It runs the stdio shim as the MCP server, adds the `find` and `install` skills, a SessionStart hook and the management UI inside Claude Code:
 
 ```bash
 claude plugin marketplace add keshrath/agent-discover
 claude plugin install agent-discover@agent-discover
 ```
 
-- `/discover [what you need]` opens a panel in the terminal, the desktop Code tab or VS Code: servers by state with health, Enable / Disable / Re-index buttons, a search box over installed tools and the registry, and Install buttons (the consent step still gates every install).
-- A status line entry `MCP 2/6 !1`, a toast when a server is quarantined or goes unhealthy, and a band above the prompt that shows only while something needs you.
-- The native UI needs Claude Code 2.1.289 or newer. Older builds keep the skills and tools.
+- `/discover` opens the agent-discover pane (docked beside the transcript in the fullscreen layout, above the prompt otherwise; also in the desktop Code tab and VS Code). **Servers**: every installed server with its state; open one for its config (command or URL, tags, source and registry status, package; env and header key names only), a secrets editor (set or delete, values never shown), its tools with input schemas and per-tool metrics, health check and error reset, the quarantine diff with Approve / Keep disabled, OAuth sign-in (the authorize URL as a link), and Enable / Disable / Re-index / Uninstall. **Browse**: search the registries, review the install plan (exact command or URL, provenance, warnings, required keys with secret inputs) and install. **Logs** (recent proxied calls) and **Audit** (filter by server and action, paged). Questions upstream servers ask (elicitation) appear on top.
+- `/discover <what you need>` opens Browse with the results.
+- A status line entry `MCP 2/6 !1`, a toast when a server is quarantined, goes unhealthy or asks a question, and a band above the prompt that shows only while something needs you.
+- The pane needs Claude Code 2.1.289 or newer. Older builds keep the skills and tools.
 - Remove any hand-written `agent-discover` entry from `~/.claude.json` so tools do not appear twice.
 
 ### Any other MCP host
@@ -55,14 +52,14 @@ claude plugin install agent-discover@agent-discover
 ```json
 {
   "mcpServers": {
-    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^2"] }
+    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^3"] }
   }
 }
 ```
 
 Hosts with Streamable HTTP can instead point at `http://127.0.0.1:3424/mcp` when the daemon already runs. Cursor, Codex, VS Code, Claude Desktop and the rest: [docs/SETUP.md](docs/SETUP.md#client-setup).
 
-The dashboard is at http://127.0.0.1:3424.
+Other hosts use agent-discover through its MCP tools (markdown results; the MCP Apps widget where the host renders it). Approving a quarantined server or installing without an elicitation-capable client happens in Claude Code's `/discover` pane, or an operator sets `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`.
 
 ### From source
 
@@ -78,9 +75,9 @@ node dist/index.js daemon
 
 ## How it runs
 
-One daemon per machine, `agent-discover daemon`, listens on `127.0.0.1:3424` and serves the dashboard, the REST API (`/api/*`), a WebSocket (`/ws`) and MCP Streamable HTTP at `/mcp`. `/mcp` speaks the 2026-07-28 protocol and the 2025 sessionful protocol on the same endpoint.
+One daemon per machine, `agent-discover daemon`, listens on `127.0.0.1:3424` and serves the REST API (`/api/*`, what the Claude Code pane talks to) and MCP Streamable HTTP at `/mcp`. `/mcp` speaks the 2026-07-28 protocol and the 2025 sessionful protocol on the same endpoint.
 
-The default bin `agent-discover` is a thin stdio shim: it checks `/api/health`, starts the daemon if it is not running (lockfile-guarded, detached) and relays stdio to `/mcp`. Every host and every session shares the one daemon, so connection and enablement state has a single owner. The daemon exits after 30 minutes with no MCP streams and no dashboard clients (`AGENT_DISCOVER_IDLE_MS`).
+The default bin `agent-discover` is a thin stdio shim: it checks `/api/health`, starts the daemon if it is not running (lockfile-guarded, detached) and relays stdio to `/mcp`. Every host and every session shares the one daemon, so connection and enablement state has a single owner. The daemon exits after 30 minutes with no open HTTP exchanges (`AGENT_DISCOVER_IDLE_MS`).
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -120,7 +117,7 @@ agent-discover sits between your host and MCP servers it did not write, so it as
 - **Loopback only.** Host / Origin allowlist, JSON-only bodies, and a per-launch token on every state-changing REST call.
 - **OAuth 2.1 for remote servers** (discovery, PKCE, refresh, `iss` check), with sign-in handed to you as a URL; agent-discover never opens it itself.
 
-Not covered in 2.0: sandboxing upstream stdio servers. They run with your user's privileges.
+Not covered: sandboxing upstream stdio servers. They run with your user's privileges.
 
 ---
 
@@ -156,7 +153,7 @@ Methodology, per-category results and how to run it: [bench/retrieval/README.md]
 - **Federated search** over the registry mirror, npm and PyPI.
 - **Transports to upstream servers**: stdio, SSE, streamable HTTP, both protocol eras negotiated automatically. Upstream `input_required` and 2025 `elicitation/create` requests are relayed to your client.
 - **Lazy, pooled connections** with reconnect backoff, idle disconnect and real health probes.
-- **Dashboard** with Servers, Browse and Logs, a per-server MCP Inspector style tester, dark and light themes.
+- **Three UI surfaces**: the Claude Code `/discover` pane, the MCP Apps widget (Claude Desktop, claude.ai, VS Code) and markdown results for every other host (OpenCode, Cursor, Codex, ...). There is no web dashboard since 3.0.
 - **Declarative setup file** (`AGENT_DISCOVER_SETUP_FILE`) listing servers to ensure installed at daemon start.
 - **Per-tool metrics** and a call log.
 
@@ -180,9 +177,11 @@ The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
 
 ---
 
-## Upgrading from 1.x
+## Upgrading
 
-2.0 is a breaking release. The single `registry` tool is replaced by the eight tools above, REST routes were renamed, the setup file key `auto_activate` is now `enabled`, secrets move to the keychain, and the default bin is the shim. The database migrates itself and moves from `~/.claude` to the per-user data directory (`%LOCALAPPDATA%\agent-discover`, `~/Library/Application Support/agent-discover`, or `$XDG_DATA_HOME/agent-discover` / `~/.local/share/agent-discover`; `AGENT_DISCOVER_DATA_DIR` overrides) on first start, so stop any running 1.x process first. Full list in [CHANGELOG.md](CHANGELOG.md#200---2026-10-05).
+**From 2.x:** 3.0 removes the web dashboard on port 3424 (and its WebSocket, tester, presets and transient-server routes) and agent-desk support. Manage servers in Claude Code with `/discover`; other hosts keep the MCP tools. Host configs move to `agent-discover@^3`. Details in [CHANGELOG.md](CHANGELOG.md#300---2026-10-05).
+
+**From 1.x:** 2.0 was a breaking release. The single `registry` tool is replaced by the eight tools above, REST routes were renamed, the setup file key `auto_activate` is now `enabled`, secrets move to the keychain, and the default bin is the shim. The database migrates itself and moves from `~/.claude` to the per-user data directory (`%LOCALAPPDATA%\agent-discover`, `~/Library/Application Support/agent-discover`, or `$XDG_DATA_HOME/agent-discover` / `~/.local/share/agent-discover`; `AGENT_DISCOVER_DATA_DIR` overrides) on first start, so stop any running 1.x process first. Full list in [CHANGELOG.md](CHANGELOG.md#200---2026-10-05).
 
 ---
 
@@ -196,10 +195,10 @@ The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
 ## Testing
 
 ```bash
-npm test              # 197 tests across 25 files (9 e2e skipped unless AGENT_DISCOVER_E2E=1)
+npm test              # 192 tests across 24 files (+9 e2e skipped unless AGENT_DISCOVER_E2E=1)
 npm run check         # typecheck + lint + format + test
 npm run bench:retrieval
-npm run test:e2e:ui   # Playwright dashboard smoke tests
+npm run plugin:check  # claude plugin validate + the pane's 9 plugin tests
 ```
 
 ---
@@ -208,10 +207,9 @@ npm run test:e2e:ui   # Playwright dashboard smoke tests
 
 - [User Manual](docs/USER-MANUAL.md): day-to-day use
 - [Setup Guide](docs/SETUP.md): installation and per-client configuration
-- [API Reference](docs/API.md): MCP tools, REST, WebSocket, environment
+- [API Reference](docs/API.md): MCP tools, REST, environment
 - [Architecture](docs/ARCHITECTURE.md): process model, domain services, schema, search
 - [Security](docs/SECURITY.md): trust model
-- [Dashboard](docs/DASHBOARD.md): the web UI
 - [Changelog](CHANGELOG.md)
 
 ---

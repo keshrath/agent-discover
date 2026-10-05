@@ -1,6 +1,6 @@
 # agent-discover User Manual
 
-For version 2.x. Looking for exact schemas? See [API.md](API.md). Installing for a specific client? See [SETUP.md](SETUP.md).
+For version 3.x. Looking for exact schemas? See [API.md](API.md). Installing for a specific client? See [SETUP.md](SETUP.md).
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ For version 2.x. Looking for exact schemas? See [API.md](API.md). Installing for
 4. [The eight MCP tools](#4-the-eight-mcp-tools)
 5. [Servers: install, enable, trust](#5-servers-install-enable-trust)
 6. [Secrets and sign-in](#6-secrets-and-sign-in)
-7. [Dashboard](#7-dashboard)
+7. [The /discover pane in Claude Code](#7-the-discover-pane-in-claude-code)
 8. [REST API in practice](#8-rest-api-in-practice)
 9. [Declarative setup file](#9-declarative-setup-file)
 10. [Operations](#10-operations)
@@ -21,7 +21,7 @@ For version 2.x. Looking for exact schemas? See [API.md](API.md). Installing for
 
 ## 1. What it is
 
-agent-discover lets an agent, or you, add MCP servers to a running session. It searches your installed servers' tools and the public registries (the official MCP Registry, npm, PyPI), installs a server after you approve the exact command, and exposes its tools to the host. It runs as one local daemon that every host and the dashboard share.
+agent-discover lets an agent, or you, add MCP servers to a running session. It searches your installed servers' tools and the public registries (the official MCP Registry, npm, PyPI), installs a server after you approve the exact command, and exposes its tools to the host. It runs as one local daemon that every host shares; in Claude Code the `/discover` pane manages it.
 
 Most hosts now have their own tool search. agent-discover does not replace it. It feeds it: enabled servers' tools are listed to the host as ordinary tools (native mode), and the host's search, permission prompts and deferred loading apply to them. What the host cannot do alone is find, install and enable a server it has never been configured with, without a config edit and a restart. That is the job here.
 
@@ -58,14 +58,14 @@ claude plugin install agent-discover@agent-discover
 ```json
 {
   "mcpServers": {
-    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^2"] }
+    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^3"] }
   }
 }
 ```
 
 Hosts with Streamable HTTP can use `http://127.0.0.1:3424/mcp` if the daemon is running. Pick one entry per host; both would list every tool twice. Cursor, Codex, VS Code and Claude Desktop specifics are in [SETUP.md](SETUP.md#client-setup).
 
-The shim that hosts spawn starts the daemon on first use. Open http://127.0.0.1:3424 for the dashboard.
+The shim that hosts spawn starts the daemon on first use. In Claude Code, `/discover` opens the management pane.
 
 Removing a hand-written 1.x entry, a `session-start.js` hook, or both before installing the plugin avoids duplicate tools.
 
@@ -103,7 +103,7 @@ Every tool except `call_tool` returns `structuredContent` plus a markdown render
 
 agent-discover builds an install plan and asks you to confirm it through elicitation. You see the command line or URL, env and header names, the version (pinned or not) and the provenance checks. The confirmation is bound to a hash of that exact config. Then it installs, probes the server and stores its tools. `enable: true` also enables it.
 
-Result `status`: `installed`, `already_installed`, `declined` or `consent_required` (the host cannot show an elicitation prompt; install from the dashboard instead). `missing` lists required env vars or headers you still have to set as secrets. A probe failure is reported as `index_error`; the server stays installed.
+Result `status`: `installed`, `already_installed`, `declined` or `consent_required` (the host cannot show an elicitation prompt; install from the `/discover` pane in Claude Code instead). `missing` lists required env vars or headers you still have to set as secrets. A probe failure is reported as `index_error`; the server stays installed.
 
 ### `enable_server` / `disable_server`
 
@@ -157,7 +157,7 @@ Descriptions shown to models are stripped of invisible and bidirectional control
 
 ### Health, errors and metrics
 
-`POST /api/servers/:id/health` (or Check Health in the dashboard) runs a real ping or `server/discover` probe. Failures raise the server's error count; a healthy probe resets it. Per-tool call counts, errors and latency are recorded for every proxied call (`GET /api/servers/:id/metrics`, `GET /api/metrics`) and also feed a small usage prior in search ranking. The call log (last 500 calls in memory, 30-day retention by default) is in the dashboard's Logs tab.
+`POST /api/servers/:id/health` (or Check health in `/discover`) runs a real ping or `server/discover` probe. Failures raise the server's error count; a healthy probe resets it. Per-tool call counts, errors and latency are recorded for every proxied call (`GET /api/servers/:id/metrics`, `GET /api/metrics`) and also feed a small usage prior in search ranking. The call log (last 500 calls in memory, 30-day retention by default) is in the Logs tab of `/discover` (`GET /api/logs`).
 
 ### Audit log
 
@@ -182,7 +182,7 @@ curl -X PUT http://127.0.0.1:3424/api/servers/3/secrets/GITHUB_TOKEN \
   -d '{"value":"ghp_..."}'
 ```
 
-The dashboard's Secrets section does the same. `server_status` and install results list required secrets that are missing.
+The Secrets section of a server in `/discover` does the same. `server_status` and install results list required secrets that are missing.
 
 `AGENT_DISCOVER_SECRETS=keyring` or `file` forces a backend. Secrets saved in plaintext by 1.x are moved into the backend on first start and wiped from SQLite.
 
@@ -197,21 +197,27 @@ A remote (`sse` or `streamable-http`) server that needs OAuth and has no `Author
 
 ---
 
-## 7. Dashboard
+## 7. The /discover pane in Claude Code
 
-http://127.0.0.1:3424, with three tabs:
+agent-discover has no web dashboard since 3.0. Its management UI lives inside Claude Code (plugin, 2.1.289+); other hosts use the MCP tools, and Claude Desktop, claude.ai and VS Code also render the MCP Apps widget on results.
 
-- **Servers**: a card per installed server with health, error count, enable/disable, health check, delete, expandable Secrets, Metrics, Config and Test sections, and an **Add Server** form for manual installs.
-- **Browse**: search the registry mirror, npm and PyPI; install with one button (the daemon builds the same plan the MCP tool does and refuses blocked plans).
-- **Logs**: the live call log with filters and click-to-expand arguments and responses.
+- `/discover` opens the agent-discover pane, docked beside the transcript in the fullscreen layout and above the prompt otherwise (also the desktop Code tab and VS Code). Tabs:
+  - **Servers**: every installed server with its state (enabled, installed, quarantined, unhealthy) and tool count. Open one for its detail: transport and the exact command or URL, tags, source and MCP Registry name and status, package and version, env and header key names (values are never shown); a secrets editor (set a missing key, add `KEY=value`, delete; typed values are sent and never kept or drawn); its tools, each expandable to its input schema, with per-tool calls, errors and latency; health check, last error and error count with Reset errors; for a quarantined server the drift (changed, added, removed tools) with Approve and Keep disabled; for a remote server the OAuth state with Sign in, showing the authorization URL as a link (agent-discover never opens it); Enable or Disable, Re-index and Uninstall (asks once more).
+  - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one. Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
+  - **Logs**: the recent proxied calls with latency and errors. **Audit**: the audit log, filtered by server and action, paged.
+  - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
+- `/discover <what you need>` opens Browse with the results for that query.
+- A status line entry `MCP 2/6 !1` (enabled/installed, `!n` servers needing a look).
+- A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
+- A band above the prompt, shown only while something needs you, with Review (opens the server in the pane) and Dismiss.
 
-The **Test** drawer is an MCP Inspector style tester (Tools, Info, Resources, Prompts, Events, Export, Diagnostics) and **Test ad-hoc** connects a throwaway server you never install. Full detail: [DASHBOARD.md](DASHBOARD.md).
+The pane talks to the daemon's REST API only (state-changing calls with the per-launch token). It refreshes the status every 30 seconds, every 5 seconds while the pane is open, and after every action. If the engine does not place the pane (a terminal too narrow for an unasked pane, a surface that places none), `/discover` prints why. Set `AGENT_DISCOVER_PORT` in the environment if the daemon is not on 3424.
 
 ---
 
 ## 8. REST API in practice
 
-Everything the dashboard does is available over REST ([API.md](API.md)). Reads need nothing. Every POST, PUT, PATCH and DELETE needs the per-launch token:
+Everything the pane does is available over REST ([API.md](API.md)). Reads need nothing. Every POST, PUT, PATCH and DELETE needs the per-launch token:
 
 ```bash
 BASE=http://127.0.0.1:3424
@@ -226,7 +232,7 @@ curl -s -X POST $BASE/api/install \
 curl -s -X POST $BASE/api/servers/3/disable -H "X-Agent-Discover-Token: $TOKEN" -H 'Content-Type: application/json'
 ```
 
-`POST /api/install` is the dashboard's install and, unlike the MCP tool, has no elicitation step: the human using the dashboard is the consent. Only loopback `Host` and `Origin` headers are accepted.
+`POST /api/install` is the pane's install and, unlike the MCP tool, has no elicitation step: the person pressing Install in the pane is the consent. Only loopback `Host` and `Origin` headers are accepted.
 
 ---
 
@@ -259,22 +265,25 @@ Point `AGENT_DISCOVER_SETUP_FILE` at a JSON file to have servers ensured at daem
 
 ## 10. Operations
 
-- **Daemon lifetime.** Exits after 30 minutes with no MCP streams and no dashboard clients (`AGENT_DISCOVER_IDLE_MS`, `0` = never). The next shim start brings it back. For an always-on daemon see the systemd example in [SETUP.md](SETUP.md#running-as-standalone-server).
+- **Daemon lifetime.** Exits after 30 minutes with no open HTTP exchanges (`AGENT_DISCOVER_IDLE_MS`, `0` = never). The next shim start brings it back. For an always-on daemon see the systemd example in [SETUP.md](SETUP.md#running-as-standalone-server).
 - **Data.** Database `agent-discover.db` in the data directory (`AGENT_DISCOVER_DATA_DIR`, else `%LOCALAPPDATA%\agent-discover` on Windows, `~/Library/Application Support/agent-discover` on macOS, `~/.local/share/agent-discover` on Linux; `AGENT_DISCOVER_DB` overrides the file). A 1.x database in `~/.claude` is moved there once on first start. Back it up by copying the file with the daemon stopped. Secret values are in the keychain or the encrypted file beside the database, not in the database.
-- **Upgrading from 1.x.** The database migrates itself. Re-run host config to the 2.x entry (`agent-discover@^2`), rename `auto_activate` to `enabled` in setup files, and update scripts for the REST renames listed in the [changelog](../CHANGELOG.md).
+- **Upgrading from 2.x.** Host configs move to `agent-discover@^3`. The web dashboard is gone: use `/discover` in Claude Code, the MCP tools elsewhere.
+- **Upgrading from 1.x.** The database migrates itself. Re-run host config to the current entry (`agent-discover@^3`), rename `auto_activate` to `enabled` in setup files, and update scripts for the REST renames listed in the [changelog](../CHANGELOG.md).
 - **Embeddings.** Optional. See [SETUP.md](SETUP.md#semantic-search-optional).
 
 ---
 
 ## 11. Troubleshooting
 
-**Dashboard will not load.** `curl http://127.0.0.1:3424/api/health`. If it fails, run `agent-discover daemon` in a terminal and read the output. The daemon started by a shim logs to `agent-discover-<port>.log` in the system temp directory.
+**`/discover` says the daemon is not reachable.** `curl http://127.0.0.1:3424/api/health`. If it fails, run `agent-discover daemon` in a terminal and read the output. The daemon started by a shim logs to `daemon-<port>.log` in the data directory.
+
+**`/discover` prints status but no pane appears.** It prints `pane not shown: <reason>` when Claude Code did not place it; widen the terminal or open it again. The pane is a plain sidebar: Escape hands the keys back without closing it, and ctrl+x x (or its close mark) closes it.
 
 **Tools do not appear after enabling.** Check `server_status` for `quarantined`, `indexed` and `index_error`; run a health check; run the server's command by hand. In proxy mode tools are never listed: use `call_tool`. If the host ignores `list_changed`, switch to proxy mode.
 
 **Tools appear twice.** The plugin and a hand-written entry are both configured. Keep one.
 
-**Install says `consent_required`.** The host cannot show an elicitation prompt. Install from the dashboard's Browse tab.
+**Install says `consent_required`.** The host cannot show an elicitation prompt. Install from Browse in Claude Code's `/discover` pane.
 
 **Marketplace search is empty.** The registry mirror may not have synced yet (`GET /api/registry`; `POST /api/registry/sync` forces it), or the network blocks the registries. `GET /api/browse` reports per-source errors.
 

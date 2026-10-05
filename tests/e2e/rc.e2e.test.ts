@@ -293,7 +293,8 @@ describe.skipIf(!E2E)('2-6. one daemon, both eras', () => {
   it('3. server-everything: search, consent, index while disabled, enable, passthrough, disable', async () => {
     const found = (await modern.callTool({
       name: 'search_servers',
-      arguments: { query: 'everything' },
+      // The package's own name: a generic word ranks by live npm search, which drifts.
+      arguments: { query: 'server-everything' },
     })) as CallToolResult;
     const names = structured<{ marketplace: Array<{ name: string }> }>(found).marketplace.map(
       (m) => m.name,

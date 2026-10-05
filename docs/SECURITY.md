@@ -2,8 +2,8 @@
 
 agent-discover sits between an agent host and untrusted MCP servers, so it assumes upstream tools, their descriptions and other local web pages are hostile. Layers, outermost first:
 
-1. **Request guard** (`src/transport/guard.ts`): Host / Origin / Content-Type checks on `/api`, `/mcp` and `/ws` (see [API.md](API.md#security)). Loopback only by default.
-2. **REST token** (`src/transport/token.ts`): the guard admits any loopback origin, so a page on another local dev server could still POST. All mutating `/api/*` calls therefore need `X-Agent-Discover-Token`, minted per daemon launch and compared in constant time. `GET /api/token` is only answered for an absent Origin (same-origin dashboard, local clients), `file://` (agent-desk) or the daemon's own origin.
+1. **Request guard** (`src/transport/guard.ts`): Host / Origin / Content-Type checks on `/api` and `/mcp` (see [API.md](API.md#security)). Loopback only by default.
+2. **REST token** (`src/transport/token.ts`): the guard admits any loopback origin, so a page on another local dev server could still POST. All mutating `/api/*` calls therefore need `X-Agent-Discover-Token`, minted per daemon launch and compared in constant time. `GET /api/token` is only answered for requests without an Origin (the Claude Code pane, local clients); no web page can read it. The daemon serves no web pages since 3.0.
 3. **Tool pinning and quarantine** (`src/domain/trust/pins.ts`): the first index of a server pins a hash of each tool's description, input schema and annotations (table `server_pins`). Any later change, addition or removal ("rug pull") quarantines the server: its tools disappear from native `tools/list` and search, `call_tool` and `enable` are refused, `get_tool` withholds the definition. The quarantine lifts automatically if the tools revert, or after explicit re-approval:
    - MCP `enable_server` elicits with a readable diff (old vs new description, parameter changes, new/removed tools, hygiene flags);
    - REST `GET /api/servers/:id/trust` then `POST /api/servers/:id/approve {hashes}` (409 if the set changed since the review).

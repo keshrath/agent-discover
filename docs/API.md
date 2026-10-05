@@ -1,25 +1,26 @@
-# API Reference (2.0)
+# API Reference (3.0)
 
 One daemon (`agent-discover daemon`, default `127.0.0.1:3424`) serves:
 
-| Path             | What                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------- |
-| `/mcp`           | MCP Streamable HTTP — 2026-07-28 (stateless) and 2025-06-18 / 2025-11-25 (sessionful) |
-| `/api/*`         | REST for the dashboard and local tooling                                              |
-| `/ws`            | Dashboard live updates                                                                |
-| `/`, `/tester/*` | Dashboard static files                                                                |
+| Path              | What                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `/mcp`            | MCP Streamable HTTP — 2026-07-28 (stateless) and 2025-06-18 / 2025-11-25 (sessionful) |
+| `/api/*`          | REST for the Claude Code `/discover` pane and local tooling                           |
+| `/oauth/callback` | OAuth loopback redirect for remote upstreams                                          |
+
+There is no web UI: the UI surfaces are the Claude Code pane (plugin), the MCP Apps widget and the markdown text of every tool result.
 
 The default bin (`agent-discover`) is a stdio shim: it starts the daemon if needed and relays stdio ⇄ `/mcp`. Hosts that speak HTTP can use `{ "type": "http", "url": "http://127.0.0.1:3424/mcp" }` directly.
 
 ## Security
 
-Every request and WebSocket upgrade passes the request guard:
+Every request passes the request guard:
 
 - `Host` must be exactly `localhost:<port>`, `127.0.0.1:<port>` or `[::1]:<port>` (plus `AGENT_DISCOVER_HOST:<port>` if set).
-- `Origin`, when present, must be `http(s)://` with a loopback hostname, or exactly `file://` (agent-desk). `null` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
+- `Origin`, when present, must be `http(s)://` with a loopback hostname. `null`, `file://` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
 - POST/PUT/PATCH/DELETE with a body must be `application/json` (415 otherwise).
 - CORS: allowed origins are reflected; never `*`.
-- **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` is served only when `Origin` is absent (same-origin dashboard, local non-browser clients), exactly `file://` or the daemon's own origin; any other Origin gets 403, so another local web page never learns it. `/mcp` is unaffected.
+- **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` is served only when `Origin` is absent (the Claude Code pane, local non-browser clients); any Origin gets 403, so a web page never learns it. `/mcp` is unaffected.
 
 See [SECURITY.md](SECURITY.md) for the whole trust model.
 
@@ -32,7 +33,7 @@ See [SECURITY.md](SECURITY.md) for the whole trust model.
 | `AGENT_DISCOVER_DATA_DIR`                             | platform data dir                          | Data directory: `%LOCALAPPDATA%\agent-discover`, `~/Library/Application Support/agent-discover`, `$XDG_DATA_HOME/agent-discover` or `~/.local/share/agent-discover` |
 | `AGENT_DISCOVER_DB`                                   | `agent-discover.db` in the data dir        | SQLite file path (a 1.x `~/.claude/agent-discover.db` is moved into the data dir once on first start)                                                               |
 | `AGENT_DISCOVER_MODE`                                 | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                                                                             |
-| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                                                                               |
+| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open HTTP exchanges (`0` = never)                                                                                              |
 | `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                                   | Idle upstream connections are closed                                                                                                                                |
 | `AGENT_DISCOVER_SESSION_IDLE_MS`                      | `1800000`                                  | 2025 HTTP sessions with no open stream are closed after this long (`0` = never)                                                                                     |
 | `AGENT_DISCOVER_REGISTRY_URL`                         | `https://registry.modelcontextprotocol.io` | Official MCP Registry (or a compatible sub-registry) mirrored locally                                                                                               |
@@ -76,9 +77,9 @@ All tools except `call_tool` declare an `outputSchema` and return `structuredCon
 
 **Native tools** (`AGENT_DISCOVER_MODE=native`): each enabled server's indexed tools are listed as `<server>__<tool>` with the upstream schema, output schema and annotations verbatim. Every enable / disable / uninstall / re-index of an enabled server emits `notifications/tools/list_changed` (on 2026 `subscriptions/listen` streams and on every 2025 session).
 
-**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result with `status: "consent_required"` and the `plan`, so the user can install from the dashboard — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. `server` is the exact name from `search_servers` (MCP Registry name, npm package or PyPI project, with `source` defaulting to `registry`); without it, `name` plus `command` or `url` describes a manual install. There is deliberately no agent-supplied `confirm` argument.
+**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result with `status: "consent_required"` and the `plan`, so the user can install from the Claude Code `/discover` pane — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. `server` is the exact name from `search_servers` (MCP Registry name, npm package or PyPI project, with `source` defaulting to `registry`); without it, `name` plus `command` or `url` describes a manual install. There is deliberately no agent-supplied `confirm` argument.
 
-**Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push is forwarded to the calling client when it is the only such call in flight on that connection (the call is parked and the retry carries the answer); otherwise, or when the client cannot elicit, it goes to the dashboard queue (`/api/elicitations`, 2-minute expiry).
+**Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push is forwarded to the calling client when it is the only such call in flight on that connection (the call is parked and the retry carries the answer); otherwise, or when the client cannot elicit, it goes to the pending queue the `/discover` pane answers (`/api/elicitations`, 2-minute expiry).
 
 ## REST
 
@@ -91,7 +92,7 @@ Errors are `{ error, code? }` with 400 (validation), 401 (`AUTH_REQUIRED`: a rem
 
 ### Servers
 
-Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected` and `tool_count`.
+Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected`, `tool_count` and `missing_secrets` (declared headers with no value and no stored secret). Env values are masked.
 
 - `GET /api/servers?query=&source=`
 - `GET /api/servers/:id` → server + `tools` (indexed definitions)
@@ -102,14 +103,13 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `POST /api/servers/:id/index` → re-index; returns `{added, changed, removed, unchanged, embedded}`
 - `POST /api/servers/:id/health` → `{status, latency_ms, error?}` (real ping / `server/discover`)
 - `POST /api/servers/:id/reset-errors`
-- `POST /api/servers/:id/call` `{tool, args}` → upstream `CallToolResult`
 - `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection). Values live in the OS keychain (or an encrypted file), never in SQLite; `GET` always returns `masked_value: "********"`.
 - `GET /api/servers/:id/trust` → `{name, quarantined, drift?: {changed: [{tool, description?, input_schema?, annotations?}], added, removed}, flagged_tools: [{tool, flags}], hashes, digest}`
 - `POST /api/servers/:id/approve` `{hashes}` → re-pins the current tools and lifts the quarantine. `hashes` must be the `hashes` of the reviewed `trust` report; 409 if the tool set changed since (review again).
 - `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete call_tool`.
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
-Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).
+Removed in 3.0 with the web dashboard: `/ws`, static files, `POST /api/servers/:id/call` (use the `call_tool` MCP tool), the tester routes (`/api/servers/:id/info|tools|resources|resource-templates|resource/*|prompts|prompt/get|ping|logging-level|export`), `/api/transient*`, `/api/presets*`, `/api/prereqs`, `POST /api/sync`, `DELETE /api/logs`, `/api/logs/notifications|progress`, `/api/roots`. Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).
 
 ### Marketplace and install
 
@@ -128,18 +128,11 @@ Remote servers without their own `Authorization` header authenticate with OAuth 
 - `GET /oauth/callback?code&state&iss` → the loopback redirect URI `http://127.0.0.1:<port>/oauth/callback`. It checks that `state` is single-use and less than 10 minutes old, then redeems the code, indexes the server if needed and answers with an HTML page.
 - Over MCP, a call to a server that needs sign-in returns a URL-mode elicitation (`inputRequests.signin`) when the client declares `elicitation.url`. The retry waits up to 5 minutes for the callback. Without URL-mode support the call returns `isError` with the URL in the text.
 
-### Tester (connects lazily; same routes under `/api/transient/:handle`)
+### Logs and upstream questions
 
-`GET /info`, `GET /tools`, `GET /resources`, `GET /resource-templates`, `POST /resource/read|subscribe|unsubscribe`, `GET /prompts`, `POST /prompt/get`, `POST /ping`, `POST /logging-level`, `GET /export?format=mcp-json|agent-discover`, `POST /call`.
-`POST /api/transient` `{transport, command|url, args?, env?, headers?, ttl_ms?}` → 201 handle · `DELETE /api/transient/:handle`.
-
-### Other
-
-`GET /api/prereqs` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
-
-## WebSocket (`/ws`)
-
-Server → client: `{type:"state", version, mode, servers}` on connect and after every lifecycle change (debounced), `log_entry`, `notification`, `progress`, `elicitation_request`. Client → server: `{type:"refresh"}`. Max 50 clients, 4 KiB messages.
+- `GET /api/logs?limit=&offset=` → `{entries: [{id, timestamp, server, tool, args, response, latency_ms, success, kind}], total}`, newest first (in memory, `AGENT_DISCOVER_LOG_RETENTION_DAYS`, at most 500).
+- `GET /api/elicitations` → `{entries: [{id, serverName, message, requestedSchema, createdAt}]}`: upstream questions no client could answer.
+- `POST /api/elicitations/:id/respond` `{action: "accept"|"decline"|"cancel", content?}`.
 
 ## Setup file
 

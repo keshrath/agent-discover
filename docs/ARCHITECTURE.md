@@ -10,15 +10,15 @@ agent-discover is one local daemon that lets any MCP host find, install, enable 
  Host A (stdio) --> shim --\
  Host B (stdio) --> shim ---+--> /mcp  --+
  Host C (http)  -----------/             |
- Browser / plugin ----> /, /api, /ws ----+--> daemon (127.0.0.1:3424)
+ Claude Code pane --------> /api --------+--> daemon (127.0.0.1:3424)
                                               |  AppContext (one per daemon)
                                               +--> upstream MCP servers (stdio / SSE / streamable HTTP)
 ```
 
-- **Daemon** (`src/daemon.ts`, `agent-discover daemon`): one `node:http` server on `127.0.0.1:${AGENT_DISCOVER_PORT:-3424}` serving the dashboard (static files), REST `/api/*`, the WebSocket `/ws`, the OAuth callback and MCP Streamable HTTP at `/mcp`. It builds the context after `listen`, so the guard and the OAuth redirect URI use the bound port. It exits after `AGENT_DISCOVER_IDLE_MS` (default 30 min) with no open HTTP exchanges and no WebSocket clients.
-- **Shim** (`src/shim.ts`, the default bin): for stdio-only hosts. It probes `GET /api/health`; if the daemon is absent it takes a lockfile in the temp directory, spawns a detached `agent-discover daemon` (log in the temp directory) and waits up to 20 s for readiness, then relays JSON-RPC messages between stdin/stdout and `/mcp`. If the daemon goes away later (idle exit, crash) the next message re-ensures it and, for a 2025 session, replays the cached `initialize` handshake.
+- **Daemon** (`src/daemon.ts`, `agent-discover daemon`): one `node:http` server on `127.0.0.1:${AGENT_DISCOVER_PORT:-3424}` serving REST `/api/*` (for the Claude Code pane and local tooling), the OAuth callback and MCP Streamable HTTP at `/mcp`. It serves no web pages. It builds the context after `listen`, so the guard and the OAuth redirect URI use the bound port. It exits after `AGENT_DISCOVER_IDLE_MS` (default 30 min) with no open HTTP exchanges.
+- **Shim** (`src/shim.ts`, the default bin): for stdio-only hosts. It probes `GET /api/health`; if the daemon is absent it takes a lockfile (`daemon-<port>.lock` next to the database), spawns a detached `agent-discover daemon` (log `daemon-<port>.log` in the same directory) and waits up to 20 s for readiness, then relays JSON-RPC messages between stdin/stdout and `/mcp`. If the daemon goes away later (idle exit, crash) the next message re-ensures it and, for a 2025 session, replays the cached `initialize` handshake.
 - **Hosts with Streamable HTTP** may skip the shim and use `http://127.0.0.1:3424/mcp`, provided something started the daemon.
-- **Single source of truth.** Because every host and the dashboard talk to the same process, connection state, enablement and the tool index have one owner.
+- **Single source of truth.** Because every host and the pane talk to the same process, connection state, enablement and the tool index have one owner.
 
 ### `/mcp`: two protocol eras on one URL (`src/mcp/http.ts`)
 
@@ -27,20 +27,20 @@ agent-discover is one local daemon that lets any MCP host find, install, enable 
 
 ### Request guard (`src/transport/guard.ts`, `token.ts`)
 
-Every request and WebSocket upgrade passes an exact `Host` / `Origin` allowlist (loopback only), JSON-only bodies, no wildcard CORS. Mutating `/api/*` calls additionally need the per-launch `X-Agent-Discover-Token`. `/mcp` also runs the SDK's `localhostHostValidation` / `localhostOriginValidation`. See [SECURITY.md](SECURITY.md).
+Every request passes an exact `Host` / `Origin` allowlist (loopback only), JSON-only bodies, no wildcard CORS. Mutating `/api/*` calls additionally need the per-launch `X-Agent-Discover-Token`. `/mcp` also runs the SDK's `localhostHostValidation` / `localhostOriginValidation`. See [SECURITY.md](SECURITY.md).
 
 ## Layers
 
 ```
 +------------------------------------------------------------------+
 | Transport:  mcp/ (server, tools, prompts, http)                  |
-|             transport/ (rest, ws, http helpers, guard, token)    |
+|             transport/ (rest, http helpers, guard, token)        |
 +------------------------------------------------------------------+
 | Domain:     ServerLifecycle  <-- single authority                |
 |             ServerStore, ToolIndex + Ranker, UpstreamPool        |
 |             RegistryMirror, MarketplaceClient, install-plan,     |
 |             provenance, OAuthManager, SecretsService, Metrics,   |
-|             Log, Presets, trust/ (TrustService)                  |
+|             Log, trust/ (TrustService)                           |
 +------------------------------------------------------------------+
 | Storage:    SQLite (better-sqlite3, WAL), version-ordered        |
 |             migrations; secret values in keychain / encrypted    |
@@ -52,15 +52,15 @@ Every request and WebSocket upgrade passes an exact `Host` / `Origin` allowlist 
 
 ### Domain services
 
-- **`ServerLifecycle`** (`domain/lifecycle.ts`): the single authority for install -> index -> enable / disable -> uninstall, plus `update`, `reindex`, `approve`, `setSecret`, `callTool`, `health` and `status`. MCP tools, REST routes, the setup file and the dashboard are thin adapters over it. It emits change events that become `notifications/tools/list_changed` and WebSocket `state` pushes. `TrustHooks` (`beforeInstall`, `afterIndex`, `aroundCall`, `approve`, `inspect`, `record`) are implemented by `TrustService`.
+- **`ServerLifecycle`** (`domain/lifecycle.ts`): the single authority for install -> index -> enable / disable -> uninstall, plus `update`, `reindex`, `approve`, `setSecret`, `callTool`, `health` and `status`. MCP tools, REST routes (the pane) and the setup file are thin adapters over it. It emits tools-changed events that become `notifications/tools/list_changed`. `TrustHooks` (`beforeInstall`, `afterIndex`, `aroundCall`, `approve`, `inspect`, `record`) are implemented by `TrustService`.
 - **`ServerStore`** (`domain/servers.ts`): server rows, and one `toConfig` for connecting.
-- **`UpstreamPool`** (`domain/pool.ts`): one SDK client per upstream server, opened lazily and shared by every caller (MCP, REST, tester).
+- **`UpstreamPool`** (`domain/pool.ts`): one SDK client per upstream server, opened lazily and shared by every caller (MCP, REST).
   - Connects with automatic protocol-era negotiation. The verdict is cached on the server row (a legacy verdict is dated and reused for up to 7 days) so servers launched through `npx` are not spawned twice; stdio servers are probed in place.
   - Drops a connection when its transport closes and reconnects on the next use with exponential backoff (max 60 s); closes connections idle longer than `AGENT_DISCOVER_CONN_IDLE_MS`.
   - Timeouts: connect 30 s, tool call 120 s, health 5 s. Health is a real `ping` (2025) or `server/discover` (2026).
-  - Forwards `tools/call` results verbatim, relays upstream `input_required` rounds, and routes 2025 `elicitation/create` pushes to the calling client when it is the only such call in flight, otherwise to the dashboard queue (`/api/elicitations`, 2-minute expiry).
+  - Forwards `tools/call` results verbatim, relays upstream `input_required` rounds, and routes 2025 `elicitation/create` pushes to the calling client when it is the only such call in flight, otherwise to the queue the Claude Code pane answers (`/api/elicitations`, 2-minute expiry).
   - OAuth 2.1 for remote servers without their own `Authorization` header (see `OAuthManager`); a 401 becomes an `AuthRequiredError` carrying the sign-in URL.
-  - Advertises `roots` (`AGENT_DISCOVER_ROOTS`) and `elicitation` to upstream servers, plus a sampling handler when `AGENT_DISCOVER_OPENAI_API_KEY` or `OPENAI_API_KEY` is set. Transient servers (15-minute TTL, dashboard tester only) are never exposed to hosts.
+  - Advertises `roots` (`AGENT_DISCOVER_ROOTS`) and `elicitation` to upstream servers, plus a sampling handler when `AGENT_DISCOVER_OPENAI_API_KEY` or `OPENAI_API_KEY` is set.
 - **`ToolIndex` and `HybridRanker`** (`domain/tool-index.ts`, `ranker.ts`, `tool-doc.ts`, `tool-hash.ts`): persisted index of every installed server's tools, enabled or not. See Search below.
 - **`RegistryMirror`** (`domain/registry.ts`): a local copy of the latest version of every entry in the official MCP Registry (v0.1 API) in `registry_servers` with FTS. The first sync pages through `/v0.1/servers?version=latest`; later syncs ask for `updated_since`, which also returns deleted entries. Deleted entries stay in the table, hidden from search, so an installed server whose entry was taken down shows `registry_status: "deleted"`. The daemon syncs in the background on start and on search when the mirror is older than one hour. Exact pinned versions are fetched live.
 - **`MarketplaceClient`** (`domain/marketplace.ts`): search = the registry mirror first (offline FTS), then npm (`registry.npmjs.org/-/v1/search`, two queries so untagged packages like `@playwright/mcp` surface) and PyPI (a curated list of well-known Python MCP servers resolved through the per-project JSON API, plus a best-effort HTML search scrape). Every result is normalized to a `server.json`. `resolve` and `plan` are exact-name only.
@@ -68,19 +68,19 @@ Every request and WebSocket upgrade passes an exact `Host` / `Origin` allowlist 
 - **`OAuthManager`** (`domain/oauth.ts`): the SDK's OAuth client provider persisted through server secrets (`oauth:*` keys), dynamic client registration by default or an operator-hosted Client ID Metadata Document, RFC 9207 `iss` check, single-use `state` with a 10-minute TTL, loopback redirect to `/oauth/callback`. agent-discover never opens the authorization URL.
 - **`SecretsService`** (`domain/secrets.ts`) over a backend from `trust/secret-store.ts`: OS keychain (`@napi-rs/keyring`), else an AES-256-GCM file next to the database, else memory for `:memory:` databases. SQLite stores key names and the backend only.
 - **`TrustService`** (`domain/trust/`): pins, hygiene, audit, telemetry. See [SECURITY.md](SECURITY.md).
-- **`MetricsService`**, **`LogService`** (in-memory ring buffer of 500 calls, retention `AGENT_DISCOVER_LOG_RETENTION_DAYS`, default 30), **`PresetsService`** (tester presets) and setup-file sync (`domain/setup.ts`).
+- **`MetricsService`**, **`LogService`** (in-memory ring buffer of 500 calls, retention `AGENT_DISCOVER_LOG_RETENTION_DAYS`, default 30) and setup-file sync (`domain/setup.ts`).
 
 ### MCP surface (`src/mcp/`)
 
 - **Meta tools** (`tools.ts`): `search_servers`, `install_server`, `enable_server`, `disable_server`, `server_status`, `search_tools`, `get_tool`, `call_tool`. Schemas are zod; each carries annotations, a title and (except `call_tool`) an `outputSchema` with `structuredContent`. The output contracts live in `widgets/types.ts` and the markdown renderings in `widgets/text.ts`. `tools/list` is deterministic and sorted by name.
 - **Native mode** (default, `AGENT_DISCOVER_MODE=native`): `tools/list` also contains `<server>__<tool>` for every tool of every enabled, non-quarantined server, with the upstream schema, output schema and annotations verbatim and the description prefixed with `[server]` (cleaned and capped). The host's own tool search, permission prompts and `alwaysLoad` therefore apply to them. **Proxy mode** lists only the meta tools; tools are called with `call_tool`.
-- **Consent** uses elicitation (2026 `input_required` round; 2025 `elicitation/create` through the legacy shim), bound to a hash of the exact proposed config. A client that cannot elicit gets an `isError` result with status `consent_required` and the plan; the user installs from the dashboard (or the operator sets `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`). `install_server` is flagged `anthropic/requiresUserInteraction`.
+- **Consent** uses elicitation (2026 `input_required` round; 2025 `elicitation/create` through the legacy shim), bound to a hash of the exact proposed config. A client that cannot elicit gets an `isError` result with status `consent_required` and the plan; the user installs from the Claude Code `/discover` pane (or the operator sets `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`). `install_server` is flagged `anthropic/requiresUserInteraction`.
 - **Prompts** (`prompts.ts`): `discover`, `install`, `status`.
 - **MCP Apps widget** (`widgets/`): `resources/read` serves `ui://agent-discover/app.html` (`text/html;profile=mcp-app`), one self-contained page built to `dist/widgets/app.html` that picks its view (search, server card, install consent, tester) from the shape of `structuredContent`. Tools with a view carry `_meta.ui.resourceUri`. Claude Desktop, claude.ai and VS Code render it; Claude Code does not render MCP Apps yet, so it shows the markdown text.
 
 ### Claude Code plugin (`plugin/`)
 
-`.mcp.json` runs the stdio shim (`npx -y agent-discover@^2`). Skills `find`, `install` and `dashboard`; a SessionStart hook (`scripts/session-start.mjs`) that adds one line of context; `scripts/statusline.mjs` for older builds. `hooks/register.tsx` is a function-hooks mod (Claude Code 2.1.289+): the `/discover` panel, the `MCP n/m` status entry, toasts and the attention band. It calls the plugin's own MCP server through `$.mcp.call` and the daemon's REST API, polling every 5 s while the panel is open and every 30 s otherwise. Plugin-specific code stays in `plugin/`; `src/` is host-agnostic.
+`.mcp.json` runs the stdio shim (`npx -y agent-discover@^3`). Skills `find` and `install`; a SessionStart hook (`scripts/session-start.mjs`) that adds one line of context; `scripts/statusline.mjs` for older builds. `hooks/register.tsx` + `hooks/view.tsx` are a function-hooks mod (Claude Code 2.1.289+) and the full management UI: the `/discover` pane (Servers, server detail, Browse with the install plan, Logs, Audit, upstream questions), the `MCP n/m` status entry, toasts and the attention band. It talks only to the daemon's REST API (mutations with the per-launch token), refreshing the status every 30 s, every 5 s while the pane is open and after every action; view state lives in `$.state` (contract `types/index.d.ts`), typed secret values never do. The pane opens as a plain sidebar (no `closeOnEscape`), and `/discover` says why when the engine does not place it. Plugin-specific code stays in `plugin/`; `src/` is host-agnostic.
 
 ### Search (tool retrieval)
 
@@ -122,9 +122,9 @@ LLM index-time enrichment is not shipped. The bench measures it offline from a c
 
 ### Storage
 
-`src/storage/database.ts` wraps `better-sqlite3` (WAL, foreign keys, busy timeout). Migrations are version-ordered and applied in one transaction each above the stored version (kept in `_meta`; databases older than that adopt `pragma user_version`). The current schema version is **10**. A 1.x database migrates in place on first start: `active` becomes `enabled`, remote URLs move from `homepage` to `url`, tool hashes are computed, and servers that had persisted tools are marked indexed and pinned.
+`src/storage/database.ts` wraps `better-sqlite3` (WAL, foreign keys, busy timeout). Migrations are version-ordered and applied in one transaction each above the stored version (kept in `_meta`; databases older than that adopt `pragma user_version`). The current schema version is **11** (11 drops the 2.x dashboard's `test_presets`). A 1.x database migrates in place on first start: `active` becomes `enabled`, remote URLs move from `homepage` to `url`, tool hashes are computed, and servers that had persisted tools are marked indexed and pinned.
 
-## Database schema (version 10)
+## Database schema (version 11)
 
 | Table              | Holds                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -137,20 +137,17 @@ LLM index-time enrichment is not shipped. The bench measures it offline from a c
 | `server_pins`      | one JSON row per server: the pinned hash, description, input schema and annotations of every tool                                                                                                                                                                                                                                                                                                   |
 | `audit_log`        | append-only (an UPDATE trigger aborts edits); indexed by server and action                                                                                                                                                                                                                                                                                                                          |
 | `registry_servers` | the mirrored official MCP Registry entries (`server_json`, `status`, `is_latest`, ...) plus `registry_servers_fts`                                                                                                                                                                                                                                                                                  |
-| `test_presets`     | dashboard tester presets                                                                                                                                                                                                                                                                                                                                                                            |
 | `_meta`            | key/value: schema version, `tool_index_generation`, registry sync markers                                                                                                                                                                                                                                                                                                                           |
 
 Adding a migration: append an entry with the next version to `migrations` in `database.ts`; never edit an old one. Keep migrations SQL-only. A data move that needs a service (like moving secrets into the keychain) happens in that service's constructor.
 
-## Prereqs probe
+## UI surfaces
 
-`GET /api/prereqs` runs `<tool> --version` for `npx`, `uvx`, `docker` and `uv` and reports which are available. The dashboard shows a banner on the Browse tab when an install needs one that is missing.
+- **Claude Code**: the plugin's `/discover` pane (above). It is the only place with the full management UI.
+- **Claude Desktop, claude.ai, VS Code**: the MCP Apps widget on tool results.
+- **Every other host** (OpenCode, Cursor, Codex, ...): the markdown text of each tool result. Where a step needs a person and the host cannot elicit, the text points at `/discover` or the operator opt-in.
 
-## Real-time updates
-
-The daemon is the only writer, so the WebSocket pushes a full `state` message on connect and after every lifecycle event (debounced 100 ms), plus `log_entry`, `notification`, `progress` and `elicitation_request`. There is no database polling.
-
-## Not in 2.0
+## Not covered
 
 - Sandboxing upstream stdio servers (Docker, sandbox-runtime). See [SECURITY.md](SECURITY.md#not-yet-covered).
 - LLM index-time enrichment of descriptions: measured offline only (see Search).

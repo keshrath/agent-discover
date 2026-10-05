@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-10-05
+
+agent-discover's UI moves into the hosts: the full management UI is the Claude Code `/discover` pane, Claude Desktop, claude.ai and VS Code render the MCP Apps widget, and every other host (OpenCode, Cursor, Codex, ...) uses the MCP tools and their markdown results. The localhost web dashboard is gone.
+
+### Breaking changes
+
+- **The web dashboard is removed**: no pages on `http://127.0.0.1:3424`, no WebSocket `/ws`, no tool tester, presets or transient (ad-hoc) servers. Removed REST routes: static files and the SPA fallback, `POST /api/servers/:id/call` (use the `call_tool` MCP tool), the tester routes `/api/servers/:id/info|tools|resources|resource-templates|resource/read|resource/subscribe|resource/unsubscribe|prompts|prompt/get|ping|logging-level|export`, `/api/transient*`, `/api/presets*`, `/api/prereqs`, `POST /api/sync`, `DELETE /api/logs`, `/api/logs/notifications`, `/api/logs/progress`, `/api/roots`. The REST core the pane uses stays (servers, secrets, trust and approve, audit, logs, metrics, browse, install plan and install, registry sync, OAuth, elicitations).
+- **agent-desk support is removed**: `agent-desk-plugin.json` is gone and the request guard no longer admits `Origin: file://`.
+- **`GET /api/token` answers only requests without an `Origin`.** The daemon serves no pages, so no browser origin needs it.
+- **Tool results carry no dashboard links** (`_meta["agent-discover/dashboard"]`, `/#/servers/...` URLs, "Dashboard ↗" in the widget). Where a step needs a person and the host cannot elicit, the text points at `/discover` in Claude Code or the operator opt-in `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`.
+- **The shim's daemon log and spawn lock moved** from the system temp directory (`agent-discover-<port>.log` / `.lock`) to the data directory, beside the database (`daemon-<port>.log` / `.lock`).
+- **Schema 11** drops the dashboard's `test_presets` table.
+- Host configs and the plugin use `agent-discover@^3`. Dependencies `ws` and `morphdom` are gone.
+
+### Added
+
+- **The `/discover` pane in Claude Code** (plugin, Claude Code 2.1.289+), the full management UI: Servers with their state; a detail view per server (command or URL, tags, source, registry name and status, package and version, env and header key names, a secrets editor whose values are never shown or kept, tools with input schemas and per-tool metrics, health check and error reset, the quarantine diff with Approve and Keep disabled, OAuth sign-in with the authorization URL as a link, Enable, Disable, Re-index and Uninstall with a confirm step); Browse with search, registry sync and the install plan (exact command or URL, provenance, warnings, required keys with secret inputs) that installs on confirm; Logs; a paged, filterable Audit log; upstream questions (elicitations) answered in place. `/discover <query>` opens Browse with results. Toasts now also announce upstream questions.
+- `GET /api/servers` and `GET /api/servers/:id` report `missing_secrets` (declared headers with no value and no stored secret).
+
+### Fixed
+
+- **`/discover` printed the status but showed no pane** in an interactive Claude Code session. The pane was opened with dialog manners (`focus` + `closeOnEscape`), which closes it on the first Escape at an idle prompt; it now opens as a plain sidebar, and `/discover` prints `pane not shown: <reason>` whenever Claude Code does not place it. A regression test draws the pane with real data on the terminal, desktop, VS Code and mobile surfaces, docked and inline.
+- **Test runs no longer leave temp directories and daemon logs behind**: scratch directories are created only when a suite runs (not when a skipped suite is collected), spawned daemons are killed with their upstream children so their directories can be removed, and the shim's log and lock now live beside the database.
+
 ## [2.0.0] - 2026-10-05
 
 agent-discover 2.0 is a rewrite around one shared daemon. The pitch changed with it: hosts now ship their own tool search, so the point is no longer to save prompt tokens. It is to find, install (with consent and provenance) and enable or disable servers that are not installed yet, in the middle of a session, on any MCP host, while feeding the host's native tool search, and to guard what gets installed.

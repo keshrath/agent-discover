@@ -14,8 +14,8 @@ Prerequisites: Node.js >= 20.11, npm, Git. `npm install` also builds `better-sql
 ## Development
 
 ```bash
-npm run build            # tsc + copy the dashboard UI + build the MCP Apps widget
-node dist/index.js daemon    # run the daemon (dashboard at http://127.0.0.1:3424)
+npm run build            # tsc + build the MCP Apps widget
+node dist/index.js daemon    # run the daemon (REST + /mcp on http://127.0.0.1:3424)
 npm test                 # vitest
 npm run test:watch
 npm run check            # typecheck + lint + format check + test
@@ -31,7 +31,7 @@ npm run widgets:shots    # screenshots of the widget against real tool results
 ```
 src/
   index.ts       CLI entry: stdio shim (default) or `daemon`
-  daemon.ts      the single process: HTTP server for dashboard, REST, WS, /mcp; idle exit
+  daemon.ts      the single process: HTTP server for REST and /mcp; idle exit
   shim.ts        stdio <-> /mcp bridge that ensures the daemon
   config.ts      environment configuration
   context.ts     DI root: builds every service into one AppContext (no global state)
@@ -40,17 +40,16 @@ src/
   mcp/           server.ts, tools.ts (8 meta tools), prompts.ts, http.ts (2026 + 2025 legs)
   domain/        lifecycle, servers, pool, tool-index, ranker, tool-doc, tool-hash,
                  install-plan, provenance, marketplace, registry, oauth, secrets, setup,
-                 metrics, log, presets, sampling, trust/
+                 metrics, log, sampling, trust/
   embeddings/    none, local, openai providers
-  transport/     rest.ts, ws.ts, http.ts, guard.ts, token.ts
+  transport/     rest.ts, http.ts, guard.ts, token.ts
   storage/       database.ts (SQLite, migrations)
   widgets/       MCP Apps widget sources and build
-  ui/            vanilla JS dashboard
-plugin/          Claude Code plugin (skills, hooks, native UI module, status line script)
+plugin/          Claude Code plugin (skills, hooks, the /discover pane, status line script)
 bench/           retrieval/ (offline ranker bench) and the agent-loop bench
 tests/           vitest suites, fixtures (fake upstream, mock OAuth server, registry), widget harness
-scripts/         copy-ui.js, setup.js
-docs/            ARCHITECTURE, API, SECURITY, SETUP, USER-MANUAL, DASHBOARD
+scripts/         setup.js
+docs/            ARCHITECTURE, API, SECURITY, SETUP, USER-MANUAL
 ```
 
 Architecture in depth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -66,7 +65,7 @@ Architecture in depth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Testing
 
-Tests use vitest with in-memory SQLite and a fake upstream MCP server (`tests/fixtures/upstream.mjs`); there is also a mock OAuth authorization server and a fake registry. Add or update tests with every behavior change. Dashboard smoke tests: `npm run test:e2e:ui` (Playwright).
+Tests use vitest with in-memory SQLite and a fake upstream MCP server (`tests/fixtures/upstream.mjs`); there is also a mock OAuth authorization server and a fake registry. Add or update tests with every behavior change. The `/discover` pane has its own suite under `plugin/tests/`: `npm run plugin:check` (`claude plugin validate` + `claude plugin test`).
 
 ## Database migrations
 
@@ -93,7 +92,7 @@ Ranker constants were tuned on the dev split of `bench/retrieval` only. Tune on 
 ## Versioning and commits
 
 - Commit message: `vX.Y.Z: short description`, a single line. No co-author or tool-attribution trailers.
-- `package.json`, `server.json`, `agent-desk-plugin.json` and `plugin/.claude-plugin/plugin.json` carry the same version. The version is read at runtime from `package.json`; never hardcode it.
+- `package.json`, `server.json` and `plugin/.claude-plugin/plugin.json` carry the same version. The version is read at runtime from `package.json`; never hardcode it.
 - A tag `vX.Y.Z` triggers the GitHub Actions publish to npm and the MCP Registry.
 
 ## License

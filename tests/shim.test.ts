@@ -103,7 +103,7 @@ describe.skipIf(!existsSync(BIN))('stdio shim → shared daemon', () => {
 });
 
 describe('idle exit', () => {
-  it('fires with no MCP streams and no WS clients', async () => {
+  it('fires with no open HTTP exchanges', async () => {
     let fired = false;
     const d = await startTestDaemon({ idleMs: 300 }, { onIdle: () => (fired = true) });
     try {

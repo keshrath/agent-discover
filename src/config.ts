@@ -15,7 +15,7 @@ export interface Config {
   readonly port: number;
   /** Daemon listen address (AGENT_DISCOVER_HOST, default 127.0.0.1). */
   readonly host: string;
-  /** Daemon exits after this long with zero MCP and zero WS clients (AGENT_DISCOVER_IDLE_MS, default 30 min, 0 = never). */
+  /** Daemon exits after this long with no open HTTP exchanges (AGENT_DISCOVER_IDLE_MS, default 30 min, 0 = never). */
   readonly idleMs: number;
   /** Upstream connections idle longer than this are closed (AGENT_DISCOVER_CONN_IDLE_MS, default 10 min). */
   readonly connIdleMs: number;

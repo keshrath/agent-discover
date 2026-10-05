@@ -16,10 +16,10 @@
 
 - **Node.js**: v20.11 or later
 - **npm**: bundled with Node
-- An MCP-compatible AI client (Claude Code, Cursor, OpenCode, Windsurf, Aider, Continue, etc.) — or a plain REST/WebSocket consumer
+- An MCP-compatible AI client (Claude Code, Cursor, OpenCode, Windsurf, Aider, Continue, etc.) — or a plain REST consumer
 - (Source builds only) git
 
-agent-discover runs as one local daemon (dashboard, REST and `/mcp` on `127.0.0.1:3424`). The stdio shim that clients spawn starts it on demand; no system service is required.
+agent-discover runs as one local daemon (REST and `/mcp` on `127.0.0.1:3424`). The stdio shim that clients spawn starts it on demand; no system service is required.
 
 ---
 
@@ -43,7 +43,7 @@ npm run build
 ### Verify
 
 ```bash
-node dist/index.js daemon   # starts the daemon; visit http://127.0.0.1:3424
+node dist/index.js daemon   # starts the daemon (REST + /mcp on http://127.0.0.1:3424)
 ```
 
 From an npm install use `agent-discover daemon` instead.
@@ -54,11 +54,11 @@ The first run creates the SQLite DB `agent-discover.db` in the per-user data dir
 
 ## Client Setup
 
-agent-discover is one daemon (`127.0.0.1:3424`: dashboard, REST, `/mcp`) that every client shares. A client connects in one of two ways:
+agent-discover is one daemon (`127.0.0.1:3424`: REST, `/mcp`) that every client shares. A client connects in one of two ways:
 
 | Entry                                     | When to use it                                                                                                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **stdio shim** `npx -y agent-discover@^2` | Default. Works in every client. The shim starts the daemon on demand (and again after an idle exit or reboot) and relays JSON-RPC to `/mcp`.                                   |
+| **stdio shim** `npx -y agent-discover@^3` | Default. Works in every client. The shim starts the daemon on demand (and again after an idle exit or reboot) and relays JSON-RPC to `/mcp`.                                   |
 | **http** `http://127.0.0.1:3424/mcp`      | Clients with Streamable HTTP support when the daemon already runs as a service (see [Running as Standalone Server](#running-as-standalone-server)). Nothing starts it for you. |
 
 Pick one entry per client. Configuring both duplicates every tool.
@@ -77,7 +77,7 @@ Remove any hand-written `agent-discover` entry from `~/.claude.json` and any old
 Without the plugin, register the shim yourself:
 
 ```bash
-claude mcp add agent-discover -- npx -y agent-discover@^2
+claude mcp add agent-discover -- npx -y agent-discover@^3
 ```
 
 Or, against a running daemon:
@@ -93,12 +93,12 @@ claude mcp add --transport http agent-discover http://127.0.0.1:3424/mcp
 ```json
 {
   "mcpServers": {
-    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^2"] }
+    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^3"] }
   }
 }
 ```
 
-For a running daemon use `{ "url": "http://127.0.0.1:3424/mcp" }` instead. Cursor shows the results as markdown. Consent prompts appear as elicitation dialogs when the build supports them; otherwise `install_server` returns `consent_required` with the plan and you install from the dashboard.
+For a running daemon use `{ "url": "http://127.0.0.1:3424/mcp" }` instead. Cursor shows the results as markdown. Consent prompts appear as elicitation dialogs when the build supports them; otherwise `install_server` returns `consent_required` with the plan; install it from Claude Code's `/discover` pane or set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`.
 
 ### Codex CLI
 
@@ -107,7 +107,7 @@ For a running daemon use `{ "url": "http://127.0.0.1:3424/mcp" }` instead. Curso
 ```toml
 [mcp_servers.agent-discover]
 command = "npx"
-args = ["-y", "agent-discover@^2"]
+args = ["-y", "agent-discover@^3"]
 ```
 
 Or, against a running daemon: `url = "http://127.0.0.1:3424/mcp"` in place of `command`/`args`.
@@ -124,7 +124,7 @@ Or, against a running daemon: `url = "http://127.0.0.1:3424/mcp"` in place of `c
 }
 ```
 
-The http form needs the daemon running. For on-demand start use the shim: `{ "type": "stdio", "command": "npx", "args": ["-y", "agent-discover@^2"] }`. VS Code renders the MCP Apps widget (search results, consent card, tool tester) inline.
+The http form needs the daemon running. For on-demand start use the shim: `{ "type": "stdio", "command": "npx", "args": ["-y", "agent-discover@^3"] }`. VS Code renders the MCP Apps widget (search results, consent card, tool tester) inline.
 
 ### Claude Desktop
 
@@ -133,7 +133,7 @@ The http form needs the daemon running. For on-demand start use the shim: `{ "ty
 ```json
 {
   "mcpServers": {
-    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^2"] }
+    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^3"] }
   }
 }
 ```
@@ -142,11 +142,11 @@ Restart the app. Tool results render as the MCP Apps widget.
 
 ### Windsurf, OpenCode, other stdio clients
 
-Same `mcpServers` block as Cursor (Windsurf: `~/.codeium/windsurf/mcp_config.json`). Any client that can spawn a command works with `npx -y agent-discover@^2`; any client with Streamable HTTP can point at `http://127.0.0.1:3424/mcp`. Both protocol eras (2025-11 sessions and 2026-07 stateless requests) are served on the same endpoint.
+Same `mcpServers` block as Cursor (Windsurf: `~/.codeium/windsurf/mcp_config.json`). Any client that can spawn a command works with `npx -y agent-discover@^3`; any client with Streamable HTTP can point at `http://127.0.0.1:3424/mcp`. Both protocol eras (2025-11 sessions and 2026-07 stateless requests) are served on the same endpoint.
 
 ### REST API
 
-The REST API runs on the dashboard port and is usable without any MCP client:
+The REST API runs on the daemon port and is usable without any MCP client:
 
 ```bash
 curl http://127.0.0.1:3424/api/health
@@ -162,41 +162,37 @@ See [API.md](./API.md) for the full reference.
 
 The plugin lives in `plugin/` and is what `claude plugin install` fetches. It has these parts.
 
-**Native UI (function hooks, Claude Code 2.1.289+).** `hooks/register.tsx` draws inside the terminal, the desktop Code tab and VS Code:
+**The management UI (function hooks, Claude Code 2.1.289+).** `hooks/register.tsx` and `hooks/view.tsx` draw inside the terminal, the desktop Code tab and VS Code. This is agent-discover's only full UI; there is no web dashboard since 3.0.
 
-- `/discover [what you need]` opens the agent-discover panel: enabled, available and quarantined servers with health and tool counts; Enable, Disable and Re-index buttons; a search box for tools and registry servers with Enable and Install buttons; a link to the dashboard. Installs still go through `install_server`, so the consent step stays the gate. With text, the command also prints the search hits as its output (this is what a headless `claude -p "/discover postgres"` shows).
+- `/discover` opens the agent-discover pane, docked beside the transcript in the fullscreen layout and above the prompt otherwise (also the desktop Code tab and VS Code). Tabs:
+  - **Servers**: every installed server with its state (enabled, installed, quarantined, unhealthy) and tool count. Open one for its detail: transport and the exact command or URL, tags, source and MCP Registry name and status, package and version, env and header key names (values are never shown); a secrets editor (set a missing key, add `KEY=value`, delete; typed values are sent and never kept or drawn); its tools, each expandable to its input schema, with per-tool calls, errors and latency; health check, last error and error count with Reset errors; for a quarantined server the drift (changed, added, removed tools) with Approve and Keep disabled; for a remote server the OAuth state with Sign in, showing the authorization URL as a link (agent-discover never opens it); Enable or Disable, Re-index and Uninstall (asks once more).
+  - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one. Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
+  - **Logs**: the recent proxied calls with latency and errors. **Audit**: the audit log, filtered by server and action, paged.
+  - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
+- `/discover <what you need>` opens Browse with the results for that query.
 - A status line entry `MCP 2/6 !1` (enabled/installed, `!n` servers needing a look).
-- A toast when a server becomes quarantined or unhealthy.
-- A band above the prompt, shown only while something needs you (quarantined or unhealthy servers, upstream requests waiting in the dashboard), with Open panel and Dismiss.
+- A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
+- A band above the prompt, shown only while something needs you, with Review (opens the server in the pane) and Dismiss.
 
-The module talks to the plugin's own MCP server (`$.mcp.call`) and to the daemon's REST API. It polls every 5 seconds while the panel is open and every 30 seconds otherwise. Set `AGENT_DISCOVER_PORT` in the environment if the daemon is not on 3424.
+The module talks to the daemon's REST API only (state-changing calls with the per-launch token). It refreshes the status every 30 seconds, every 5 seconds while the pane is open, and after every action. If the engine does not place the pane (a terminal too narrow for an unasked pane, a surface that places none), `/discover` prints why. Set `AGENT_DISCOVER_PORT` in the environment if the daemon is not on 3424.
 
-**Skills** (`/agent-discover:find|install|dashboard`). `find` is model-invocable: it runs `search_tools`, enables a hit or installs a server before the model tells you something is impossible.
+**Skills** (`/agent-discover:find|install`). `find` is model-invocable: it runs `search_tools`, enables a hit or installs a server before the model tells you something is impossible.
 
 **SessionStart hook.** Adds one line of context (what is enabled, to call `search_tools` first) and, on hosts without the native UI, a notice when servers need attention. It also copies `statusline.mjs` to `${CLAUDE_PLUGIN_DATA}`.
 
 **Status line script for older Claude Code.** Builds before function hooks cannot add a status line entry from a plugin. Compose the script into your own status line command:
 
 ```bash
-node ~/.claude/plugins/data/agent-discover-agent-discover/statusline.mjs   # --plain drops ANSI/OSC 8
+node ~/.claude/plugins/data/agent-discover-agent-discover/statusline.mjs   # --plain drops the colors
 ```
 
 It prints nothing when the daemon is down. Do not use it together with the native entry; the duplicate shows twice.
-
-**Desktop preview.** In the Claude desktop app, `.claude/launch.json` can list the dashboard so it appears in the preview dropdown (plugins cannot declare preview servers):
-
-```json
-{
-  "version": "0.0.1",
-  "configurations": [{ "name": "agent-discover", "url": "http://127.0.0.1:3424" }]
-}
-```
 
 ---
 
 ## Running as Standalone Server
 
-The daemon is the single long-running process. The stdio shim starts it on demand; run it yourself (cron, systemd, login item) when you want http clients or a dashboard that outlives your editor:
+The daemon is the single long-running process. The stdio shim starts it on demand; run it yourself (cron, systemd, login item) when you want http clients or a daemon that outlives your editor:
 
 ```bash
 # Default 127.0.0.1:3424, DB in the data directory
@@ -206,7 +202,7 @@ agent-discover daemon          # or: node dist/index.js daemon
 AGENT_DISCOVER_PORT=4000 AGENT_DISCOVER_DB=/var/lib/agent-discover.db agent-discover daemon
 ```
 
-The daemon exits after `AGENT_DISCOVER_IDLE_MS` (default 30 minutes) with no MCP streams or dashboard clients. Set it very high for a service. Shims and http clients find a running daemon by port.
+The daemon exits after `AGENT_DISCOVER_IDLE_MS` (default 30 minutes) with no open HTTP exchanges. Set it very high for a service. Shims and http clients find a running daemon by port.
 
 ### systemd unit example
 
@@ -236,7 +232,7 @@ The complete list with defaults is in [API.md](./API.md#environment). The ones m
 
 | Variable                            | Default                   | Description                                                             |
 | ----------------------------------- | ------------------------- | ----------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`               | `3424`                    | Daemon port (dashboard, REST, `/mcp`)                                   |
+| `AGENT_DISCOVER_PORT`               | `3424`                    | Daemon port (REST, `/mcp`)                                              |
 | `AGENT_DISCOVER_HOST`               | `127.0.0.1`               | Listen address. Anything but loopback exposes the daemon to the network |
 | `AGENT_DISCOVER_DATA_DIR`           | platform data dir         | Data directory (DB, file secret store)                                  |
 | `AGENT_DISCOVER_DB`                 | `agent-discover.db` in it | SQLite database path                                                    |
@@ -286,29 +282,29 @@ If a provider is requested but unavailable (no key, package not installed, model
 
 ## Troubleshooting
 
-### Dashboard not loading
+### Daemon not answering
 
 - Check the daemon: `curl http://127.0.0.1:3424/api/health` should return `{"status":"ok",...}`.
-- The shim starts the daemon on the first MCP message. If it did not start, run `agent-discover daemon` in a terminal and read its output. The shim's own daemon log is `agent-discover-<port>.log` in the system temp directory.
+- The shim starts the daemon on the first MCP message. If it did not start, run `agent-discover daemon` in a terminal and read its output. The daemon a shim starts logs to `daemon-<port>.log` in the data directory (beside the database).
 - `port 3424 already in use` means another process holds the port. Another agent-discover daemon is fine (shims reuse it); anything else needs `AGENT_DISCOVER_PORT`.
 
 ### MCP server not appearing in the host
 
 1. Confirm exactly one entry (plugin or hand-written, not both) and that the host was restarted after adding it.
-2. Run the entry's command by hand (`npx -y agent-discover@^2`); it should wait on stdin without errors.
+2. Run the entry's command by hand (`npx -y agent-discover@^3`); it should wait on stdin without errors.
 3. Check the host's MCP logs for the shim's stderr.
 
 ### A server's tools do not show up after enabling
 
-1. `server_status` (or the dashboard) shows whether it is indexed, connected and quarantined. A quarantined server's tools are hidden until you approve the change.
-2. Try `POST /api/servers/:id/health` or the dashboard's Check Health. Install and enable report a probe failure as `index_error` instead of failing the install.
+1. `server_status` (or the `/discover` pane) shows whether it is indexed, connected and quarantined. A quarantined server's tools are hidden until you approve the change.
+2. Try `POST /api/servers/:id/health` or Check health in the server's detail in `/discover`. Install and enable report a probe failure as `index_error` instead of failing the install.
 3. Run the server's command by hand to see why it cannot start. Connecting times out after 30 s; slow `npx` downloads may need a retry.
 4. In `proxy` mode tools are never listed; call them through `call_tool`.
 5. If the host does not refresh its tool list after `list_changed`, start a new turn or reconnect the server; use proxy mode with such hosts.
 
 ### Install returns `consent_required`
 
-The host cannot show an elicitation prompt. Install from the dashboard's Browse tab, or have the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1` if skipping the prompt is acceptable.
+The host cannot show an elicitation prompt. Install from Browse in Claude Code's `/discover` pane, or have the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1` if skipping the prompt is acceptable.
 
 ### Database errors
 
