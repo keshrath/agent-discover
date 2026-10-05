@@ -2,159 +2,99 @@
 
 ## Getting Started
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/keshrath/agent-discover.git
-   cd agent-discover
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Build:
-   ```bash
-   npm run build
-   ```
+```bash
+git clone https://github.com/keshrath/agent-discover.git
+cd agent-discover
+npm install
+npm run build
+```
 
-## Development Setup
+Prerequisites: Node.js >= 20.11, npm, Git. `npm install` also builds `better-sqlite3`, which needs a working native toolchain or a prebuilt binary for your platform.
 
-### Prerequisites
-
-- **Node.js >= 20** (LTS recommended)
-- **npm >= 10**
-- **Git**
-
-### Development Mode
+## Development
 
 ```bash
-# Build the project
-npm run build
-
-# Start dashboard standalone (port 3424)
-npm run start:server
-
-# Run tests
-npm test
+npm run build            # tsc + copy the dashboard UI + build the MCP Apps widget
+node dist/index.js daemon    # run the daemon (dashboard at http://127.0.0.1:3424)
+npm test                 # vitest
 npm run test:watch
-
-# Full check pipeline
-npm run check
+npm run check            # typecheck + lint + format check + test
+npm run bench:retrieval  # offline ranker bench (see bench/retrieval/README.md)
+npm run plugin:check     # claude plugin validate + test (needs the claude CLI)
+npm run widgets:shots    # screenshots of the widget against real tool results
 ```
 
-### Environment
+`AGENT_DISCOVER_PORT` and `AGENT_DISCOVER_DB` point a dev daemon at a scratch port and database. Never develop against a database a real session is using: migrations only move forward.
 
-The dashboard auto-starts on port 3424 when the MCP server launches. Override with `AGENT_DISCOVER_PORT`.
-
-## Project Structure
+## Project structure
 
 ```
-agent-discover/
-  src/
-    index.ts              Entry point (MCP stdio + dashboard auto-start)
-    context.ts            DI root — wires all services (no global state)
-    server.ts             HTTP + WebSocket standalone server
-    types.ts              Shared types (ServerEntry, errors, JSON-RPC)
-    version.ts            Runtime version reader from package.json
-    domain/
-      registry.ts         Server CRUD, FTS search, tool management
-      proxy.ts            MCP child server lifecycle + tool proxying + secrets merge + metrics recording
-      marketplace.ts      Official MCP registry API client
-      installer.ts        Install method detection (npm, python, docker)
-      secrets.ts          Per-server secret storage + env var generation
-      health.ts           Health check probes + status tracking
-      metrics.ts          Per-tool call/error/latency tracking
-      events.ts           In-process event bus
-    storage/
-      database.ts         SQLite (WAL mode, schema versioning V2, FTS5)
-    transport/
-      mcp.ts              7 MCP tool definitions + proxied tool merge
-      mcp-handlers.ts     Tool handler implementations
-      rest.ts             REST API endpoints + static file serving
-      ws.ts               WebSocket state streaming (DB polling)
-    ui/
-      index.html          Dashboard SPA
-      styles.css          Light/dark theme (MD3 design tokens)
-      app.js              Client-side vanilla JS (WebSocket, tabs, rendering)
-  tests/
-    registry.test.ts      Server CRUD, search, tool management
-    proxy.test.ts         MCP proxy lifecycle
-    marketplace.test.ts   Marketplace API client
-    mcp-handlers.test.ts  MCP tool handler dispatch
-    rest.test.ts          REST endpoint tests
-  scripts/
-    copy-ui.js            Post-build: copies UI files to dist/
-    setup.js              Auto-configures Claude Code MCP settings
+src/
+  index.ts       CLI entry: stdio shim (default) or `daemon`
+  daemon.ts      the single process: HTTP server for dashboard, REST, WS, /mcp; idle exit
+  shim.ts        stdio <-> /mcp bridge that ensures the daemon
+  config.ts      environment configuration
+  context.ts     DI root: builds every service into one AppContext (no global state)
+  lib.ts         programmatic API
+  types.ts       shared types and errors
+  mcp/           server.ts, tools.ts (8 meta tools), prompts.ts, http.ts (2026 + 2025 legs)
+  domain/        lifecycle, servers, pool, tool-index, ranker, tool-doc, tool-hash,
+                 install-plan, provenance, marketplace, registry, oauth, secrets, setup,
+                 metrics, log, presets, sampling, trust/
+  embeddings/    none, local, openai providers
+  transport/     rest.ts, ws.ts, http.ts, guard.ts, token.ts
+  storage/       database.ts (SQLite, migrations)
+  widgets/       MCP Apps widget sources and build
+  ui/            vanilla JS dashboard
+plugin/          Claude Code plugin (skills, hooks, native UI module, status line script)
+bench/           retrieval/ (offline ranker bench) and the agent-loop bench
+tests/           vitest suites, fixtures (fake upstream, mock OAuth server, registry), widget harness
+scripts/         copy-ui.js, setup.js
+docs/            ARCHITECTURE, API, SECURITY, SETUP, USER-MANUAL, DASHBOARD
 ```
 
-## Code Style
+Architecture in depth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- **TypeScript** with strict mode, ES modules
-- **No `any`** — ESLint rule enforced
-- **No inline comments** — use file-level section headers only (`// === Section ===` or `// --- Section ---`)
-- **Naming**: `camelCase` for functions/variables, `PascalCase` for types/classes, `UPPER_SNAKE` for constants
-- **Async**: use `async`/`await` over raw promises
-- **No frameworks** — no React, Vue, Express. Pure Node.js + TypeScript
-- **Dependency injection** — services receive `Db` and `EventBus` via `context.ts`, no global state
-- **ESLint + Prettier** enforced via lint-staged (husky pre-commit)
+## Code style
+
+- TypeScript strict, ES modules, no `any`.
+- No frameworks (no React, Vue, Express). Node.js and TypeScript on the MCP SDK v2 packages.
+- Services receive their dependencies explicitly via `context.ts`.
+- `ServerLifecycle` is the single authority for install, index, enable, disable and uninstall. MCP tools, REST routes and the setup file are adapters; do not duplicate lifecycle logic in a transport.
+- `src/` stays host-agnostic. Claude-specific code belongs in `plugin/`.
+- ESLint and Prettier run in the husky pre-commit hook through lint-staged.
 
 ## Testing
 
-```bash
-npm test                          # Run all tests
-npm run test:watch                # Watch mode
-npm run test:coverage             # Coverage report (v8 provider)
-npm run lint                      # ESLint
-npm run typecheck                 # Type-check (tsc --noEmit)
-npm run check                     # Full pipeline: typecheck + lint + format + test
-```
+Tests use vitest with in-memory SQLite and a fake upstream MCP server (`tests/fixtures/upstream.mjs`); there is also a mock OAuth authorization server and a fake registry. Add or update tests with every behavior change. Dashboard smoke tests: `npm run test:e2e:ui` (Playwright).
 
-Tests use **vitest** with in-memory SQLite databases. Each test gets a fresh context.
+## Database migrations
 
-### What to Test
+Schema changes go in `src/storage/database.ts`:
 
-- Domain: server registration/search, proxy lifecycle, marketplace client, installer detection
-- Transport: MCP tool dispatch, REST endpoints, WebSocket state
-- Integration: install-from-registry flow, activate/deactivate lifecycle
+1. Append a new entry with the next version to `migrations` (the current version is **10**).
+2. Never edit an existing migration. Migrations are applied only above the stored version, so changing an old one does nothing for existing databases.
+3. Keep them idempotent (`CREATE ... IF NOT EXISTS`, guarded `ALTER TABLE ADD COLUMN`) and SQL-only. A data move that needs a service belongs in that service's constructor.
+4. Cascade deletes from `servers` via foreign keys.
 
-## Database Migrations
+Tables: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#database-schema-version-10).
 
-Schema changes go in `src/storage/database.ts`. Follow this pattern:
+## Search changes
 
-1. Add a new `migrateVN()` block inside `applySchema()`
-2. Increment `SCHEMA_VERSION`
-3. Migrations **must be idempotent** — use `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN` with existence checks
-4. All tables use foreign keys with `ON DELETE CASCADE`
+Ranker constants were tuned on the dev split of `bench/retrieval` only. Tune on `--split=dev`, report `--split=test`, and commit the new `bench/retrieval/_results` with the change. CI runs `npm run bench:retrieval -- --check` and fails when dev or test R@10 or MRR drops below the committed results.
 
-Current schema version: **V3**
+## Pull requests
 
-### Tables
+1. Branch from `main`.
+2. `npm run check` passes, and `npm run bench:retrieval -- --check` if search changed.
+3. Tests for new behavior; one logical change per commit.
+4. Update the docs that describe what you changed (API.md for tools and routes, SECURITY.md for trust changes). A feature release also gets a CHANGELOG entry; a patch release does not.
 
-- `servers` -- registered MCP servers (name, command, args, env, tags, source, transport, health_status, error_count, last_health_check, latest_version)
-- `server_tools` -- tools discovered from active servers (FK to servers)
-- `server_secrets` -- per-server secrets for env var injection on activation (FK to servers, unique on server_id+key)
-- `server_metrics` -- per-tool call counts, error counts, and latency (FK to servers, unique on server_id+tool_name)
-- `servers_fts` -- FTS5 virtual table for full-text search (synced via triggers)
+## Versioning and commits
 
-## Pull Requests
-
-1. Fork the repository
-2. Create a feature branch from `main`
-3. Ensure all checks pass: `npm run check`
-4. Write or update tests for your changes
-5. Keep commits focused — one logical change per commit
-
-### PR checklist
-
-- [ ] `npm run check` passes (typecheck + lint + format + test)
-- [ ] New features have tests
-- [ ] No `any` types introduced
-- [ ] No inline comments (use section headers)
-
-## Commit Messages
-
-Format: `v1.0.x: short description`
-
-Every commit must bump the patch version minimum. No Co-Authored-By or AI branding.
+- Commit message: `vX.Y.Z: short description`, a single line. No co-author or tool-attribution trailers.
+- `package.json`, `server.json`, `agent-desk-plugin.json` and `plugin/.claude-plugin/plugin.json` carry the same version. The version is read at runtime from `package.json`; never hardcode it.
+- A tag `vX.Y.Z` triggers the GitHub Actions publish to npm and the MCP Registry.
 
 ## License
 

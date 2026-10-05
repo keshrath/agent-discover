@@ -9,7 +9,6 @@
 - [Running as Standalone Server](#running-as-standalone-server)
 - [Configuration Options](#configuration-options)
 - [Troubleshooting](#troubleshooting)
-- [Client Comparison](#client-comparison)
 
 ---
 
@@ -44,9 +43,10 @@ npm run build
 ### Verify
 
 ```bash
-node dist/index.js --version    # prints the version
-node dist/server.js --port 3424 # starts the dashboard standalone — visit http://localhost:3424
+node dist/index.js daemon   # starts the daemon; visit http://127.0.0.1:3424
 ```
+
+From an npm install use `agent-discover daemon` instead.
 
 The first run creates the SQLite DB at `~/.claude/agent-discover.db` (override with `AGENT_DISCOVER_DB`).
 
@@ -65,7 +65,7 @@ Pick one entry per client. Configuring both duplicates every tool.
 
 ### Claude Code
 
-Install the plugin. It bundles the stdio shim, four skills, a session hook and a native UI (panel, status line, toasts):
+Install the plugin. It bundles the stdio shim, three skills, a session hook and a native UI (panel, status line, toasts):
 
 ```bash
 claude plugin marketplace add keshrath/agent-discover
@@ -98,7 +98,7 @@ claude mcp add --transport http agent-discover http://127.0.0.1:3424/mcp
 }
 ```
 
-For a running daemon use `{ "url": "http://127.0.0.1:3424/mcp" }` instead. Cursor shows the results as markdown; consent prompts appear as elicitation dialogs when the build supports them, otherwise `install_server` returns the plan and a `consentToken` for a second call after you agree in chat.
+For a running daemon use `{ "url": "http://127.0.0.1:3424/mcp" }` instead. Cursor shows the results as markdown. Consent prompts appear as elicitation dialogs when the build supports them; otherwise `install_server` returns `consent_required` with the plan and you install from the dashboard.
 
 ### Codex CLI
 
@@ -160,7 +160,7 @@ See [API.md](./API.md) for the full reference.
 
 ## Claude Code plugin
 
-The plugin lives in `plugin/` and is what `claude plugin install` fetches. It has four parts.
+The plugin lives in `plugin/` and is what `claude plugin install` fetches. It has these parts.
 
 **Native UI (function hooks, Claude Code 2.1.289+).** `hooks/register.tsx` draws inside the terminal, the desktop Code tab and VS Code:
 
@@ -232,58 +232,54 @@ WantedBy=multi-user.target
 
 ### Environment variables
 
-#### Core
+The complete list with defaults is in [API.md](./API.md#environment). The ones most setups touch:
 
-| Variable              | Default                       | Description                                                  |
-| --------------------- | ----------------------------- | ------------------------------------------------------------ |
-| `AGENT_DISCOVER_PORT` | `3424`                        | Dashboard HTTP/WebSocket port                                |
-| `AGENT_DISCOVER_HOST` | `127.0.0.1`                   | Dashboard bind address (`0.0.0.0` exposes it to the network) |
-| `AGENT_DISCOVER_DB`   | `~/.claude/agent-discover.db` | SQLite database path                                         |
-| `AGENT_DISCOVER_LOG`  | `info`                        | Log level (`error`, `warn`, `info`, `debug`)                 |
+| Variable                            | Default                       | Description                                                             |
+| ----------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `AGENT_DISCOVER_PORT`               | `3424`                        | Daemon port (dashboard, REST, `/mcp`)                                   |
+| `AGENT_DISCOVER_HOST`               | `127.0.0.1`                   | Listen address. Anything but loopback exposes the daemon to the network |
+| `AGENT_DISCOVER_DB`                 | `~/.claude/agent-discover.db` | SQLite database path                                                    |
+| `AGENT_DISCOVER_MODE`               | `native`                      | `native` or `proxy`, see below                                          |
+| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                     | Daemon idle exit (`0` = never)                                          |
+| `AGENT_DISCOVER_SETUP_FILE`         | unset                         | Declarative server list synced at daemon start                          |
+| `AGENT_DISCOVER_SECRETS`            | auto                          | `keyring` or `file` forces the secret backend                           |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                        | `local` or `openai` enables semantic ranking                            |
 
-#### Embeddings (semantic search for `find_tool` / `find_tools`)
+Environment variables must reach the **daemon**. A shim spawns the daemon with its own environment, so set them in the host's MCP server entry (`env`) or in the shell that starts `agent-discover daemon`. A daemon that is already running keeps the environment it started with.
 
-Embeddings are **opt-in**. The default is `none` — `find_tool` ranks with BM25 + verb synonyms only, which is fine for keyword-rich queries. Setting a provider enables hybrid BM25 + cosine retrieval, which closes the natural-language gap (e.g. "billing arrangement" → "subscription") that BM25 alone misses.
+### Native or proxy mode
 
-| Variable                                | Default | Description                                                                   |
-| --------------------------------------- | ------- | ----------------------------------------------------------------------------- |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none`  | `none` \| `local` \| `openai`                                                 |
-| `AGENT_DISCOVER_EMBEDDING_MODEL`        | —       | Override the default model id for the chosen provider                         |
-| `AGENT_DISCOVER_EMBEDDING_THREADS`      | `1`     | Local provider only — onnx runtime thread count                               |
-| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM             |
-| `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to plain `OPENAI_API_KEY` if unset) |
+`AGENT_DISCOVER_MODE=native` (default) lists every enabled server's tools as `<server>__<tool>` next to the eight meta tools and sends `notifications/tools/list_changed` when that set changes. Use it with hosts that have their own tool search or handle large tool lists, so their permission prompts and deferred loading apply to those tools.
 
-**To use the local provider** (no network, no API key):
+`AGENT_DISCOVER_MODE=proxy` lists only the meta tools. Tools are reached with `search_tools` then `call_tool`. Use it for hosts that load every tool schema up front, or that ignore `list_changed`.
+
+### Semantic search (optional)
+
+Search works without embeddings (lexical ranking). A provider adds dense scores; on the retrieval bench the local model raised R@10 from .661 to .722 (see [bench/retrieval/README.md](../bench/retrieval/README.md)).
+
+**Local** (no network after the first download, no API key):
 
 ```bash
-npm install @huggingface/transformers       # optional peer dep
+npm install @huggingface/transformers       # optional dependency, not installed by default
 export AGENT_DISCOVER_EMBEDDING_PROVIDER=local
 ```
 
-The default model is `Xenova/multilingual-e5-small` (384 dims, q8 quantized, ~130 MB, multilingual). The first call downloads and caches the model — subsequent calls reuse it. Idle for `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` seconds and the model is unloaded from RAM until needed again.
+The default model is `Xenova/multilingual-e5-small` (384 dims, q8, about 130 MB, multilingual). The first use downloads it. Indexing a large catalog is slow on one thread (1674 tools took about 3 minutes in the bench); `AGENT_DISCOVER_EMBEDDING_THREADS` raises it. The model is unloaded after `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` idle seconds (default 60).
 
-**To use the OpenAI provider**:
+**OpenAI**:
 
 ```bash
 export AGENT_DISCOVER_EMBEDDING_PROVIDER=openai
-export OPENAI_API_KEY=sk-...                # or AGENT_DISCOVER_OPENAI_API_KEY
+export AGENT_DISCOVER_OPENAI_API_KEY=sk-...    # or OPENAI_API_KEY
 ```
 
-Default model is `text-embedding-3-small` (1536 dims). One-time cost to embed your registered tools at registration; queries do brute-force cosine over the local store with no further API calls.
+The default model is `text-embedding-3-small`. Tool text is sent to OpenAI when indexing.
 
-**To explicitly disable** (this is the default, but you can set it explicitly to override an inherited env):
+If a provider is requested but unavailable (no key, package not installed, model fails to load) the daemon logs a note to stderr and falls back to lexical search.
 
-```bash
-export AGENT_DISCOVER_EMBEDDING_PROVIDER=none
-```
+### Declarative setup file
 
-If a provider is requested but unavailable (missing API key, transformers not installed, model fails to load), the registry logs a warning to stderr and falls back to BM25-only ranking — it never crashes.
-
------------ | --------------------- | -------------- |
-| `--port N` | `AGENT_DISCOVER_PORT` | Dashboard port |
-| `--db PATH` | `AGENT_DISCOVER_DB` | SQLite DB path |
-
-`dist/index.js` (MCP stdio server) accepts no CLI flags — it is always invoked by the MCP client.
+`AGENT_DISCOVER_SETUP_FILE` points at a JSON file listing servers to ensure installed at daemon start (idempotent). A sibling `*.local.json` is merged. Entries are operator-authored, so they install without the interactive consent step. Format and the 2.0 `auto_activate` to `enabled` rename: [API.md](./API.md#setup-file).
 
 ---
 
@@ -291,67 +287,42 @@ If a provider is requested but unavailable (missing API key, transformers not in
 
 ### Dashboard not loading
 
-- Confirm `http://localhost:3424` (or your custom port) responds: `curl http://localhost:3424/api/health`
-- The dashboard auto-starts on first MCP `initialize` handshake. If your MCP client never calls `initialize`, run the standalone server instead.
-- Check whether another process is already bound to the port. Multiple agent-discover instances share the DB but only one binds the port.
+- Check the daemon: `curl http://127.0.0.1:3424/api/health` should return `{"status":"ok",...}`.
+- The shim starts the daemon on the first MCP message. If it did not start, run `agent-discover daemon` in a terminal and read its output. The shim's own daemon log is `agent-discover-<port>.log` in the system temp directory.
+- `port 3424 already in use` means another process holds the port. Another agent-discover daemon is fine (shims reuse it); anything else needs `AGENT_DISCOVER_PORT`.
 
-### MCP server not appearing in Claude Code
+### MCP server not appearing in the host
 
-1. Verify `~/.claude.json` contains the `agent-discover` entry under `mcpServers`.
-2. Check the path to `dist/index.js` is absolute and the file exists.
-3. Restart Claude Code completely (not just reload).
-4. Inspect Claude Code's MCP connection logs for stderr output from the server process.
+1. Confirm exactly one entry (plugin or hand-written, not both) and that the host was restarted after adding it.
+2. Run the entry's command by hand (`npx -y agent-discover@^2`); it should wait on stdin without errors.
+3. Check the host's MCP logs for the shim's stderr.
 
-### Tools not proxying after activation
+### A server's tools do not show up after enabling
 
-1. Verify the activated server's command is correct: call `registry` with `action: "list"` to see the stored command/args.
-2. Confirm the child process can start independently: run the command manually in a terminal.
-3. The activation timeout is 30 seconds — slow-starting servers may time out. Increase by editing `proxy.ts` or pre-warming the package.
-4. Per-tool call timeout is 60 seconds.
+1. `server_status` (or the dashboard) shows whether it is indexed, connected and quarantined. A quarantined server's tools are hidden until you approve the change.
+2. Try `POST /api/servers/:id/health` or the dashboard's Check Health. Install and enable report a probe failure as `index_error` instead of failing the install.
+3. Run the server's command by hand to see why it cannot start. Connecting times out after 30 s; slow `npx` downloads may need a retry.
+4. In `proxy` mode tools are never listed; call them through `call_tool`.
+5. If the host does not refresh its tool list after `list_changed`, start a new turn or reconnect the server; use proxy mode with such hosts.
+
+### Install returns `consent_required`
+
+The host cannot show an elicitation prompt. Install from the dashboard's Browse tab, or have the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1` if skipping the prompt is acceptable.
 
 ### Database errors
 
-The SQLite database lives at `~/.claude/agent-discover.db` by default. To reset:
+The database lives at `~/.claude/agent-discover.db` by default and migrates itself on start. To reset, stop the daemon and delete the file. Installed servers, metrics, pins and the audit log are lost. Secret values live in the OS keychain (service `agent-discover`) or in `agent-discover-secrets.json` next to the database, and are not removed with it.
 
-```bash
-rm ~/.claude/agent-discover.db
-```
+### Permission prompts in Claude Code
 
-The schema is re-created on the next start. You will lose any manually-installed servers, secrets, and metrics history.
-
-### Permission denied errors in Claude Code
-
-Add the tool permission pattern to `~/.claude/settings.json`:
+To pre-approve the meta tools add the pattern to `~/.claude/settings.json`. The plugin's MCP server is named `plugin:agent-discover:agent-discover`, so its tools are `mcp__plugin_agent-discover_agent-discover__*`; a hand-registered server is `mcp__agent-discover__*`:
 
 ```json
 {
   "permissions": {
-    "allow": ["mcp__agent-discover__*"]
+    "allow": ["mcp__plugin_agent-discover_agent-discover__*"]
   }
 }
 ```
 
-Or use a wider pattern (`mcp__*`) if you trust all MCP servers in your config.
-
-### "tools/list_changed" not refreshing in client
-
-agent-discover sends a `tools/list_changed` notification on `activate`, `deactivate`, and `uninstall`. If your client doesn't refresh:
-
-- Confirm the client supports the `2024-11-05` MCP capability `tools.listChanged`.
-- Some clients only refresh on a fresh `tools/list` call — check the client's MCP support matrix.
-
----
-
-## Client Comparison
-
-| Client        | MCP stdio | tools/list_changed | Permission gating        | Setup difficulty |
-| ------------- | --------- | ------------------ | ------------------------ | ---------------- |
-| Claude Code   | ✓         | ✓                  | `permissions.allow` glob | Easy (auto)      |
-| Cursor        | ✓         | partial            | none                     | Easy             |
-| Windsurf      | ✓         | partial            | none                     | Easy             |
-| OpenCode      | ✓         | ✓                  | none                     | Easy             |
-| Aider         | ✓         | n/a                | none                     | Medium           |
-| Continue      | ✓         | partial            | none                     | Medium           |
-| Plain REST/WS | n/a       | n/a                | none (bind to localhost) | Trivial          |
-
-"partial" tools/list_changed means the client picks up new tools on the next prompt rather than immediately. For agent-discover this is fine — proxied tools become available within one round-trip.
+`install_server` asks for approval on every call regardless (it declares `anthropic/requiresUserInteraction`), and the consent prompt is separate.

@@ -1,81 +1,95 @@
 # agent-discover
 
+One local daemon that discovers, installs (with consent and provenance) and enables or disables MCP servers at runtime, for any MCP host. Version 2.x.
+
 ## Architecture
 
-Layered architecture with explicit dependency injection (no global state):
+Layered, explicit dependency injection (no global state). `src/context.ts` is the DI root and builds one `AppContext` that every transport shares.
 
 ```
 src/
-  domain/     registry (CRUD), proxy (MCP child servers), marketplace (API client),
-              installer, secrets, health, metrics, events
-  storage/    SQLite (better-sqlite3, WAL mode)
-  transport/  REST (node:http), WebSocket (ws), MCP (stdio)
-  ui/         Vanilla JS dashboard (no build step for UI)
+  index.ts      CLI entry: `agent-discover` = stdio shim, `agent-discover daemon` = the daemon
+  daemon.ts     the single process: node:http on 127.0.0.1:3424 (dashboard, REST, WS, /mcp), idle exit
+  shim.ts       stdio <-> /mcp bridge; ensures the daemon (health probe, lockfile, detached spawn)
+  config.ts     env var config (port, mode, idle, caps, registry URL, ...)
+  context.ts    DI root
+  lib.ts        programmatic API (createContext, ...)
+  mcp/          server.ts (MCP server, native tools, resources, upstream relay), tools.ts (8 meta tools),
+                prompts.ts, http.ts (Streamable HTTP endpoint, 2026 + 2025 legs)
+  domain/       servers (ServerStore), lifecycle (ServerLifecycle), pool (upstream connections),
+                tool-index + tool-doc + tool-hash + ranker (search), install-plan + provenance +
+                marketplace + registry (RegistryMirror), oauth, secrets, setup, metrics, log, presets,
+                sampling, trust/ (pins, hygiene, secret-store, audit, telemetry)
+  embeddings/   none | local (opt-in) | openai
+  transport/    rest.ts, ws.ts, http.ts (JSON, static files, router), guard.ts (Host/Origin/Content-Type), token.ts
+  storage/      database.ts (better-sqlite3, WAL, version-ordered migrations)
+  widgets/      MCP Apps widget (ui://agent-discover/app.html), built to dist/widgets/app.html
+  ui/           vanilla JS dashboard, copied to dist/ui on build
+plugin/         Claude Code plugin (.mcp.json shim, skills, SessionStart hook, statusline script,
+                hooks/register.tsx = native /discover pane, status entry, toasts, attention band)
+bench/          retrieval/ (offline ranker bench, CI-gated) and the agent-loop bench
 ```
 
-- **No frameworks** -- no React, Vue, Express. Pure Node.js + TypeScript.
-- `context.ts` is the DI root -- wires all services together.
-- UI files (`index.html`, `app.js`, `styles.css`) are plain files copied to `dist/ui/` on build.
+- **No frameworks.** No React, Vue, Express. Node.js + TypeScript on the MCP SDK v2 packages (`@modelcontextprotocol/server|client|node|core`).
+- **`ServerLifecycle` is the single authority** for install -> index -> enable/disable -> uninstall. MCP tools, REST routes, the setup file and the dashboard are thin adapters over it. Indexing is independent of enablement; disabling never clears the index.
+- **Server states:** installed, indexed, enabled, connected (lazy, pooled), quarantined.
+- **Modes:** `AGENT_DISCOVER_MODE=native` (default) lists enabled servers' tools as `<server>__<tool>` with `list_changed`; `proxy` lists only the meta tools and calls go through `call_tool`.
+- **No agent-common dependency.** The request guard and REST token live in `src/transport/`.
+- `src/index.ts` and the tool/REST contracts are what hosts see; keep `src/` host-agnostic. Claude-specific glue belongs in `plugin/`.
+- Upstream `CallToolResult` objects are passed through verbatim.
+
+## Trust layer (src/domain/trust/)
+
+Tool pinning with quarantine and re-approval (`pins.ts`), description hygiene (`hygiene.ts`), secrets in the OS keychain or an encrypted file (`secret-store.ts`), append-only audit log (`audit.ts`), opt-in OpenTelemetry (`telemetry.ts`). `TrustService` (`trust/index.ts`) implements the `TrustHooks` that `ServerLifecycle` calls. Model: `docs/SECURITY.md`.
 
 ## UI / Dashboard
 
 - **Icons**: Material Symbols Outlined (via Google Fonts CSS). No emojis.
 - **Fonts**: Inter (UI text), JetBrains Mono (code/data)
-- **Theme**: Light/dark toggle via `[data-theme='dark']` attribute on `<html>` (light is default in `:root`)
+- **Theme**: Light/dark toggle via `[data-theme='dark']` on `<html>`
 - **Design tokens**: CSS custom properties (`--bg`, `--accent`, `--border`, `--shadow-*`, etc.)
 - **Accent color**: `#5d8da8`
-- **Port**: 3424 (configurable via `AGENT_DISCOVER_PORT`)
-- **Tabs**: 3 tabs — Servers (with Add Server form, merged installed+active), Browse (marketplace), Logs (real-time call log with click-to-expand, filters, clear)
-- **Server cards**: health dots, error counts (with clear button), expandable Secrets/Metrics/Config sections
-- **Theme sync**: Supports agent-desk postMessage theme injection + reverse sync
+- **Port**: 3424 (`AGENT_DISCOVER_PORT`)
+- **Tabs**: Servers (Add Server form, health, secrets, metrics, config, tester), Browse (registry install), Logs (real-time call log)
+- **Theme sync**: agent-desk postMessage theme injection + reverse sync
+- Mutating REST calls from the UI go through `AD._fetch`, which adds `X-Agent-Discover-Token` (from `GET /api/token`).
 
 ## Code Style
 
-- ESLint + Prettier enforced via lint-staged (husky pre-commit)
+- ESLint + Prettier enforced via lint-staged (husky pre-commit). TypeScript strict, no `any`.
+- No inline comments beyond file-level headers and the occasional why-comment.
 
 ## Versioning
 
-- Version lives in `package.json` and is read at runtime (REST `/health`, WS state, UI sidebar)
-- Never hardcode version strings
-- Every commit must bump the patch version minimum
-- Commit message format: `v1.0.x: short description`
+- Version lives in `package.json` and is read at runtime (`/api/health`, WS state, UI sidebar, MCP `initialize`). Never hardcode version strings.
+- `package.json`, `server.json` (top-level and package entry), `agent-desk-plugin.json` and `plugin/.claude-plugin/plugin.json` must stay on the same version.
+- Commit message format: `vX.Y.Z: short description`. Patch bumps get no CHANGELOG entry; feature releases do.
 
 ## Build & Test
 
 ```
-npm run build      # tsc + copy UI files to dist/
-npm test           # vitest (unit + integration)
-npm run check      # typecheck + lint + format + test
+npm run build              # tsc + copy UI + build the widget
+npm test                   # vitest (23 files, 187 tests)
+npm run check              # typecheck + lint + format + test
+npm run bench:retrieval    # offline ranker bench; CI runs it with --check
+npm run plugin:check       # claude plugin validate + test (needs the claude CLI)
+npm run widgets:shots      # widget screenshots against real tool results
 ```
 
 ## Key APIs
 
-- **REST**: `GET /health`, `GET /api/servers`, `GET /api/servers/:id`, `POST /api/servers`, `PUT /api/servers/:id`, `DELETE /api/servers/:id`, `POST /api/servers/:id/activate`, `POST /api/servers/:id/deactivate`, `POST /api/servers/:id/call`, `POST /api/servers/:id/reset-errors`, `GET /api/servers/:id/secrets`, `PUT /api/servers/:id/secrets/:key`, `DELETE /api/servers/:id/secrets/:key`, `POST /api/servers/:id/health`, `GET /api/servers/:id/metrics`, `GET /api/metrics`, `GET /api/logs`, `DELETE /api/logs`, `GET /api/browse`, `GET /api/status`
-- **WebSocket**: Full state on connect, delta updates via DB polling, `log_entry` messages for real-time call logs
-- **MCP**: 1 action-based tool — `registry` (actions: list/install/uninstall/activate/deactivate/browse/status) + proxied tools from active servers
+Full reference: `docs/API.md`.
+
+- **MCP** (`/mcp`): `search_servers`, `install_server`, `enable_server`, `disable_server`, `server_status`, `search_tools`, `get_tool`, `call_tool`; prompts `discover`, `install`, `status`; resource `ui://agent-discover/app.html`; in native mode also `<server>__<tool>` for every enabled server.
+- **REST**: `GET /api/health`, `GET /api/token`, `GET /api/status`; servers `GET|POST /api/servers`, `GET|PUT|DELETE /api/servers/:id`, `POST .../enable|disable|index|health|reset-errors|call|approve`, `GET .../trust|metrics|auth`, `POST .../auth`, `GET|PUT|DELETE .../secrets[/:key]`; `GET /api/audit`; `GET /api/browse`, `GET /api/install/plan`, `POST /api/install`; `GET /api/registry`, `POST /api/registry/sync`; `GET /oauth/callback`; tester routes under `/api/servers/:id/*` and `/api/transient/:handle/*`; logs, presets, elicitations, roots, `POST /api/sync`, `GET /api/prereqs`.
+- **WebSocket** (`/ws`): `state` on connect and after each lifecycle change, `log_entry`, `notification`, `progress`, `elicitation_request`.
 
 ## DB
 
-- SQLite at `~/.claude/agent-discover.db` (configurable via `AGENT_DISCOVER_DB`)
-- Schema version: **V3**
-- Tables: `servers`, `server_tools`, `server_secrets`, `server_metrics`, `servers_fts` (FTS5 virtual table)
-- V2 additions: `latest_version`, `last_health_check`, `health_status`, `error_count` columns on `servers`; `server_secrets` and `server_metrics` tables
-- V3: dropped `approval_status` column from `servers`
+- SQLite at `~/.claude/agent-discover.db` (`AGENT_DISCOVER_DB`). A 1.x database migrates in place.
+- Schema version: **10** (migrations in `src/storage/database.ts`, applied in version order; add a new one, never edit an old one).
+- Tables: `servers`, `server_tools` (+ `server_tools_fts`), `servers_fts`, `server_secrets` (key names and backend only), `server_metrics`, `server_pins`, `audit_log`, `registry_servers` (+ `registry_servers_fts`), `test_presets`, `_meta`.
 
-## Domain Services
+## Search
 
-- **RegistryService** -- Server CRUD, FTS search, tool metadata storage
-- **McpProxy** -- Child MCP server lifecycle, tool proxying with namespace, secrets merge on activation, metrics + log recording on tool calls
-- **MarketplaceClient** -- Official MCP registry API client (search, browse)
-- **InstallerService** -- Install method detection (npm/npx, Python/uvx, Docker) with package name validation
-- **SecretsService** -- Per-server secret storage, masked listing, env var generation for activation
-- **HealthService** -- Health probes (connect/disconnect for inactive, tool list check for active), error count tracking with auto-reset on healthy
-- **MetricsService** -- Per-tool call/error/latency recording, server-level and global overview queries
-- **LogService** -- In-memory ring buffer (500 entries) of proxied tool calls with real-time WS broadcast and configurable retention (`AGENT_DISCOVER_LOG_RETENTION_DAYS`)
-- **EventBus** -- In-process pub/sub with typed events and wildcard support
-
-## Proxy Pattern
-
-Active MCP servers are connected via `StdioClientTransport`. Their tools are namespaced as `serverName__toolName` and merged into the tool list. Tool calls are proxied through to the child server.
-
-On activation, secrets for the server are merged into the environment (overriding any existing env vars). On each tool call, latency and success/failure are recorded as metrics.
+`ToolIndex.save` is the only writer of `server_tools` and its FTS table, keyed by `tool_hash`. `HybridRanker` (`ranker.ts`) does FTS5 BM25 with field weights, typo repair, optional dense fusion and server routing. Every constant was tuned on the dev split of `bench/retrieval`; report the test split. Change a ranker on purpose by committing new `bench/retrieval/_results` with it.

@@ -2,7 +2,7 @@
   "name": "agent-discover",
   "version": "1.4.1",
   "mcpName": "io.github.keshrath/agent-discover",
-  "description": "MCP server registry and marketplace — discover, install, activate, and manage MCP tools on demand",
+  "description": "Find, install and enable MCP servers mid-session on any MCP host, with install consent, tool pinning and quarantine, keychain secrets and an audit log",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -94,7 +94,10 @@
     "model-context-protocol",
     "ai-agents",
     "claude-code",
-    "tool-discovery"
+    "tool-discovery",
+    "tool-search",
+    "mcp-gateway",
+    "mcp-security"
   ],
   "files": [
     "dist/",

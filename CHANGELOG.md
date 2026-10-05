@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - Unreleased
+
+agent-discover 2.0 is a rewrite around one shared daemon. The pitch changed with it: hosts now ship their own tool search, so the point is no longer to save prompt tokens. It is to find, install (with consent and provenance) and enable or disable servers that are not installed yet, in the middle of a session, on any MCP host, while feeding the host's native tool search, and to guard what gets installed.
+
+### Breaking changes
+
+- **The `registry` action tool is gone.** It is replaced by eight tools: `search_servers`, `install_server`, `enable_server`, `disable_server`, `server_status`, `search_tools`, `get_tool`, `call_tool`. The old actions map as: `browse` to `search_servers`, `install` to `install_server`, `activate` / `deactivate` to `enable_server` / `disable_server`, `status` to `server_status`, `find_tool` / `find_tools` to `search_tools`, `get_schema` to `get_tool`, `proxy_call` to `call_tool`. `list` is covered by `search_servers` and `server_status`. There is no MCP `uninstall` tool; use the dashboard or `DELETE /api/servers/:id`. `find_tool` no longer auto-activates anything, and the `did_you_mean` error hint is removed.
+- **Default bin is the stdio shim.** `agent-discover` now starts (or finds) the shared daemon and relays stdio to its `/mcp` endpoint. `agent-discover daemon` runs the daemon itself. The 1.x per-process proxy with leader election and `dist/server.js` is gone. Host configs keep working but should use `agent-discover@^2`.
+- **REST renames and removals.** `/health` is `/api/health`. `/activate` and `/deactivate` are `/enable` and `/disable`. `/preinstall` and `/api/npm-check` are removed (use `POST /api/install`). Servers carry `url` and `headers` fields (remote URLs no longer live in `homepage`), and `active` is now `enabled`. `GET /api/browse` returns `{servers, registry, errors}` with structured `packages` and `remotes`.
+- **Every state-changing REST call needs `X-Agent-Discover-Token`** (`GET /api/token`). Without it the response is 403 `TOKEN_REQUIRED`. Scripts that POST, PUT, PATCH or DELETE must fetch the token first.
+- **Setup file:** the key `auto_activate` is renamed `enabled`. An entry that still uses `auto_activate` is reported as an error.
+- **Database auto-migrates** from the 1.4 schema to schema 10 on first start.
+- **Secrets move to the OS keychain** (or an AES-256-GCM file when no keychain is available). Plaintext secrets from 1.x are moved on first start and wiped from SQLite.
+- **Dependencies:** the MCP SDK moved from `@modelcontextprotocol/sdk` 1.x to the v2 packages (`@modelcontextprotocol/server|client|node|core`), and the `agent-common` dependency is removed.
+- **Removed:** `AGENT_DISCOVER_ALLOW_REMOTE_TEST` (the tester is loopback-only like everything else), the 1.x VERB_SYNONYMS / singularize ranking, and the `smithery` source (existing rows become `registry`).
+
+### Added
+
+- **One daemon, every host.** `agent-discover daemon` serves the dashboard, REST, WebSocket and MCP Streamable HTTP at `/mcp` on `127.0.0.1:3424`. `/mcp` speaks 2026-07-28 (stateless) and 2025-06-18 / 2025-11-25 (sessionful) on one URL. The shim finds or starts the daemon (health probe, lockfile, detached spawn, replay of the cached handshake after a daemon restart). The daemon exits after `AGENT_DISCOVER_IDLE_MS` (30 minutes) with no MCP streams and no dashboard clients; 2025 sessions with no open stream are closed after `AGENT_DISCOVER_SESSION_IDLE_MS`.
+- **Native and proxy modes** (`AGENT_DISCOVER_MODE`). In `native` (default) enabled servers' tools are listed as `<server>__<tool>` with the upstream schema and annotations verbatim, and every enable, disable, uninstall or re-index sends `notifications/tools/list_changed`, so a host's native tool search keeps working. In `proxy` only the meta tools are listed.
+- **Prompts** `discover`, `install` and `status`.
+- **Install with consent and provenance.** `install_server` elicits confirmation showing the exact command or URL, env and header names, pinned version and provenance checks (registry namespace, npm `mcpName`, PyPI, OCI label). The confirmation is bound to a hash of the config. Clients that cannot elicit get `consent_required`; `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1` is the operator opt-out.
+- **Official MCP Registry mirror** (v0.1 API) with incremental `updated_since` sync, `deprecated` / `deleted` status handling, exact-name installs and version pinning. `GET /api/install/plan`, `POST /api/install`, `GET /api/registry`, `POST /api/registry/sync`. npm and PyPI federation is kept.
+- **Indexing independent of enablement.** Installing probes the server once, stores its tools with hashes and disconnects. Search covers every installed server; disabling never clears the index.
+- **Trust layer.** Tool pinning with quarantine and re-approval (`GET /api/servers/:id/trust`, `POST /api/servers/:id/approve`, readable diff in the `enable_server` prompt); description hygiene (stripped control characters, length caps, six injection heuristics that flag); append-only audit log (`GET /api/audit`); opt-in OpenTelemetry spans and metrics with trace-context propagation; REST token and keychain secrets as above.
+- **OAuth 2.1 for remote servers**: discovery, PKCE, refresh, issuer check, dynamic client registration or an operator-hosted client metadata document, loopback callback, URL-mode sign-in elicitation. `GET|POST /api/servers/:id/auth`.
+- **Better retrieval.** Fielded FTS5 index (Porter stemming, name / description / argument names), symmetric query and document tokenization, typo repair, server routing, usage prior, query-vector cache and an opt-in local embedding model (`multilingual-e5-small`). On the retrieval bench (50 real servers, 1674 tools, 468 queries, held-out test split) R@10 is .661 zero-config versus .618 for plain BM25 and .642 for 1.x, and .722 with the opt-in embeddings. LLM description enrichment reached .922 offline but is bench-only, not shipped, and an upper bound because the queries were LLM-written too. See `bench/retrieval/README.md`. CI runs `npm run bench:retrieval -- --check`.
+- **MCP Apps widget** `ui://agent-discover/app.html` for search results, server cards, install consent and a tool tester. It renders in Claude Desktop, claude.ai and VS Code. Claude Code does not render MCP Apps yet and gets the markdown text. Tools have annotations, titles, output schemas and structured content.
+- **Claude Code plugin** (`plugin/`): the stdio shim as MCP server, `find` / `install` / `dashboard` skills, a SessionStart hook, a status line script, and a native UI for Claude Code 2.1.289+: the `/discover` panel, an `MCP n/m` status entry, toasts and an attention band.
+- **Upstream handling.** stdio upstreams are probed in place (one spawn) with a legacy fallback; upstream `input_required` and 2025 `elicitation/create` are relayed to the client; connections are pooled with reconnect backoff and idle disconnect; health is a real ping or `server/discover`.
+- New endpoints: `/api/token`, `/api/servers/:id/index`, `/trust`, `/approve`, `/auth`, `/api/audit`, `/api/install`, `/api/install/plan`, `/api/registry`, `/api/registry/sync`, `/oauth/callback`. New environment variables: `AGENT_DISCOVER_MODE`, `AGENT_DISCOVER_IDLE_MS`, `AGENT_DISCOVER_CONN_IDLE_MS`, `AGENT_DISCOVER_SESSION_IDLE_MS`, `AGENT_DISCOVER_REGISTRY_URL`, `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL`, `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`, `AGENT_DISCOVER_SECRETS`, `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`, `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`, `AGENT_DISCOVER_AUDIT_ARGS`, `AGENT_DISCOVER_AUDIT_MAX_ROWS`, `AGENT_DISCOVER_OTEL`.
+
+### Changed
+
+- The "every MCP client needs a session restart to see a new server" framing is gone from the README and bench docs. Hosts now support `list_changed`. What is still true is that adding a new server to a host means editing its config and restarting; agent-discover avoids that.
+- The dashboard installs through `POST /api/install` and sends the REST token.
+- Documentation rewritten for 2.0 (README, USER-MANUAL, SETUP, ARCHITECTURE, API, SECURITY, DASHBOARD, CONTRIBUTING, CLAUDE.md, bench READMEs).
+
+### Not in 2.0
+
+- Sandboxing upstream stdio servers (Docker, sandbox-runtime). Servers run with your user's privileges.
+- Dashboard views for quarantine review, the audit log and OAuth sign-in. They exist over REST and, for quarantine, through `enable_server`.
+
 ## [1.4.0] - 2026-04-19
 
 ### Added

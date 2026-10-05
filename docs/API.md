@@ -33,52 +33,51 @@ See [SECURITY.md](SECURITY.md) for the whole trust model.
 | `AGENT_DISCOVER_MODE`                                 | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                |
 | `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                  |
 | `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                                   | Idle upstream connections are closed                                                                   |
-| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                                      | `1` lets `install_server` run without an elicitation prompt (operator opt-in)                          |
-| `AGENT_DISCOVER_SETUP_FILE`                           | unset                                      | Declarative server list synced at daemon start                                                         |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                                     | `openai` / `local` adds semantic ranking                                                               |
-| `AGENT_DISCOVER_SECRETS`                              | auto                                       | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file)               |
-| `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`                 | `1024`                                     | Cap (chars) on tool descriptions shown to models (`0` = none)                                          |
-| `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`               | `512`                                      | Same for server descriptions                                                                           |
-| `AGENT_DISCOVER_AUDIT_ARGS`                           | unset                                      | `1` also records (masked) tool-call arguments in the audit log                                         |
-| `AGENT_DISCOVER_AUDIT_MAX_ROWS`                       | `50000`                                    | Audit retention (oldest rows pruned)                                                                   |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `AGENT_DISCOVER_OTEL` | unset                                      | Either one (or `AGENT_DISCOVER_OTEL=1`) turns OpenTelemetry on                                         |
-| Variable                                              | Default                                    | Meaning                                                                                                |
-| ------------------------------------------            | ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `AGENT_DISCOVER_PORT`                                 | `3424`                                     | Daemon port                                                                                            |
-| `AGENT_DISCOVER_HOST`                                 | `127.0.0.1`                                | Listen address                                                                                         |
-| `AGENT_DISCOVER_DB`                                   | `~/.claude/agent-discover.db`              | SQLite path (1.x location, migrated in place)                                                          |
-| `AGENT_DISCOVER_MODE`                                 | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                |
-| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                  |
-| `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                                   | Idle upstream connections are closed                                                                   |
 | `AGENT_DISCOVER_SESSION_IDLE_MS`                      | `1800000`                                  | 2025 HTTP sessions with no open stream are closed after this long (`0` = never)                        |
 | `AGENT_DISCOVER_REGISTRY_URL`                         | `https://registry.modelcontextprotocol.io` | Official MCP Registry (or a compatible sub-registry) mirrored locally                                  |
 | `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL`            | unset                                      | HTTPS URL of an operator-hosted OAuth Client ID Metadata Document; unset = dynamic client registration |
 | `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                                      | `1` lets `install_server` run without an elicitation prompt (operator opt-in)                          |
 | `AGENT_DISCOVER_SETUP_FILE`                           | unset                                      | Declarative server list synced at daemon start                                                         |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                                     | `openai` / `local` adds semantic ranking                                                               |
+| `AGENT_DISCOVER_ROOTS`                                | unset                                      | Comma-separated root URIs advertised to upstream servers                                               |
+| `AGENT_DISCOVER_LOG_RETENTION_DAYS`                   | `30`                                       | Call-log retention (the in-memory buffer also caps at 500 entries)                                     |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                                     | `local` or `openai` adds semantic ranking                                                              |
+| `AGENT_DISCOVER_EMBEDDING_MODEL`                      | see below                                  | Model id override for the chosen provider                                                              |
+| `AGENT_DISCOVER_EMBEDDING_THREADS`                    | `1`                                        | `local` only: ONNX thread count                                                                        |
+| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT`               | `60`                                       | `local` only: seconds before the model is unloaded from RAM                                            |
+| `AGENT_DISCOVER_OPENAI_API_KEY`                       | unset                                      | OpenAI key for embeddings and sampling (`OPENAI_API_KEY` is the fallback)                              |
+| `AGENT_DISCOVER_OPENAI_BASE_URL`                      | `https://api.openai.com/v1`                | Base URL of the OpenAI-compatible sampling endpoint                                                    |
+| `AGENT_DISCOVER_SAMPLING_MODEL`                       | `gpt-5-mini`                               | Model used to answer upstream `sampling/createMessage` requests                                        |
+| `AGENT_DISCOVER_SECRETS`                              | auto                                       | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file)               |
+| `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`                 | `1024`                                     | Cap (chars) on tool descriptions shown to models (`0` = none)                                          |
+| `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`               | `512`                                      | Same for server descriptions                                                                           |
+| `AGENT_DISCOVER_AUDIT_ARGS`                           | unset                                      | `1` also records (masked) tool-call arguments in the audit log                                         |
+| `AGENT_DISCOVER_AUDIT_MAX_ROWS`                       | `50000`                                    | Audit retention (oldest rows pruned, `0` = unlimited)                                                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `AGENT_DISCOVER_OTEL` | unset                                      | Either one (or `AGENT_DISCOVER_OTEL=1`) turns OpenTelemetry on                                         |
+
+Default embedding models: `Xenova/multilingual-e5-small` for `local` (optional dependency `@huggingface/transformers`, installed by hand), `text-embedding-3-small` for `openai`.
 
 ## MCP
 
 `tools/list` is sorted by name. Server `instructions` explain the flow. Prompts: `discover(task)`, `install(server)`, `status`.
 
-| Tool             | Annotations             | Purpose                                                                                                                                             |
-| ---------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_servers` | read-only, open-world   | `{query, limit?, marketplace?}` → installed matches + public registry / npm / PyPI matches                                                          |
-| `install_server` | idempotent, open-world  | `{name, package?+runtime? \| command+args? \| url+transport?, env?, headers?, enable?}` → installs and indexes                                      |
-| `enable_server`  | idempotent              | `{name}` → exposes the server's tools (indexes first if needed)                                                                                     |
-| `disable_server` | idempotent              | `{name}` → hides them; index and searchability stay                                                                                                 |
-| `server_status`  | read-only               | `{name?, check_health?}` → installed/indexed/enabled/connected/tool_count/health                                                                    |
-| `search_tools`   | read-only               | `{queries: string[1..10], limit?}` → per query, matches across **all installed** servers with `score` (0..1), `enabled`, `exposed`, `required_args` |
-| `get_tool`       | read-only               | `{server, tool}` → full definition (input/output schema, annotations, `tool_hash`) by direct lookup                                                 |
-| `call_tool`      | destructive, open-world | `{server, tool, arguments?}` → the upstream `CallToolResult`, unchanged                                                                             |
+| Tool             | Annotations             | Purpose                                                                                                                                                      |
+| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `search_servers` | read-only, open-world   | `{query, limit?, marketplace?}` → installed matches + public registry / npm / PyPI matches                                                                   |
+| `install_server` | idempotent, open-world  | `{server?, source?, version?, name?, transport?, command?, args?, env?, url?, headers?, description?, tags?, enable?}` → installs and indexes, after consent |
+| `enable_server`  | idempotent              | `{name}` → exposes the server's tools (indexes first if needed)                                                                                              |
+| `disable_server` | idempotent              | `{name}` → hides them; index and searchability stay                                                                                                          |
+| `server_status`  | read-only               | `{name?, check_health?}` → installed/indexed/enabled/connected/tool_count/health                                                                             |
+| `search_tools`   | read-only               | `{queries: string[1..10], limit?}` → per query, matches across **all installed** servers with `score` (0..1), `enabled`, `exposed`, `required_args`          |
+| `get_tool`       | read-only               | `{server, tool}` → full definition (input/output schema, annotations, `tool_hash`) by direct lookup                                                          |
+| `call_tool`      | destructive, open-world | `{server, tool, arguments?}` → the upstream `CallToolResult`, unchanged                                                                                      |
 
 All tools except `call_tool` declare an `outputSchema` and return `structuredContent`.
 
 **Native tools** (`AGENT_DISCOVER_MODE=native`): each enabled server's indexed tools are listed as `<server>__<tool>` with the upstream schema, output schema and annotations verbatim. Every enable / disable / uninstall / re-index of an enabled server emits `notifications/tools/list_changed` (on 2026 `subscriptions/listen` streams and on every 2025 session).
 
-**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result telling the user to install from the dashboard — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. There is deliberately no agent-supplied `confirm` argument.
+**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result with `status: "consent_required"` and the `plan`, so the user can install from the dashboard — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. `server` is the exact name from `search_servers` (MCP Registry name, npm package or PyPI project, with `source` defaulting to `registry`); without it, `name` plus `command` or `url` describes a manual install. There is deliberately no agent-supplied `confirm` argument.
 
-**Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push goes to the dashboard queue (`/api/elicitations`).
+**Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push is forwarded to the calling client when it is the only such call in flight on that connection (the call is parked and the retry carries the answer); otherwise, or when the client cannot elicit, it goes to the dashboard queue (`/api/elicitations`, 2-minute expiry).
 
 ## REST
 
@@ -157,4 +156,4 @@ Server → client: `{type:"state", version, mode, servers}` on connect and after
 }
 ```
 
-`auto_activate` was renamed to `enabled`; a file still using it fails sync with a clear error. A sibling `*.local.json` is merged.
+`auto_activate` was renamed to `enabled`; an entry still using it is reported in the sync result's `errors` and not applied. A sibling `*.local.json` is merged.

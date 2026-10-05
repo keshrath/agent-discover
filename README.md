@@ -2,20 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen)]()
-[![MCP Tools](https://img.shields.io/badge/MCP%20tools-1-purple)]()
-[![Registry Actions](https://img.shields.io/badge/registry%20actions-11-blueviolet)]()
-[![REST Endpoints](https://img.shields.io/badge/REST-33%20endpoints-orange)]()
+[![Tests](https://img.shields.io/badge/tests-187%20passing-brightgreen)]()
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-8-purple)]()
 
-**MCP server registry and marketplace.** Discover, install, activate, and manage MCP tools on demand. Acts as a dynamic proxy -- activated servers have their tools merged into the registry's own tool list, so agents can use them without restarting.
-
-> **Every MCP client today — Claude Code, Cursor, Codex CLI, Aider, Continue, plain MCP clients — requires a full agent-session restart to pick up a newly registered MCP server.** The tool catalog is frozen at startup. agent-discover is the only path to register a new server and have it become discoverable in the same running session. This is the one differentiator that survives against every host, even those with their own built-in deferred-tool loaders.
-
-Search spans the **official MCP registry**, **npm**, and **PyPI** in one query, so popular servers that aren't in the official index (Microsoft `@playwright/mcp`, `@modelcontextprotocol/server-*`, `mcp-server-fetch`, `mcp-server-git`, …) all show up.
-
-Built for AI coding agents (Claude Code, Codex CLI, Gemini CLI, Aider) but works equally well with any MCP client, REST consumer, or WebSocket listener.
-
----
+**Find, install and enable MCP servers in the middle of a session, on any MCP host.** agent-discover is one local daemon that searches the official MCP Registry, npm and PyPI, installs a server after you approve the exact command and its provenance, and then exposes its tools to your host without a config edit or a restart. It also guards what it installs: tool definitions are pinned and a server whose tools change is quarantined, secrets live in the OS keychain, and every action is audited.
 
 | Light Theme                                | Dark Theme                               |
 | ------------------------------------------ | ---------------------------------------- |
@@ -25,74 +15,30 @@ Built for AI coding agents (Claude Code, Codex CLI, Gemini CLI, Aider) but works
 
 ## Why
 
-Static MCP configs mean every server is always running, even when unused. Adding a new server requires editing config files and restarting. There is no way to browse what is available or install new tools at runtime.
+Current hosts (Claude Code, Codex, the Anthropic and OpenAI APIs) have their own tool search, so agent-discover is not mainly about saving prompt tokens any more. What a host's tool search cannot do is work with a server you have not installed yet. Adding a new MCP server still means editing the host's config and restarting the session. agent-discover removes that step:
 
-|                  | Without agent-discover            | With agent-discover                                        |
-| ---------------- | --------------------------------- | ---------------------------------------------------------- |
-| **Discovery**    | Must know server names in advance | Browse the official MCP registry, search by keyword        |
-| **Installation** | Edit config files, restart agent  | One tool call installs and registers                       |
-| **Activation**   | All servers always running        | Activate/deactivate on demand, tools appear/disappear live |
-| **Secrets**      | API keys in config files or env   | Per-server secret storage, auto-injected on activation     |
-| **Monitoring**   | No visibility into server health  | Health checks, per-tool metrics, error counts              |
-| **Management**   | Manual config edits               | Dashboard + REST API for config, tags                      |
+- **Discover.** One query searches your installed servers' tool index and the public registries (a local mirror of the official MCP Registry, plus npm and PyPI).
+- **Install with consent.** `install_server` shows you the exact command or URL, the env and header names, the pinned version and the provenance checks (registry namespace, npm `mcpName`, PyPI, OCI label). Nothing runs until you accept.
+- **Enable and disable at runtime**, including servers that were installed a minute ago. Enabling indexes the server first if needed.
+- **Feed the host's own tool search.** In `native` mode (the default) every enabled server's tools are listed as `<server>__<tool>` and agent-discover sends `notifications/tools/list_changed` on each change, so the host's native tool search, permission prompts and `alwaysLoad` settings keep working. In `proxy` mode only eight meta tools are listed and everything goes through `call_tool`, for hosts with weak or no tool search.
+- **Stay in control.** See [Trust layer](#trust-layer).
 
----
-
-## Features
-
-- **Single-call tool discovery (`find_tool`)** — hybrid BM25 + semantic ranking returns the top match with a confidence label, compact `required_args`, and 4 ranked alternatives. Auto-activates the owning child server so the agent can call the proxied tool immediately on the next turn. Replaces the multi-step `search → list → activate` dance with one round-trip.
-- **Batch discovery (`find_tools`)** — pass an array of intents to discover N tools in a single round-trip for multi-step tasks.
-- **Indirect invocation (`proxy_call`)** — call a discovered tool **through** agent-discover without exposing it to the host catalog. Keeps the host MCP surface at exactly 5 actions regardless of how many tools the registered child servers expose — critical for very large catalogs where flooding the host with thousands of schemas would blow the model's context budget.
-- **Pluggable embeddings (`AGENT_DISCOVER_EMBEDDING_PROVIDER`)** — semantic search is opt-in via `none` (default, BM25 only) / `local` (Xenova/multilingual-e5-small via `@huggingface/transformers`) / `openai` (`text-embedding-3-small`). Provider failures fall back to BM25 cleanly. Mirrors agent-knowledge's pattern so the same model can be reused.
-- **`did_you_mean` recovery** — when a proxied tool call fails, the proxy attaches BM25-ranked similar-tool suggestions to the error response so the agent can correct in one extra turn instead of giving up.
-- **Local registry** -- register MCP servers in a SQLite database with name, command, args, env, tags
-- **Federated marketplace search** -- a single query hits the official MCP registry, npm, and PyPI in parallel, dedupes by `<source>:<name>`, and collapses version duplicates
-- **PyPI integration** -- curated list of well-known Python MCP servers (`mcp-server-fetch`, `mcp-server-git`, `mcp-server-time`, `mcp-server-postgres`, `mcp-server-sqlite`, `mcp-proxy`, …) plus live metadata via the PyPI JSON API; Python entries install via `uvx`
-- **npm fallback** -- two parallel npm searches (`keywords:mcp` and `<query> mcp`) catch packages that didn't tag themselves (e.g. Microsoft `@playwright/mcp`)
-- **Prereqs probe** -- `GET /api/prereqs` reports which package managers (`npx`, `uvx`, `docker`, `uv`) are available on the host; the dashboard surfaces a banner when something needed for an install is missing
-- **Cross-process activation** -- the `active` flag is the source of truth in SQLite; every fresh agent-discover process hydrates its in-memory proxy from the DB on startup, so tools activated in one process show up in others
-- **On-demand activation** -- activate/deactivate servers at runtime; their tools appear and disappear dynamically with `tools/list_changed` notifications
-- **Tool proxying** -- activated server tools are namespaced as `serverName__toolName` and merged into the tool list
-- **Multi-transport** -- stdio, SSE, and streamable-http transports for connecting to child servers
-- **Secret management** -- store API keys and tokens per server, automatically injected as env vars (stdio) or HTTP headers (SSE/streamable-http) on activation; CRLF-validated to prevent header injection
-- **Health checks** -- connect/disconnect probes for inactive servers, tool-list checks for active ones, with error count tracking
-- **Per-tool metrics** -- call counts, error counts, and average latency recorded automatically on every proxied tool call
-- **Full-text search** -- FTS5 search across server names, descriptions, and tags + cross-server tool index for `find_tool`
-- **Pre-download** -- fire-and-forget `npm cache add` (npx servers) or `uv tool install` (uvx servers) on registration, plus a dedicated `/preinstall` endpoint
-- **Real-time dashboard** -- web UI at http://localhost:3424 with Servers and Browse tabs, dark/light theme, WebSocket updates
-- **MCP Inspector-grade Test panel** -- every active server card grows a Test drawer with seven subtabs (Tools / Info / Resources / Prompts / Events / Export / Diagnostics). Schema-driven form renderer, Pretty/Raw JSON/cURL result modes, live notification + progress streaming, localStorage presets, pop-out floating panel for side-by-side debugging, and a `Test ad-hoc` button that spins up a throwaway (never-registered) server with a 15-minute TTL. Covers the same surface as upstream `@modelcontextprotocol/inspector` without a second process or second port.
-- **3 transport layers** -- MCP (stdio), REST API (HTTP), WebSocket (real-time events)
-- **Declarative setup file** -- set `AGENT_DISCOVER_SETUP_FILE` to a JSON file listing servers to ensure-registered on startup. Idempotent (skips existing). Supports `auto_activate`, env var secret refs (`$VAR`), and tags. Automatically also reads a `.local.json` variant (e.g. `discover-setup.local.json`) for machine-specific servers with secrets. New `registry({ action: "sync" })` MCP action and `POST /api/sync` REST endpoint for on-demand re-read.
-- **Bench harness** -- under `bench/`, comparing eager tool loading vs deferred discovery against real OpenCode + gpt-5-mini. Reproducible structural result: discover's first-turn input tokens are flat in N (~20.8k across N ∈ {10, 100, 1000, 3000}); eager's grow linearly (20.9k → 32.4k → 160.9k → context overflow at N=3000). End-to-end accuracy and multi-turn cost numbers are noisier and model-dependent — see [`bench/README.md`](bench/README.md) for what reproduces and what doesn't.
+|                   | Static MCP config                  | With agent-discover                                           |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------- |
+| **Discovery**     | Know the server name in advance    | Search the registries by need, with provenance                |
+| **Installation**  | Edit config, restart the session   | One tool call, you approve the exact command                  |
+| **Enablement**    | All configured servers always load | Enable and disable mid-session; the index stays searchable    |
+| **Secrets**       | Keys in config files or env        | OS keychain (or an encrypted file), injected on connect       |
+| **Changed tools** | Silent                             | Pinned hashes, drift quarantines the server until you approve |
+| **Visibility**    | Per-host logs                      | Dashboard, health, per-tool metrics, audit log, OpenTelemetry |
 
 ---
 
 ## Quick Start
 
-### Install from npm
-
-```bash
-npm install -g agent-discover
-```
-
-### Or run directly with npx
-
-```bash
-npx agent-discover
-```
-
-### Or clone from source
-
-```bash
-git clone https://github.com/keshrath/agent-discover.git
-cd agent-discover
-npm install
-npm run build
-```
-
 ### Claude Code
 
-Install the plugin for the full experience. It runs the stdio shim as the MCP server, adds the `find`, `install` and `dashboard` skills, a SessionStart hook, and a native UI:
+Install the plugin. It runs the stdio shim as the MCP server, adds the `find`, `install` and `dashboard` skills, a SessionStart hook and a native UI:
 
 ```bash
 claude plugin marketplace add keshrath/agent-discover
@@ -101,185 +47,167 @@ claude plugin install agent-discover@agent-discover
 
 - `/discover [what you need]` opens a panel in the terminal, the desktop Code tab or VS Code: servers by state with health, Enable / Disable / Re-index buttons, a search box over installed tools and the registry, and Install buttons (the consent step still gates every install).
 - A status line entry `MCP 2/6 !1`, a toast when a server is quarantined or goes unhealthy, and a band above the prompt that shows only while something needs you.
-- Needs Claude Code 2.1.289 or newer for the native UI. Older builds keep the skills and tools; add `node ~/.claude/plugins/data/agent-discover-agent-discover/statusline.mjs` to your own status line command for the `MCP n/m` segment.
+- The native UI needs Claude Code 2.1.289 or newer. Older builds keep the skills and tools.
 - Remove any hand-written `agent-discover` entry from `~/.claude.json` so tools do not appear twice.
-- In the desktop app, add `{ "name": "agent-discover", "url": "http://127.0.0.1:3424" }` to `.claude/launch.json` to open the dashboard in the preview pane.
 
-Other clients (Cursor, Codex, VS Code, Claude Desktop) and the http entry: [docs/SETUP.md](docs/SETUP.md#client-setup).
-
-### Option 1: MCP server (for AI agents)
-
-Add to your MCP client config (Claude Code, Cline, Cursor, Windsurf, etc.):
+### Any other MCP host
 
 ```json
 {
   "mcpServers": {
-    "agent-discover": {
-      "command": "npx",
-      "args": ["agent-discover"]
-    }
+    "agent-discover": { "command": "npx", "args": ["-y", "agent-discover@^2"] }
   }
 }
 ```
 
-The dashboard auto-starts at http://localhost:3424 on the first MCP connection.
+Hosts with Streamable HTTP can instead point at `http://127.0.0.1:3424/mcp` when the daemon already runs. Cursor, Codex, VS Code, Claude Desktop and the rest: [docs/SETUP.md](docs/SETUP.md#client-setup).
 
-### Option 2: Standalone server (for REST/WebSocket clients)
+The dashboard is at http://127.0.0.1:3424.
+
+### From source
 
 ```bash
-node dist/server.js --port 3424
+git clone https://github.com/keshrath/agent-discover.git
+cd agent-discover
+npm install
+npm run build
+node dist/index.js daemon
 ```
 
 ---
 
-## MCP Tools (1)
+## How it runs
 
-A single action-based tool handles every operation via the `action` parameter — this keeps the prompt-overhead cost minimal regardless of how many child servers are registered.
+One daemon per machine, `agent-discover daemon`, listens on `127.0.0.1:3424` and serves the dashboard, the REST API (`/api/*`), a WebSocket (`/ws`) and MCP Streamable HTTP at `/mcp`. `/mcp` speaks the 2026-07-28 protocol and the 2025 sessionful protocol on the same endpoint.
 
-| Action       | Purpose                                                                                                                                                               |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `find_tool`  | **Single-call discovery.** Hybrid BM25 + semantic search → top match + confidence label + compact `required_args` + 4 alternatives. Auto-activates the owning server. |
-| `find_tools` | **Batch discovery.** Pass `intents: [...]` to discover N tools in one round-trip. Use for multi-step tasks.                                                           |
-| `get_schema` | Full `input_schema` for a discovered tool. Only needed when the compact `required_args` summary isn't enough (conditional / polymorphic args).                        |
-| `proxy_call` | Invoke a discovered tool **through** agent-discover without exposing it to the host catalog. Pair with `find_tool({auto_activate: false})` for huge catalogs.         |
-| `list`       | Search the local registry by server (FTS5).                                                                                                                           |
-| `install`    | Add a server from the marketplace or via manual config (command + args + env).                                                                                        |
-| `uninstall`  | Remove a server.                                                                                                                                                      |
-| `activate`   | Start a server, discover its tools, expose them to the host as `serverName__toolName`.                                                                                |
-| `deactivate` | Stop a server, hide its tools.                                                                                                                                        |
-| `browse`     | Federated search across the official MCP registry, npm, and PyPI.                                                                                                     |
-| `status`     | Active servers summary (names, tool counts, tool lists).                                                                                                              |
+The default bin `agent-discover` is a thin stdio shim: it checks `/api/health`, starts the daemon if it is not running (lockfile-guarded, detached) and relays stdio to `/mcp`. Every host and every session shares the one daemon, so connection and enablement state has a single owner. The daemon exits after 30 minutes with no MCP streams and no dashboard clients (`AGENT_DISCOVER_IDLE_MS`).
 
-Activated servers expose their tools through agent-discover, namespaced as `serverName__toolName`. For example, activating a server named `filesystem` that exposes `read_file` makes it available as `filesystem__read_file`.
-
-When `find_tool` is called with `auto_activate: false` (recommended for catalogs above ~1k tools), the proxy connection is opened silently and tools must be invoked via `proxy_call` instead of being added to the host's catalog. This keeps the host MCP surface area constant regardless of how many tools the registered child servers expose.
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
-## REST API (33 endpoints)
+## MCP tools (8)
 
-All endpoints return JSON. Loopback only: foreign `Host`/`Origin` headers get 403, request bodies must be `application/json`, no wildcard CORS.
+| Tool             | Purpose                                                                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_servers` | Installed servers plus public registry / npm / PyPI matches, for something not installed yet.                                             |
+| `install_server` | Install by exact registry, npm or PyPI name (version pinned) or from a manual command or URL. Asks you to confirm the plan, then indexes. |
+| `enable_server`  | Expose a server's tools to the host. A quarantined server asks you to review a diff and re-approve first.                                 |
+| `disable_server` | Stop exposing the tools. The server stays installed and searchable.                                                                       |
+| `server_status`  | Installed / indexed / enabled / connected / quarantined, tool counts, flagged tools, health (`check_health` runs a live probe).           |
+| `search_tools`   | Batch search (up to 10 queries) across the tool index of every installed server, enabled or not.                                          |
+| `get_tool`       | Full definition of one indexed tool by server and name.                                                                                   |
+| `call_tool`      | Call any indexed tool and return the upstream result unchanged. The way to call tools in `proxy` mode.                                    |
 
-```
-GET    /health                            Version, uptime
-GET    /api/prereqs                       Probe host for npx/uvx/docker/uv availability
-GET    /api/servers                       List servers (?query=, ?source=, ?installed=)
-GET    /api/servers/:id                   Server details + tools
-POST   /api/servers                       Register new server
-PUT    /api/servers/:id                   Update server config (description, command, args, env, tags)
-DELETE /api/servers/:id                   Unregister (deactivates first if active)
-POST   /api/servers/:id/activate          Activate -- start server, discover tools, begin proxying
-POST   /api/servers/:id/deactivate        Deactivate -- stop server, remove tools
-POST   /api/servers/:id/preinstall        Pre-download package (npm cache add for npx, uv tool install for uvx)
-GET    /api/servers/:id/secrets           List secrets (masked values)
-PUT    /api/servers/:id/secrets/:key      Set a secret (upsert)
-DELETE /api/servers/:id/secrets/:key      Delete a secret
-POST   /api/servers/:id/health            Run health check (connect/disconnect probe)
-GET    /api/servers/:id/metrics           Per-tool metrics for a server (call count, errors, latency)
-GET    /api/metrics                       Metrics overview across all servers
-GET    /api/browse                        Federated search: official registry + npm + PyPI (?query=, ?limit=, ?cursor=)
-GET    /api/npm-check                     Check if an npm package exists (?package=)
-GET    /api/status                        Active servers summary (names, tool counts, tool lists)
+Prompts `discover`, `install` and `status` appear as slash commands in hosts that surface MCP prompts. All tools except `call_tool` declare an `outputSchema` and return `structuredContent` plus a markdown rendering.
 
-Tester surface (MCP Inspector parity — localhost-only unless AGENT_DISCOVER_ALLOW_REMOTE_TEST=1):
-GET    /api/servers/:id/info               Server name, version, capabilities, instructions
-GET    /api/servers/:id/tools               Live tools (bypasses activation cache)
-POST   /api/servers/:id/call                Call a tool
-GET    /api/servers/:id/resources           List resources (?cursor=...)
-GET    /api/servers/:id/resource-templates  List resource templates
-POST   /api/servers/:id/resource/read       Read a resource
-POST   /api/servers/:id/resource/subscribe  Subscribe to resource updates
-POST   /api/servers/:id/resource/unsubscribe  Unsubscribe
-GET    /api/servers/:id/prompts             List prompts (?cursor=...)
-POST   /api/servers/:id/prompt/get          Get a prompt with args
-POST   /api/servers/:id/ping                Ping — returns { ok, rtt_ms }
-POST   /api/servers/:id/logging-level       Set server logging level
-GET    /api/servers/:id/export              Export config (?format=mcp-json|claude-code|cursor|agent-discover)
-POST   /api/transient                        Activate an ad-hoc server (returns { handle, ... })
-DELETE /api/transient/:handle                Release transient server
-GET    /api/transient/:handle/*              Same tester surface, keyed by handle
-GET    /api/roots                            Configured client roots (AGENT_DISCOVER_ROOTS)
-GET    /api/logs/notifications               Notification log entries
-GET    /api/logs/progress                    Progress log entries
-```
+**MCP Apps widget.** Tool results carry `ui://agent-discover/app.html`, a single widget that renders search results, server cards, install consent and a tool tester. Claude Desktop, claude.ai and VS Code render it. Claude Code does not render MCP Apps yet and shows the markdown instead.
+
+Full schemas: [docs/API.md](docs/API.md).
 
 ---
 
-## Dashboard
+## Trust layer
 
-The web dashboard auto-starts at **http://localhost:3424** and provides two views:
+agent-discover sits between your host and MCP servers it did not write, so it assumes their descriptions are hostile. Full model: [docs/SECURITY.md](docs/SECURITY.md).
 
-**Servers tab** -- all registered servers as cards showing health dots, error counts, active/inactive status, description, tags, tools list, and expandable Secrets/Metrics/Config sections. Action buttons for activate, deactivate, health check, and delete.
+- **Install consent with provenance.** The plan shows the exact command, pinned version and registry namespace / package metadata checks. There is deliberately no agent-supplied `confirm` argument.
+- **Tool pinning and quarantine.** The first index of a server pins a hash of every tool's description, input schema and annotations. Any later change, addition or removal quarantines the server until you re-approve it from a readable diff (or the tools revert).
+- **Description hygiene.** Control, zero-width and bidi characters are stripped, descriptions are capped, and six heuristics flag likely prompt injection. Flags are advisory; pinning is the control.
+- **Secrets** in the OS keychain, or an AES-256-GCM file when no keychain is available. Never in SQLite, never listed unmasked.
+- **Audit log**, append-only, readable at `GET /api/audit`.
+- **OpenTelemetry**, opt-in via `OTEL_EXPORTER_OTLP_ENDPOINT` or `AGENT_DISCOVER_OTEL=1`.
+- **Loopback only.** Host / Origin allowlist, JSON-only bodies, and a per-launch token on every state-changing REST call.
+- **OAuth 2.1 for remote servers** (discovery, PKCE, refresh, `iss` check), with sign-in handed to you as a URL; agent-discover never opens it itself.
 
-**Browse tab** -- federated search across the official MCP registry, npm, and PyPI. Each card shows the runtime tag (`node`, `python`, `streamable-http`, …), version, description, and an install button that picks the right command (`npx`, `uvx`, or remote URL) automatically. A prereq banner at the top of the tab warns when a required package manager (`npx`, `uvx`, `docker`) is missing on the host.
+Not covered in 2.0: sandboxing upstream stdio servers. They run with your user's privileges.
 
-Real-time updates via WebSocket with 2-second database polling. Dark and light themes with persistent preference.
+---
+
+## Search quality
+
+`search_tools` ranks with SQLite FTS5 (Porter stemming, fielded BM25 over name, description and argument names), typo repair, server routing and a small usage prior. A local or OpenAI embedding provider is opt-in and adds dense scores.
+
+Measured on the retrieval bench in `bench/retrieval/`: 50 real MCP servers, 1674 tools, 468 hand-labelled queries (paraphrase, task, cross-server, multi-step, typo, German, and unanswerable). All tuning used the dev split; these numbers are the held-out test split (269 answerable queries).
+
+| Ranker                                               |  R@1  |  R@5  | R@10  |  MRR  |
+| ---------------------------------------------------- | :---: | :---: | :---: | :---: |
+| plain BM25 (about what hosted BM25 tool search does) | 0.305 | 0.522 | 0.618 | 0.430 |
+| agent-discover 1.x                                   | 0.307 | 0.561 | 0.642 | 0.446 |
+| **agent-discover 2.0, zero config**                  | 0.338 | 0.576 | 0.661 | 0.474 |
+| 2.0 + `multilingual-e5-small` (opt-in)               | 0.381 | 0.618 | 0.722 | 0.522 |
+
+Read this honestly:
+
+- The zero-config gain over plain BM25 is modest (+4 points R@10). The dense option adds about 6 more.
+- It is retrieval only: no LLM chooses a tool, and the corpus is public servers with their real, uneven descriptions.
+- The e5 row needs `npm install @huggingface/transformers` by hand (about 130 MB model, about 3 minutes to index 1674 tools on one thread) and is not run in CI.
+- A 5-query-per-tool LLM enrichment of descriptions reached R@10 0.922 offline, but that is **bench-only** and not shipped: it needs an LLM at index time, and the labelled queries were also LLM-written, so treat it as an upper bound.
+- No score floor is applied. No signal separated the unanswerable queries from answerable ones, so 2.0 returns the best matches rather than pretending to reject.
+
+Methodology, per-category results and how to run it: [bench/retrieval/README.md](bench/retrieval/README.md). CI runs `npm run bench:retrieval -- --check`.
+
+---
+
+## Features
+
+- **Local registry** in SQLite: servers, indexed tools, per-server secrets, metrics. Indexing is independent of enablement: install probes the server once, persists its tools and disconnects.
+- **Registry mirror** of the official MCP Registry (v0.1 API) with incremental `updated_since` sync, deprecated and deleted status tracking, and exact-name installs. A server whose registry entry was deleted is flagged in `server_status`.
+- **Federated search** over the registry mirror, npm and PyPI.
+- **Transports to upstream servers**: stdio, SSE, streamable HTTP, both protocol eras negotiated automatically. Upstream `input_required` and 2025 `elicitation/create` requests are relayed to your client.
+- **Lazy, pooled connections** with reconnect backoff, idle disconnect and real health probes.
+- **Dashboard** with Servers, Browse and Logs, a per-server MCP Inspector style tester, dark and light themes.
+- **Declarative setup file** (`AGENT_DISCOVER_SETUP_FILE`) listing servers to ensure installed at daemon start.
+- **Per-tool metrics** and a call log.
+
+---
+
+## Environment variables
+
+The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
+
+| Variable                            | Default                       | Description                                                              |
+| ----------------------------------- | ----------------------------- | ------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_PORT`               | `3424`                        | Daemon port                                                              |
+| `AGENT_DISCOVER_HOST`               | `127.0.0.1`                   | Listen address                                                           |
+| `AGENT_DISCOVER_DB`                 | `~/.claude/agent-discover.db` | SQLite path (a 1.x database is migrated in place)                        |
+| `AGENT_DISCOVER_MODE`               | `native`                      | `native` lists enabled servers' tools; `proxy` lists only the meta tools |
+| `AGENT_DISCOVER_IDLE_MS`            | `1800000`                     | Daemon idle exit (`0` = never)                                           |
+| `AGENT_DISCOVER_SETUP_FILE`         | unset                         | Declarative server list synced at start                                  |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER` | `none`                        | `local` or `openai` adds semantic ranking                                |
+| `AGENT_DISCOVER_SECRETS`            | auto                          | `keyring` or `file` forces the secret backend                            |
+
+---
+
+## Upgrading from 1.x
+
+2.0 is a breaking release. The single `registry` tool is replaced by the eight tools above, REST routes were renamed, the setup file key `auto_activate` is now `enabled`, secrets move to the keychain, and the default bin is the shim. The database migrates itself. Full list in [CHANGELOG.md](CHANGELOG.md#200---unreleased).
 
 ---
 
 ## Testing
 
 ```bash
-npm test              # 179 tests across 12 files
-npm run test:watch    # Watch mode
-npm run test:coverage # Coverage report
-npm run check         # Full CI: typecheck + lint + format + test
+npm test              # 187 tests across 23 files
+npm run check         # typecheck + lint + format + test
+npm run bench:retrieval
 npm run test:e2e:ui   # Playwright dashboard smoke tests
 ```
 
 ---
 
-## Environment Variables
-
-### Core
-
-| Variable                           | Default                       | Description                                                                                                 |
-| ---------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`              | `3424`                        | Dashboard HTTP port                                                                                         |
-| `AGENT_DISCOVER_HOST`              | `127.0.0.1`                   | Dashboard bind address (`0.0.0.0` exposes it to the network)                                                |
-| `AGENT_DISCOVER_DB`                | `~/.claude/agent-discover.db` | SQLite database path                                                                                        |
-| `AGENT_DISCOVER_ROOTS`             | —                             | Comma-separated root URIs advertised to child servers (e.g. `file:///Users/me/repo,file:///Users/me/data`)  |
-| `AGENT_DISCOVER_ALLOW_REMOTE_TEST` | `0`                           | Set to `1` to allow the Test panel endpoints from non-loopback origins. **Not recommended** — see Security. |
-
-### Embeddings (semantic search for `find_tool`)
-
-Embeddings are **opt-in**. The default is `none`, which means `find_tool` ranks by BM25 + verb synonyms only. Setting a provider enables hybrid BM25 + cosine retrieval, which closes the natural-language gap (e.g. "billing arrangement" → "subscription") that BM25 alone misses.
-
-| Variable                                | Default | Description                                                             |
-| --------------------------------------- | ------- | ----------------------------------------------------------------------- |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`     | `none`  | `none` \| `local` \| `openai`                                           |
-| `AGENT_DISCOVER_EMBEDDING_MODEL`        | —       | Override the default model id for the chosen provider                   |
-| `AGENT_DISCOVER_EMBEDDING_THREADS`      | `1`     | Local provider only — onnx runtime thread count                         |
-| `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT` | `60`    | Local provider only — seconds before unloading the model from RAM       |
-| `AGENT_DISCOVER_OPENAI_API_KEY`         | —       | OpenAI API key for embeddings (falls back to `OPENAI_API_KEY` if unset) |
-
-**Local provider** uses `Xenova/multilingual-e5-small` (384 dims, multilingual) via `@huggingface/transformers`. Install the optional peer dependency with `npm install @huggingface/transformers` if you want to use it. No network calls, no API key.
-
-**OpenAI provider** uses `text-embedding-3-small` (1536 dims). Same model as agent-knowledge so the two servers can share an embedding key.
-
-### Host package manager prerequisites
-
-agent-discover spawns child MCP servers via the host's installed package managers. Install whatever you intend to use; missing tools are reported by `GET /api/prereqs` and surfaced as a banner in the Browse tab.
-
-| Tool     | Used for                        | Install hint                                          |
-| -------- | ------------------------------- | ----------------------------------------------------- |
-| `npx`    | npm-published MCP servers       | ships with [Node.js](https://nodejs.org/)             |
-| `uvx`    | PyPI-published MCP servers      | install [uv](https://docs.astral.sh/uv/)              |
-| `docker` | Docker-image MCP servers (rare) | install [Docker](https://docs.docker.com/get-docker/) |
-
----
-
 ## Documentation
 
-- [User Manual](docs/USER-MANUAL.md) -- comprehensive guide covering all tools, REST API, dashboard, and troubleshooting
-- [API Reference](docs/API.md) -- all MCP tools and REST endpoints
-- [Architecture](docs/ARCHITECTURE.md) -- source structure, design principles, database schema
-- [Dashboard](docs/DASHBOARD.md) -- web UI views and features
-- [Setup Guide](docs/SETUP.md) -- installation, client setup (Claude Code, Cursor, Windsurf)
+- [User Manual](docs/USER-MANUAL.md): day-to-day use
+- [Setup Guide](docs/SETUP.md): installation and per-client configuration
+- [API Reference](docs/API.md): MCP tools, REST, WebSocket, environment
+- [Architecture](docs/ARCHITECTURE.md): process model, domain services, schema, search
+- [Security](docs/SECURITY.md): trust model
+- [Dashboard](docs/DASHBOARD.md): the web UI
 - [Changelog](CHANGELOG.md)
 
 ---
 
 ## License
 
-MIT -- see [LICENSE](LICENSE)
+MIT, see [LICENSE](LICENSE)
