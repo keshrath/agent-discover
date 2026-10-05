@@ -182,7 +182,7 @@ curl -X PUT http://127.0.0.1:3424/api/servers/3/secrets/GITHUB_TOKEN \
   -d '{"value":"ghp_..."}'
 ```
 
-The Secrets section of a server in `/discover` does the same. `server_status` and install results list required secrets that are missing.
+The Configuration and secrets section of a server in `/discover` does the same, through a masked field. `server_status` and install results list required secrets that are missing.
 
 `AGENT_DISCOVER_SECRETS=keyring` or `file` forces a backend. Secrets saved in plaintext by 1.x are moved into the backend on first start and wiped from SQLite.
 
@@ -193,7 +193,7 @@ A remote (`sse` or `streamable-http`) server that needs OAuth and has no `Author
 - if your client supports URL-mode elicitation, it gets a sign-in link; finish in the browser and the call resumes (up to 5 minutes);
 - otherwise the call returns an error containing the URL.
 
-`GET /api/servers/:id/auth` reports `authorized`, `required` or `unknown`; `POST` starts sign-in. The callback is `http://127.0.0.1:<port>/oauth/callback`. agent-discover never opens the URL itself. Tokens are stored as secrets. Changing the daemon's port needs a fresh sign-in (the client registration is bound to the redirect URI).
+`GET /api/servers/:id/auth` reports `authorized`, `required` or `unknown` (no sign-in was ever asked for, as with a static `Authorization` header; the pane then shows no sign-in); `POST` starts sign-in. The callback is `http://127.0.0.1:<port>/oauth/callback`. agent-discover never opens the URL itself. Tokens are stored as secrets. Changing the daemon's port needs a fresh sign-in (the client registration is bound to the redirect URI).
 
 ---
 
@@ -202,11 +202,12 @@ A remote (`sse` or `streamable-http`) server that needs OAuth and has no `Author
 agent-discover has no web dashboard since 3.0. Its management UI lives inside Claude Code (plugin, 2.1.289+); other hosts use the MCP tools, and Claude Desktop, claude.ai and VS Code also render the MCP Apps widget on results.
 
 - `/discover` opens the agent-discover pane, docked beside the transcript in the fullscreen layout and above the prompt otherwise (also the desktop Code tab and VS Code). Tabs:
-  - **Servers**: every installed server with its state (enabled, installed, quarantined, unhealthy) and tool count. Open one for its detail: transport and the exact command or URL, tags, source and MCP Registry name and status, package and version, env and header key names (values are never shown); a secrets editor (set a missing key, add `KEY=value`, delete; typed values are sent and never kept or drawn); its tools, each expandable to its input schema, with per-tool calls, errors and latency; health check, last error and error count with Reset errors; for a quarantined server the drift (changed, added, removed tools) with Approve and Keep disabled; for a remote server the OAuth state with Sign in, showing the authorization URL as a link (agent-discover never opens it); Enable or Disable, Re-index and Uninstall (asks once more).
-  - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one. Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
+  - **Servers**: every installed server in aligned columns: state (enabled, installed, quarantined, unhealthy), tool count and description. Open one for its detail, top down: for a quarantined server the drift (changed, added, removed tools; a changed description shows the approved text and the new one) with Approve and Keep disabled; Enable or Disable, Re-index, Check health, Reset errors and Uninstall (asks once more); the exact command or URL, source and MCP Registry name and status, package and version, tags; health (an enabled server is checked when its detail opens, otherwise the last check and when it ran, or "not checked yet"); usage (calls, failures, average latency); for a remote server that asked for OAuth the sign-in state with Sign in and the authorization URL as a link (agent-discover never opens it; a server with a static `Authorization` header shows none); its tools, one line each with the description's first line and per-tool calls, each unfolding to its full description and input schema; and **Configuration and secrets**: every env var and header key with where its value comes from (a keychain secret, a value in the config, or missing), never the value itself, with Set secret, Replace and Delete. A secret is typed into a masked field drawn as dots (a new one asks for its key first); the value is sent once and never kept in the pane's state.
+  - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one (masked for secrets). Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
   - **Logs**: the recent proxied calls with latency and errors. **Audit**: the audit log, filtered by server and action, paged.
   - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
 - `/discover <what you need>` opens Browse with the results for that query.
+- The pane opens with the keyboard (Tab and shift+Tab walk its buttons and fields, Enter presses, the arrows scroll, Esc hands the keys back and leaves it open; ctrl+x tab takes them again); a hint line under the tabs says which applies. Inline above the prompt it asks for 40 rows; a size you set wins. Times are local.
 - A status line entry `MCP 2/6 !1` (enabled/installed, `!n` servers needing a look).
 - A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
 - A band above the prompt, shown only while something needs you, with Review (opens the server in the pane) and Dismiss.

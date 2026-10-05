@@ -195,10 +195,11 @@ The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
 ## Testing
 
 ```bash
-npm test              # 192 tests across 24 files (+9 e2e skipped unless AGENT_DISCOVER_E2E=1)
+npm test              # 192 tests across 24 files (+9 e2e skipped unless AGENT_DISCOVER_E2E=1, +14 pane e2e)
 npm run check         # typecheck + lint + format + test
 npm run bench:retrieval
 npm run plugin:check  # claude plugin validate + the pane's 9 plugin tests
+npm run e2e:claude    # the /discover pane in the real Claude Code CLI, screenshots to ~/.claude/tmp/pane-shots
 ```
 
 ---

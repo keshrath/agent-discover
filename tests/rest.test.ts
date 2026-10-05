@@ -64,23 +64,32 @@ describe('servers via REST', () => {
     expect((await api(`/api/servers/${server.id}`)).status).toBe(404);
   });
 
-  it('stores remote url and declared headers in their own fields', async () => {
+  it('stores remote url and declared headers in their own fields, header values masked out', async () => {
     const res = await api('/api/servers', {
       method: 'POST',
       body: JSON.stringify({
         name: 'remote',
         transport: 'streamable-http',
         url: 'http://127.0.0.1:9/mcp',
-        headers: { 'X-Team': 'a' },
+        headers: { Authorization: 'Bearer static-token', 'X-Team': 'a' },
       }),
     });
     const s = await res.json();
     expect(s).toMatchObject({
       url: 'http://127.0.0.1:9/mcp',
-      headers: { 'X-Team': 'a' },
+      headers: { Authorization: 'Bear****', 'X-Team': '****' },
       homepage: null,
     });
     expect(s.index_error).toMatch(/Failed to connect/);
+    // A masked value sent back unchanged keeps the stored one.
+    await api(`/api/servers/${s.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ headers: { ...s.headers, 'X-Team': 'b' } }),
+    });
+    expect(d.ctx.servers.get('remote')!.headers).toEqual({
+      Authorization: 'Bearer static-token',
+      'X-Team': 'b',
+    });
   });
 
   it('lists declared headers that are empty and have no secret as missing_secrets', async () => {

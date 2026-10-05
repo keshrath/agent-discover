@@ -92,7 +92,7 @@ Errors are `{ error, code? }` with 400 (validation), 401 (`AUTH_REQUIRED`: a rem
 
 ### Servers
 
-Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected`, `tool_count` and `missing_secrets` (declared headers with no value and no stored secret). Env values are masked.
+Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected`, `tool_count` and `missing_secrets` (declared headers with no value and no stored secret). Env and header values are masked (first four characters, then `****`); a masked value sent back unchanged in `PUT` keeps the stored one.
 
 - `GET /api/servers?query=&source=`
 - `GET /api/servers/:id` → server + `tools` (indexed definitions)

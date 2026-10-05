@@ -48,6 +48,12 @@ export type AgentDiscoverTab = 'servers' | 'browse' | 'logs' | 'audit';
 /** Which view the pane shows; `server` set on the servers tab is that server's detail. */
 export type AgentDiscoverRoute = { tab: AgentDiscoverTab; server: string | null };
 
+export type AgentDiscoverConfigKey = {
+  key: string;
+  kind: 'env' | 'header' | 'secret';
+  source: 'secret' | 'value' | 'missing';
+};
+
 /** A server's detail view. Env and header values are never carried, only their keys. */
 export type AgentDiscoverDetail = {
   id: number;
@@ -69,20 +75,30 @@ export type AgentDiscoverDetail = {
   health_status: string;
   last_health_check: string | null;
   error_count: number;
-  env_keys: string[];
-  header_keys: string[];
-  /** Declared headers with no value and no secret to fill them. */
-  missing_secrets: string[];
-  secrets: string[];
+  /**
+   * Every env var and header the server is started with, plus stored secrets: where its
+   * value comes from (`secret` in the keychain, a plain `value` in the config, or
+   * `missing`: a declared header nothing fills). Values themselves never enter state.
+   */
+  config: AgentDiscoverConfigKey[];
   tools: { name: string; description: string }[];
   metrics: { tool: string; calls: number; errors: number; avg_ms: number }[];
   /** Present while quarantined: what changed since the last approval. */
-  drift: { changed: { tool: string; what: string }[]; added: string[]; removed: string[] } | null;
+  drift: {
+    /** `description`: the approved text and the one the server reports now. */
+    changed: {
+      tool: string;
+      what: string;
+      description: { before: string; after: string } | null;
+    }[];
+    added: string[];
+    removed: string[];
+  } | null;
   /** The tool hashes the trust report showed; an approval echoes exactly these. */
   hashes: string[];
   /** OAuth state of a remote server; null for stdio. */
   auth: { status: string; authorize_url: string | null } | null;
-  /** The last health check run from the pane. */
+  /** The last health check run from the pane (on open for an enabled server, or pressed). */
   health: { status: string; latency_ms: number; error: string | null } | null;
 };
 
@@ -180,6 +196,10 @@ declare module 'claude-code' {
       notice: string | null;
       /** Attention signature the person dismissed from the band; it returns when that changes. */
       dismissed: string | null;
+      /** Length of what was typed into each masked field (secret values), by field id. */
+      masked: Record<string, number>;
+      /** The config key whose secret is being set in the server detail. */
+      editing: string | null;
     };
   }
 }

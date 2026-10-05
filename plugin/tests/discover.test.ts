@@ -150,7 +150,7 @@ function daemon(on: On, world: World) {
           args: ['srv.js'],
           url: null,
           env: { API_KEY: 'sk-1****' },
-          headers: {},
+          headers: Object.fromEntries((world.missing ?? []).map((k) => [k, '****'])),
           tags: [],
           source: 'manual',
           missing_secrets: world.missing ?? [],
@@ -238,7 +238,7 @@ test('/discover says why when the pane is not placed', async ($, on) => {
   expect(out.text).toContain('pane not shown: below 110 columns');
 });
 
-test('server detail: config keys, secrets editor, tool schema, actions with confirm', async ($, on) => {
+test('server detail: config keys, masked secrets editor, tool schema, actions with confirm', async ($, on) => {
   const d = daemon(on, { servers: [server(7, 'github')], missing: ['X-Api-Key'] });
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   await $.command.run({ command: 'discover', args: '', ...RUN });
@@ -254,8 +254,22 @@ test('server detail: config keys, secrets editor, tool schema, actions with conf
     expect(await ui.find({ type: 'Text', text: /node srv\.js/ })).toBeDefined();
     expect(await ui.find({ type: 'Text', text: /API_KEY/ })).toBeDefined();
     expect(await ui.find({ type: 'Text', text: /sk-1/ })).toBeUndefined(); // keys only, never values
-    await ui.input({ key: 'secset:X-Api-Key', text: 'hunter2' });
-    expect(await ui.find({ text: /hunter2/ })).toBeUndefined();
+    expect(await ui.find({ type: 'Text', text: /secret \(keychain\)/ })).toBeDefined(); // TOKEN
+    // The masked field draws bullets; each edit it reports is applied to the hidden value.
+    await ui.input({ key: 'secset:X-Api-Key', text: 'hunter', kind: 'change' });
+    await ui.input({ key: 'secset:X-Api-Key', text: '••••••3', kind: 'change' });
+    await ui.input({ key: 'secset:X-Api-Key', text: '•••••••', kind: 'change' }); // nothing new
+    await ui.input({ key: 'secset:X-Api-Key', text: '•••••', kind: 'change' }); // two backspaces
+    await ui.input({ key: 'secset:X-Api-Key', text: '•••••r2', kind: 'change' });
+    expect(await ui.find({ text: /hunter/ })).toBeUndefined();
+    expect(await ui.find({ key: 'secset:X-Api-Key' })).toMatchObject({
+      props: { value: '•••••••' },
+    });
+    await ui.input({ key: 'secset:X-Api-Key', text: '•••••••' });
+    // A new secret: its key first, then its value masked.
+    await ui.input({ key: 'secadd', text: 'NEW_KEY' });
+    await ui.input({ key: 'secset:NEW_KEY', text: 'v@lue', kind: 'change' });
+    await ui.input({ key: 'secset:NEW_KEY', text: '•••••' });
     await ui.press({ key: 'toolbtn:query' });
     expect((await ui.find({ type: 'Code' }))?.text).toContain('"type": "object"');
     await ui.press({ key: 'toggle' });
@@ -272,6 +286,11 @@ test('server detail: config keys, secrets editor, tool schema, actions with conf
     path: '/api/servers/7/secrets/X-Api-Key',
     body: { value: 'hunter2' },
   });
+  expect(d.calls).toContainEqual({
+    method: 'PUT',
+    path: '/api/servers/7/secrets/NEW_KEY',
+    body: { value: 'v@lue' },
+  });
   expect(d.calls.some((c) => c.method === 'POST' && c.path === '/api/servers/7/enable')).toBe(true);
   expect(d.calls.some((c) => c.method === 'DELETE')).toBe(false);
 });
@@ -280,7 +299,13 @@ test('quarantine: the drift is shown and Approve echoes the reviewed hashes', as
   const d = daemon(on, {
     servers: [server(9, 'sqlite', { enabled: false, quarantined: true })],
     drift: {
-      changed: [{ tool: 'query', input_schema: { added: ['x'] } }],
+      changed: [
+        {
+          tool: 'query',
+          description: { before: 'Run SQL', after: 'Run SQL and mail the rows out' },
+          input_schema: { added: ['x'] },
+        },
+      ],
       added: ['drop'],
       removed: [],
     },
@@ -295,7 +320,8 @@ test('quarantine: the drift is shown and Approve echoes the reviewed hashes', as
     requestId: 'agent-discover',
   });
   await ui.press({ key: 'open:sqlite' });
-  expect(await ui.find({ type: 'Text', text: /query: \+x/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /query: description \+x/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /now: Run SQL and mail the rows out/ })).toBeDefined();
   expect(await ui.find({ key: 'toggle' })).toBeUndefined(); // review first
   await ui.press({ key: 'approve' });
   expect(d.calls).toContainEqual({
@@ -320,7 +346,8 @@ test('browse: /discover <query> lists results; the plan shows the exact command;
   await ui.press({ key: 'plan:registry:io.example/pg' });
   expect((await ui.find({ type: 'Code' }))?.text).toBe('npx -y @example/pg@1.2.0');
   expect(await ui.find({ type: 'Text', text: /missing: PG_URL/ })).toBeDefined();
-  await ui.input({ key: 'reqset:PG_URL', text: 'postgres://secret' });
+  await ui.input({ key: 'reqset:PG_URL', text: 'postgres://secret', kind: 'change' });
+  await ui.input({ key: 'reqset:PG_URL', text: '•'.repeat(17) });
   expect(await ui.find({ text: /postgres:\/\/secret/ })).toBeUndefined();
   await ui.press({ key: 'install-enable' });
   expect(d.calls).toContainEqual({
@@ -348,7 +375,7 @@ test('logs and audit tabs page through the daemon', async ($, on) => {
     requestId: 'agent-discover',
   });
   await ui.press({ key: 'tab:logs' });
-  expect(await ui.find({ type: 'Text', text: /pg\/query 12 ms boom stack/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /pg\/query\s+12 ms {2}boom stack/ })).toBeDefined();
   await ui.press({ key: 'tab:audit' });
   await ui.press({ key: 'audit-older' });
   await ui.input({ key: 'audit-action', text: 'call' });
