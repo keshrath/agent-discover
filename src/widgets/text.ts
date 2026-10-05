@@ -174,6 +174,13 @@ export function serverStatusText(r: Outputs['server_status'], o: TextOptions = {
 
 export function enableServerText(r: Outputs['enable_server'], o: TextOptions = {}): string {
   const link = serverLink(r.name, o);
+  if (r.quarantined)
+    return [
+      `${code(r.name)} stays quarantined: the changed tools were not approved, so they stay hidden and cannot be called.`,
+      link ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   return [
     `Enabled ${code(r.name)}: ${plural(r.tool_count, 'tool')}${r.tools.length ? ` (${names(r.tools)})` : ''}.`,
     link ?? '',
@@ -249,6 +256,8 @@ export function installServerText(r: Outputs['install_server'], o: TextOptions =
 export function getToolText(r: Outputs['get_tool']): string {
   if (!r.found)
     return `No indexed tool ${code(`${r.server} / ${r.tool}`)}. \`search_tools\` lists what exists.`;
+  if (r.quarantined)
+    return `${code(r.server)} is quarantined: its tools changed since approval, so the definition of ${code(r.tool)} is withheld. The user re-approves with \`enable_server\` or in the dashboard.`;
   const how = r.exposed
     ? `Call it directly as ${code(r.name ?? r.tool)}.`
     : `Call it with \`call_tool\` {server: "${r.server}", tool: "${r.tool}", arguments}.`;
