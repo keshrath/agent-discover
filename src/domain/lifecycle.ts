@@ -25,6 +25,8 @@ import type { MetricsService } from './metrics.js';
 import type { LogService } from './log.js';
 import type { SamplingProvider } from './sampling.js';
 import { ConnectionPool, type CallOptions, type HealthResult } from './pool.js';
+import type { RegistryMirror } from './registry.js';
+import type { RegistryStatus } from './install-plan.js';
 
 export interface TrustHooks {
   /** Runs before a server row is created. Throw to refuse the install. */
@@ -63,6 +65,8 @@ export interface ServerStatus {
   health_status: string;
   last_health_check: string | null;
   error_count: number;
+  /** Status of the MCP Registry entry the server was installed from (null: not from the registry or not mirrored). */
+  registry_status: RegistryStatus | null;
 }
 
 export interface LifecycleDeps {
@@ -71,6 +75,7 @@ export interface LifecycleDeps {
   secrets: SecretsService;
   metrics: MetricsService;
   logs: LogService;
+  registry: RegistryMirror;
   roots: () => Array<{ uri: string; name?: string }>;
   sampling?: SamplingProvider;
   connIdleMs: number;
@@ -284,6 +289,9 @@ export class ServerLifecycle {
 
   status(name?: string): ServerStatus[] {
     const rows = name ? [this.servers.require(name)] : this.servers.list();
+    const registry = this.deps.registry.statuses(
+      rows.flatMap((s) => (s.registry_name ? [s.registry_name] : [])),
+    );
     return rows.map((s) => ({
       name: s.name,
       description: s.description,
@@ -298,6 +306,7 @@ export class ServerLifecycle {
       health_status: s.health_status,
       last_health_check: s.last_health_check,
       error_count: s.error_count,
+      registry_status: (s.registry_name && registry.get(s.registry_name)) || null,
     }));
   }
 

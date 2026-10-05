@@ -66,6 +66,7 @@ export function createContext(options: ContextOptions = {}): AppContext {
     secrets,
     metrics,
     logs,
+    registry,
     roots: configuredRoots,
     sampling: maybeCreateDefaultSamplingProvider(),
     connIdleMs: config.connIdleMs,

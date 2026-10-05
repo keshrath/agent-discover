@@ -140,6 +140,10 @@ const serverStatus = z.object({
   health_status: z.string(),
   last_health_check: z.string().nullable(),
   error_count: z.number(),
+  registry_status: z
+    .enum(['active', 'deprecated', 'deleted'])
+    .nullable()
+    .describe('deleted = taken down from the MCP Registry (malware/spam): uninstall it'),
   health: z
     .object({ status: z.string(), latency_ms: z.number(), error: z.string().optional() })
     .optional(),

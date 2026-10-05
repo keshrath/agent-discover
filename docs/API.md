@@ -83,7 +83,15 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection)
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
-Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`.
+Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).
+
+### Marketplace and install
+
+- `GET /api/browse?query=&limit=` → `{servers: MarketplaceEntry[], registry: "mirror"|"live", errors: {registry?, npm?, pypi?}}`. `MarketplaceEntry = {source: "registry"|"npm"|"pypi", name, title?, description, version, status: "active"|"deprecated"|"deleted", repository, packages: [{registry_type, identifier, version, transport}], remotes: [{type, url}]}`. `name` is the exact name to install.
+- `GET /api/install/plan?source=&name=&version=&local_name=&transport=` → `InstallPlan` (the exact command or endpoint, the pinned version, env/header requirements, provenance checks, warnings, and `blocked` when it cannot be installed). `source` defaults to `registry`.
+- `POST /api/install` `{source?, name, version?, local_name?, transport?, enable?, secrets?}` → 201 server + `plan` (+ `index_error`). It returns 400 when the plan is blocked and 409 when the local name exists.
+- `GET /api/registry` → `{count, synced_at, syncing, last_error}` (local mirror of the official MCP Registry; the daemon syncs on start and on search when older than 1 h) · `POST /api/registry/sync` → `{mode: "full"|"incremental", fetched, pages, ms}`.
+- `ServerStatus.registry_status` (`GET /api/status`, `server_status`) is `deleted` when the entry an installed server came from was taken down.
 
 ### Tester (connects lazily; same routes under `/api/transient/:handle`)
 
@@ -92,7 +100,7 @@ Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `
 
 ### Other
 
-`GET /api/browse?query=&limit=&cursor=` · `GET /api/prereqs` · `GET /api/npm-check?package=` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
+`GET /api/prereqs` · `POST /api/sync` · `GET|DELETE /api/logs` · `GET /api/logs/notifications` · `GET /api/logs/progress` · `GET|POST /api/presets`, `DELETE /api/presets/:id` · `GET /api/elicitations`, `POST /api/elicitations/:id/respond` · `GET /api/roots`.
 
 ## WebSocket (`/ws`)
 

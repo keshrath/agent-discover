@@ -1,78 +1,177 @@
 // =============================================================================
-// agent-discover — Marketplace client tests
+// MarketplaceClient: mirror-first search with npm/PyPI federation, exact-name
+// resolve, and plan() pinning unversioned packages.
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createDb, type Db } from '../src/storage/database.js';
+import { RegistryMirror } from '../src/domain/registry.js';
 import { MarketplaceClient } from '../src/domain/marketplace.js';
+import { entry, fakeRegistry, type FakeRegistry } from './fixtures/registry.js';
 
+const BASE = 'https://registry.test';
+
+let db: Db;
+let reg: FakeRegistry;
+let mirror: RegistryMirror;
 let client: MarketplaceClient;
+let routes: Array<[RegExp, () => Response]>;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+const npmHit = (name: string, description: string, keywords: string[] = ['mcp']) => ({
+  package: { name, version: '0.1.0', description, keywords, links: {} },
+});
 
 beforeEach(() => {
-  client = new MarketplaceClient();
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-describe('MarketplaceClient', () => {
-  describe('browse', () => {
-    it('should parse a valid response', async () => {
-      const mockData = {
-        servers: [
-          {
-            server: {
-              name: 'test-server',
-              description: 'A test MCP server',
-              version: '1.0.0',
-              repository: { url: 'https://github.com/test/server', source: 'github' },
-              remotes: [
-                {
-                  type: 'streamable-http',
-                  url: 'https://server.smithery.ai/test',
-                },
-              ],
-            },
-            _meta: {},
-          },
+  db = createDb({ path: ':memory:' });
+  reg = fakeRegistry(
+    [
+      entry('io.github.acme/time', '1.0.0', {
+        description: 'Time and timezone tools',
+        packages: [
+          { registryType: 'npm', identifier: '@acme/time-mcp', transport: { type: 'stdio' } },
         ],
-        metadata: { nextCursor: 'abc123', count: 1 },
-      };
+      }),
+    ],
+    50,
+  );
+  routes = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString());
+      if (url.origin === BASE) return reg.handle(url) ?? json({}, 404);
+      for (const [re, fn] of routes) if (re.test(url.toString())) return fn();
+      return new Response('', { status: 404, statusText: 'Not Found' });
+    }),
+  );
+  mirror = new RegistryMirror(db, BASE);
+  client = new MarketplaceClient(mirror);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  db.close();
+});
 
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockData),
-      } as Response);
+describe('search', () => {
+  it('answers live before the first sync and starts a background sync', async () => {
+    const res = await client.search('time', 10);
+    expect(res.registry).toBe('live');
+    expect(res.servers.map((s) => s.name)).toEqual(['io.github.acme/time']);
+    await vi.waitFor(() => expect(mirror.status().synced_at).not.toBeNull());
+    expect((await client.search('time', 10)).registry).toBe('mirror');
+  });
 
-      const result = await client.browse('test', 10);
-
-      expect(result.servers).toHaveLength(1);
-      expect(result.servers[0].name).toBe('test-server');
-      expect(result.servers[0].repository).toBe('https://github.com/test/server');
-      expect(result.servers[0].packages).toHaveLength(1);
-      expect(result.servers[0].packages[0].runtime).toBe('streamable-http');
-      expect(result.next_cursor).toBe('abc123');
+  it('merges npm and PyPI, dropping packages a registry entry already publishes', async () => {
+    await mirror.sync();
+    routes.push(
+      [
+        /registry\.npmjs\.org\/-\/v1\/search/,
+        () =>
+          json({
+            objects: [
+              npmHit('@acme/time-mcp', 'shadow of the registry entry'),
+              npmHit('time-mcp-lite', 'Tiny MCP time server'),
+              npmHit('left-pad-time', 'not related', []),
+            ],
+          }),
+      ],
+      [/pypi\.org\/search/, () => new Response('<html></html>')],
+      [
+        /pypi\.org\/pypi\/mcp-server-time\/json/,
+        () => json({ info: { name: 'mcp-server-time', version: '0.6.2', summary: 'MCP time' } }),
+      ],
+    );
+    const res = await client.search('time', 10);
+    expect(res.errors).toEqual({});
+    expect(res.servers.map((s) => `${s.source}:${s.name}`)).toEqual([
+      'registry:io.github.acme/time',
+      'npm:time-mcp-lite',
+      'pypi:mcp-server-time',
+    ]);
+    expect(res.servers[0]).toMatchObject({
+      status: 'active',
+      packages: [
+        { registry_type: 'npm', identifier: '@acme/time-mcp', version: null, transport: 'stdio' },
+      ],
+      remotes: [],
     });
+  });
 
-    it('should handle empty response', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({}),
-      } as Response);
+  it('federation failures are reported per source, registry results survive', async () => {
+    await mirror.sync();
+    routes.push(
+      [/registry\.npmjs\.org/, () => new Response('<html>', { status: 200 })],
+      [/pypi\.org\/search/, () => new Response('', { status: 500 })],
+    );
+    const res = await client.search('time', 10);
+    expect(res.servers.map((s) => s.name)).toEqual(['io.github.acme/time']);
+    expect(Object.keys(res.errors)).toEqual(['npm']);
+  });
 
-      const result = await client.browse();
-      expect(result.servers).toEqual([]);
-      expect(result.next_cursor).toBeNull();
+  it('respects the limit', async () => {
+    await mirror.sync();
+    routes.push([
+      /registry\.npmjs\.org\/-\/v1\/search/,
+      () => json({ objects: [npmHit('a-mcp', 'mcp'), npmHit('b-mcp', 'mcp')] }),
+    ]);
+    expect((await client.search('time', 2)).servers).toHaveLength(2);
+  });
+});
+
+describe('resolve / plan', () => {
+  it('registry: exact name only, NotFound otherwise; falls back to the mirror offline', async () => {
+    await expect(client.resolve('registry', 'io.github.acme/tim')).rejects.toThrow(/not found/i);
+    const live = await client.resolve('registry', 'io.github.acme/time');
+    expect(live.server.name).toBe('io.github.acme/time');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    );
+    expect((await client.resolve('registry', 'io.github.acme/time')).registry?.status).toBe(
+      'active',
+    );
+    await expect(client.resolve('registry', 'io.github.acme/time', '0.1.0')).rejects.toThrow(
+      'offline',
+    );
+  });
+
+  it('npm / pypi: exact name match and package-name validation', async () => {
+    routes.push(
+      [
+        /registry\.npmjs\.org\/@acme%2Ftime-mcp\/latest/,
+        () => json({ name: '@acme/time-mcp', version: '2.1.0', description: 'time' }),
+      ],
+      [
+        /pypi\.org\/pypi\/mcp-server-time\/json/,
+        () => json({ info: { name: 'mcp_server_time', version: '0.6.2' } }),
+      ],
+    );
+    const npm = await client.resolve('npm', '@acme/time-mcp');
+    expect(npm.server.packages[0]).toMatchObject({
+      identifier: '@acme/time-mcp',
+      version: '2.1.0',
     });
+    await expect(client.resolve('pypi', 'mcp-server-time')).rejects.toThrow(/not found/i);
+    await expect(client.resolve('npm', 'x; rm -rf /')).rejects.toThrow(/Invalid package name/);
+  });
 
-    it('should throw on HTTP error', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
-      } as Response);
-
-      await expect(client.browse('test')).rejects.toThrow('Registry API error: 500');
-    });
+  it('plan pins an unversioned registry package to the current release and runs checks', async () => {
+    routes.push([
+      /registry\.npmjs\.org\/@acme%2Ftime-mcp\/(latest|3\.0\.0)$/,
+      () => json({ name: '@acme/time-mcp', version: '3.0.0', mcpName: 'io.github.acme/time' }),
+    ]);
+    const plan = await client.plan({ name: 'io.github.acme/time' });
+    expect(plan.args).toEqual(['-y', '@acme/time-mcp@3.0.0']);
+    expect(plan.provenance.pinned).toBe(true);
+    expect(plan.provenance.checks.map((c) => `${c.id}:${c.status}`)).toEqual([
+      'registry_namespace:pass',
+      'npm_mcp_name:pass',
+    ]);
   });
 });

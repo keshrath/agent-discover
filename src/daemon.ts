@@ -109,6 +109,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   idleTimer.unref();
 
   if (!options.skipStartupTasks) {
+    ctx.registry.syncIfStale(); // background; search answers live until the first sync lands
     void ctx
       .syncSetup()
       .then(() => ctx.lifecycle.indexPending())
