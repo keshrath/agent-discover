@@ -9,6 +9,7 @@
 //   structured  outputSchema + structuredContent
 //   confirm     MRTR elicitation round (input_required)
 //   meta        returns the request _meta as JSON (trace context propagation)
+//   env         returns one environment variable (secrets reach the upstream)
 //   crash       exits the process (connection drop)
 //   grow        registers tool `extra` and emits tools/list_changed
 // FIXTURE_DESCRIPTION overrides echo's description (tool drift tests).
@@ -79,6 +80,11 @@ function build() {
   s.registerTool('meta', { description: 'Return the request _meta as JSON' }, async (ctx) => ({
     content: [{ type: 'text', text: JSON.stringify(ctx.mcpReq._meta ?? {}) }],
   }));
+  s.registerTool(
+    'env',
+    { description: 'Return one environment variable', inputSchema: z.object({ name: z.string() }) },
+    async ({ name }) => ({ content: [{ type: 'text', text: process.env[name] ?? '' }] }),
+  );
   s.registerTool('crash', { description: 'Exit the server process' }, async () => {
     setTimeout(() => process.exit(1), 10);
     return { content: [{ type: 'text', text: 'bye' }] };

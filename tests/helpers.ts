@@ -52,7 +52,10 @@ export interface ClientOptions {
   elicitation?: boolean;
 }
 
-export async function connectClient(d: TestDaemon, opts: ClientOptions): Promise<Client> {
+export async function connectClient(
+  d: Pick<TestDaemon, 'base'>,
+  opts: ClientOptions,
+): Promise<Client> {
   const client = new Client(
     { name: `test-${opts.era}`, version: '1.0.0' },
     {

@@ -120,6 +120,33 @@ describe('search', () => {
     ]);
     expect((await client.search('time', 2)).servers).toHaveLength(2);
   });
+
+  it('interleaves the keyword and plain npm rankings so neither buries the other', async () => {
+    await mirror.sync();
+    routes.push(
+      [
+        /keywords%3Amcp/,
+        () => json({ objects: ['k1', 'k2', 'k3'].map((n) => npmHit(`${n}-mcp`, 'mcp')) }),
+      ],
+      [
+        /registry\.npmjs\.org\/-\/v1\/search/,
+        () => json({ objects: [npmHit('@mcp/plain-top', 'MCP server', [])] }),
+      ],
+    );
+    const names = (await client.search('everything', 3)).servers.map((s) => s.name);
+    expect(names).toEqual(['k1-mcp', '@mcp/plain-top', 'k2-mcp']);
+  });
+
+  it('falls back to the partly synced mirror when the live search fails', async () => {
+    await mirror.sync();
+    db.run("DELETE FROM _meta WHERE key = 'registry_synced_at'");
+    const handle = reg.handle;
+    reg.handle = (url) =>
+      url.searchParams.has('search') ? new Response('', { status: 503 }) : handle(url);
+    const res = await client.search('time', 10);
+    expect(res.servers.map((s) => s.name)).toContain('io.github.acme/time');
+    expect(res.errors.registry).toBeUndefined();
+  });
 });
 
 describe('resolve / plan', () => {

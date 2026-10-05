@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cell,
   commandLine,
+  enableServerText,
   getToolText,
   installPlanText,
   installServerText,
@@ -175,5 +176,20 @@ describe('renderers', () => {
     expect(text).toContain('Call it directly as `pg__query`.');
     expect(text).toContain('"sql": {');
     expect(getToolText({ found: false, server: 'pg', tool: 'x' })).toMatch(/No indexed tool/);
+  });
+
+  it('quarantined servers: no "enabled" claim, no call hint', () => {
+    const declined = enableServerText({
+      name: 'fx',
+      enabled: true,
+      quarantined: true,
+      tool_count: 0,
+      tools: [],
+    });
+    expect(declined).toMatch(/^`fx` stays quarantined/);
+    expect(declined).not.toMatch(/Enabled/);
+    const withheld = getToolText({ found: true, server: 'fx', tool: 'echo', quarantined: true });
+    expect(withheld).toMatch(/quarantined/);
+    expect(withheld).not.toMatch(/call_tool|Input schema/);
   });
 });

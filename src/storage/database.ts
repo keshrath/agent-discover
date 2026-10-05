@@ -22,7 +22,7 @@
 import Database from 'better-sqlite3';
 import { homedir } from 'os';
 import { join } from 'path';
-import { mkdirSync } from 'fs';
+import { existsSync, mkdirSync, renameSync } from 'fs';
 import { toolHash } from '../domain/tool-hash.js';
 import { buildDocument, FTS_SCHEMA } from '../domain/tool-doc.js';
 
@@ -41,7 +41,7 @@ export interface Migration {
 }
 
 export interface DbOptions {
-  /** ':memory:' for tests, or a file path. Defaults to $AGENT_DISCOVER_DB, else ~/.claude/agent-discover.db (the 1.x location, kept so existing data survives). */
+  /** ':memory:' for tests, or a file path. Defaults to $AGENT_DISCOVER_DB, else agent-discover.db in dataDir(). */
   path?: string;
 }
 
@@ -65,13 +65,81 @@ export function createDb(options: DbOptions = {}): Db {
   };
 }
 
-export function resolveDbPath(path?: string): string {
+const DB_FILE = 'agent-discover.db';
+/** Files that live next to the DB: SQLite WAL/SHM and the file secret store (secret-store.ts). */
+const COMPANIONS = [`${DB_FILE}-wal`, `${DB_FILE}-shm`];
+const SECRET_FILES = ['agent-discover-secrets.json', 'agent-discover-secrets.key'];
+
+/**
+ * Per-user data directory: $AGENT_DISCOVER_DATA_DIR, else the platform default
+ * (%LOCALAPPDATA%agent-discover, ~/Library/Application Support/agent-discover,
+ * $XDG_DATA_HOME/agent-discover or ~/.local/share/agent-discover).
+ */
+export function dataDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string {
+  if (env.AGENT_DISCOVER_DATA_DIR) return env.AGENT_DISCOVER_DATA_DIR;
+  if (platform === 'win32')
+    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agent-discover');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'agent-discover');
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'agent-discover');
+}
+
+/** Whether another process has the SQLite DB open (a 1.x daemon still running). */
+function inUse(path: string): boolean {
+  const probe = new Database(path, { timeout: 0, fileMustExist: true });
+  try {
+    probe.pragma('locking_mode = EXCLUSIVE');
+    probe.exec('BEGIN EXCLUSIVE');
+    probe.exec('COMMIT');
+    return false;
+  } catch (err) {
+    if ((err as { code?: string }).code === 'SQLITE_BUSY') return true;
+    throw err;
+  } finally {
+    probe.close();
+  }
+}
+
+/**
+ * 1.x kept its DB in ~/.claude. Move it (with WAL/SHM and the secret files) into
+ * the data dir once. Never while another process uses it: migrating the schema
+ * under a running 1.x would break that process.
+ */
+function adoptLegacyDb(legacyDir: string, dir: string): void {
+  const legacy = join(legacyDir, DB_FILE);
+  if (!existsSync(legacy)) return;
+  if (inUse(legacy)) {
+    throw new Error(
+      `${legacy} is in use by another process (agent-discover 1.x still running?). Stop it and start again; the database then moves to ${dir}.`,
+    );
+  }
+  for (const f of [DB_FILE, ...COMPANIONS, ...SECRET_FILES]) {
+    if (existsSync(join(legacyDir, f))) renameSync(join(legacyDir, f), join(dir, f));
+  }
+  process.stderr.write(`[agent-discover] moved the 1.x database from ${legacyDir} to ${dir}\n`);
+}
+
+/**
+ * $AGENT_DISCOVER_DB, else agent-discover.db in dataDir(). The 1.x DB is adopted
+ * only into the default data dir: an explicit AGENT_DISCOVER_DATA_DIR is a
+ * separate instance (tests, a second profile) and must not take the user's data.
+ */
+export function resolveDbPath(
+  path?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string {
   if (path) return path;
-  const envPath = process.env.AGENT_DISCOVER_DB;
-  if (envPath) return envPath;
-  const dir = join(homedir(), '.claude');
+  if (env.AGENT_DISCOVER_DB) return env.AGENT_DISCOVER_DB;
+  const dir = dataDir(env, platform, home);
   mkdirSync(dir, { recursive: true });
-  return join(dir, 'agent-discover.db');
+  const db = join(dir, DB_FILE);
+  if (!existsSync(db) && !env.AGENT_DISCOVER_DATA_DIR) adoptLegacyDb(join(home, '.claude'), dir);
+  return db;
 }
 
 /** Apply every migration above the stored version, in one transaction. */

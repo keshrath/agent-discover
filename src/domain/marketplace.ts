@@ -180,9 +180,13 @@ export class MarketplaceClient {
     const errors: MarketplaceSearch['errors'] = {};
     const synced = this.mirror.status().synced_at !== null;
     this.mirror.syncIfStale();
+    // Until the first sync lands, search live; if that fails, the partly filled mirror answers.
     const registry: Promise<InstallCandidate[]> = synced
       ? Promise.resolve(this.mirror.search(query, limit))
-      : this.mirror.searchLive(query, limit);
+      : this.mirror.searchLive(query, limit).catch((err: unknown) => {
+          if (this.mirror.status().count === 0) throw err;
+          return this.mirror.search(query, limit);
+        });
     const [reg, npm, pypi] = await Promise.all([
       registry.catch((err: unknown) => {
         errors.registry = err instanceof Error ? err.message : String(err);
@@ -302,9 +306,14 @@ export class MarketplaceClient {
         return Array.isArray(data?.objects) ? data.objects : [];
       }),
     );
+    // Interleave the two rankings: appending would bury the plain query's top hits
+    // (@modelcontextprotocol/server-everything has no mcp keyword) below the limit.
+    const ranked = Array.from({ length: Math.max(...responses.map((r) => r.length)) }, (_, i) =>
+      responses.map((r) => r[i]).filter(Boolean),
+    ).flat();
     const seen = new Set<string>();
     const out: InstallCandidate[] = [];
-    for (const { package: pkg = {} } of responses.flat()) {
+    for (const { package: pkg = {} } of ranked) {
       const name = String(pkg.name ?? '');
       if (!name || seen.has(name)) continue;
       const kw = Array.isArray(pkg.keywords) ? pkg.keywords.join(' ') : '';
