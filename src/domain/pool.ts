@@ -18,6 +18,8 @@
 import { spawn } from 'node:child_process';
 import {
   Client,
+  SdkError,
+  SdkErrorCode,
   SSEClientTransport,
   StreamableHTTPClientTransport,
   withInputRequired,
@@ -44,6 +46,28 @@ const MAX_BACKOFF_MS = 60_000;
 const ELICITATION_TIMEOUT_MS = 2 * 60_000;
 const TRANSIENT_TTL_MS = 15 * 60_000;
 const TRANSIENT_PREFIX = '__transient__';
+
+/**
+ * Probes the era in place: the SDK spawns a disposable sibling process for the
+ * `server/discover` probe only for its exact base class (16–35 s for an npx
+ * server vs 3.6 s in place). Servers that exit on a pre-initialize request
+ * close during the in-place probe; `open` then initializes them as legacy.
+ */
+class InPlaceStdioTransport extends StdioClientTransport {}
+
+/** The in-place probe ended because the server closed the connection (a legacy server). */
+function closedDuringProbe(err: unknown): boolean {
+  for (let e: unknown = err; e instanceof Error; e = e.cause) {
+    if (
+      e instanceof SdkError &&
+      e.code === SdkErrorCode.EraNegotiationFailed &&
+      e.message.includes('probed in place')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export type EraVerdict = { era: 'modern' | 'legacy'; discover: unknown; checked_at: string };
 
@@ -214,16 +238,20 @@ export class ConnectionPool {
       );
     }
     const config = this.transient.get(name)?.config ?? this.deps.resolveConfig(name);
-    const prior = this.priorFor(name);
+    const cached = this.priorFor(name);
+    let prior = cached;
     let client: Client;
     try {
       client = await this.handshake(config, prior);
     } catch (err) {
-      if (!prior) throw await this.recordFailure(name, config, err);
-      // A stale cached verdict must never wedge a server: retry once negotiating fresh.
-      this.deps.setEraVerdict(name, null);
+      // Retry once: a stale cached verdict must never wedge a server (negotiate fresh), and
+      // a server that closed during the in-place probe is legacy.
+      if (prior) prior = undefined;
+      else if (closedDuringProbe(err)) prior = { kind: 'legacy' };
+      else throw await this.recordFailure(name, config, err);
+      if (cached) this.deps.setEraVerdict(name, null);
       try {
-        client = await this.handshake(config, undefined);
+        client = await this.handshake(config, prior);
       } catch (retryErr) {
         throw await this.recordFailure(name, config, retryErr);
       }
@@ -232,7 +260,8 @@ export class ConnectionPool {
 
     const era = client.getProtocolEra();
     if (era === 'modern') this.deps.setEraVerdict(name, 'modern', client.getDiscoverResult());
-    else if (!prior) this.deps.setEraVerdict(name, 'legacy');
+    // Legacy verdicts are dated when found, so re-using one never extends its TTL.
+    else if (prior !== cached || !cached) this.deps.setEraVerdict(name, 'legacy');
     if (era === 'modern' && prior && client.getServerCapabilities()?.tools?.listChanged) {
       // Connects that adopt a prior verdict are request-only until listen() is called.
       client.listen({ toolsListChanged: true }).catch(() => {});
@@ -321,7 +350,7 @@ export class ConnectionPool {
   } {
     if (config.transport === 'stdio') {
       if (!config.command) throw new Error(`Server "${config.name}" has no command configured`);
-      const transport = new StdioClientTransport({
+      const transport = new InPlaceStdioTransport({
         command: config.command,
         args: config.args,
         env: { ...(process.env as Record<string, string>), ...config.env },
