@@ -93,7 +93,7 @@ describe('migration 7 (v1.4 → 2.0)', () => {
     expect(b.source).toBe('registry');
     expect(b.indexed_at).toBeNull(); // will be indexed in the background
 
-    const index = new ToolIndex(db, async () => new NoopEmbeddingProvider());
+    const index = new ToolIndex(db, { embeddings: async () => new NoopEmbeddingProvider() });
     const tool = index.get('local-a', 'do_it')!;
     expect(tool.tool_hash).toBe(
       toolHash({ name: 'do_it', description: 'Does it', inputSchema: { type: 'object' } }),

@@ -24,6 +24,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { toolHash } from '../domain/tool-hash.js';
+import { buildDocument, FTS_SCHEMA } from '../domain/tool-doc.js';
 
 export interface Db {
   readonly raw: Database.Database;
@@ -439,6 +440,46 @@ export const migrations: Migration[] = [
           VALUES (new.rowid, new.name, coalesce(new.title, ''), new.description);
         END;
       `);
+    },
+  },
+  {
+    // W1 retrieval: fielded FTS5 index (name / description / args) with porter
+    // stemming, written by ToolIndex.save — replaces the trigger-synced
+    // name/description table and the hand-written synonym list. Stored vectors
+    // were built from another text without query/document formatting, so they
+    // are dropped and recomputed on the next index.
+    version: 10,
+    up: (db: Database.Database) => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS server_tools_ai;
+        DROP TRIGGER IF EXISTS server_tools_ad;
+        DROP TRIGGER IF EXISTS server_tools_au;
+        DROP TABLE IF EXISTS server_tools_fts;
+        ${FTS_SCHEMA}
+        UPDATE server_tools SET embedding = NULL, embedding_model = NULL;
+      `);
+      const rows = db
+        .prepare('SELECT id, name, title, description, input_schema FROM server_tools')
+        .all() as Array<{
+        id: number;
+        name: string;
+        title: string | null;
+        description: string;
+        input_schema: string;
+      }>;
+      const insert = db.prepare(
+        'INSERT INTO server_tools_fts (rowid, name, description, args) VALUES (?, ?, ?, ?)',
+      );
+      for (const row of rows) {
+        let inputSchema: Record<string, unknown> = {};
+        try {
+          inputSchema = JSON.parse(row.input_schema) as Record<string, unknown>;
+        } catch {
+          /* unparseable legacy schema (kept by migration 7): index without args */
+        }
+        const doc = buildDocument({ ...row, inputSchema });
+        insert.run(row.id, doc.name, doc.description, doc.args);
+      }
     },
   },
 ];

@@ -1,55 +1,40 @@
 // =============================================================================
 // agent-discover — Embedding provider interface
 //
-// All providers (none, local, openai, claude, gemini) implement this. Mirrors
-// agent-knowledge's embedding subsystem so the env-var conventions and the
-// switch-on-provider semantics stay identical across the agent-* family.
+// Retrieval models embed queries and documents differently (instruction or
+// "query:"/"passage:" prefixes), so callers say which side they embed.
 // =============================================================================
 
+export type EmbedKind = 'query' | 'document';
+
 export interface EmbeddingProvider {
-  /** Provider identifier — 'none' | 'local' | 'openai' | 'claude' | 'gemini'. */
+  /** Provider identifier — 'none' | 'local' | 'openai'. */
   readonly name: string;
-  /** Vector dimensions produced by this provider. */
-  readonly dimensions: number;
-  /** Model identifier (provider-specific string). */
+  /** Model identifier; stored vectors are only compared within one model. */
   readonly model: string;
-  /** Embed one or more texts. Returns one number[] per input, in order. */
-  embed(texts: string[]): Promise<number[][]>;
-  /** Convenience wrapper for a single text. */
-  embedOne(text: string): Promise<number[]>;
-  /** True when the provider is usable (model loaded, API key valid, etc.). */
-  isAvailable(): Promise<boolean>;
+  /** One vector per input, in order (empty vector where embedding failed). */
+  embed(texts: string[], kind: EmbedKind): Promise<number[][]>;
 }
 
-export type ProviderName = 'none' | 'local' | 'openai' | 'claude' | 'gemini';
+export type ProviderName = 'none' | 'local' | 'openai';
 
 export interface EmbeddingConfig {
-  /** Which provider to use. 'none' disables semantic search entirely. */
+  /** 'none' (default) disables semantic search. */
   provider: ProviderName;
   openaiApiKey?: string;
-  anthropicApiKey?: string;
-  geminiApiKey?: string;
   /** Override the provider's default model id. */
   modelOverride?: string;
 }
 
 /**
- * Read embedding configuration from environment variables.
- *
- * Default provider is 'none' — agent-discover ships disabled-by-default for
- * semantic search so existing installs without an embedding key keep working
- * with BM25-only ranking. Opt in by setting AGENT_DISCOVER_EMBEDDING_PROVIDER.
- *
- * Provider-specific API keys fall back to the generic env vars (OPENAI_API_KEY
- * etc.) when the prefixed AGENT_DISCOVER_* variants aren't set, so a user who
- * already has OPENAI_API_KEY exported just needs to flip the provider flag.
+ * AGENT_DISCOVER_EMBEDDING_PROVIDER selects the provider (default 'none':
+ * lexical search only, no download, no key). AGENT_DISCOVER_EMBEDDING_MODEL
+ * overrides the model; the OpenAI key falls back to OPENAI_API_KEY.
  */
-export function getEmbeddingConfig(): EmbeddingConfig {
+export function getEmbeddingConfig(env = process.env): EmbeddingConfig {
   return {
-    provider: (process.env.AGENT_DISCOVER_EMBEDDING_PROVIDER as ProviderName) || 'none',
-    openaiApiKey: process.env.AGENT_DISCOVER_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
-    anthropicApiKey: process.env.AGENT_DISCOVER_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY,
-    geminiApiKey: process.env.AGENT_DISCOVER_GEMINI_API_KEY || process.env.GEMINI_API_KEY,
-    modelOverride: process.env.AGENT_DISCOVER_EMBEDDING_MODEL,
+    provider: (env.AGENT_DISCOVER_EMBEDDING_PROVIDER as ProviderName) || 'none',
+    openaiApiKey: env.AGENT_DISCOVER_OPENAI_API_KEY || env.OPENAI_API_KEY,
+    modelOverride: env.AGENT_DISCOVER_EMBEDDING_MODEL,
   };
 }

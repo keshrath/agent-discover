@@ -292,7 +292,7 @@ keep working with zero configuration. Enable a provider via:
 export AGENT_DISCOVER_EMBEDDING_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
 
-# Local @huggingface/transformers + Xenova/all-MiniLM-L6-v2 (384 dims)
+# Local @huggingface/transformers + Xenova/multilingual-e5-small (384 dims)
 # requires `npm install @huggingface/transformers` (optional peer dep)
 export AGENT_DISCOVER_EMBEDDING_PROVIDER=local
 

@@ -1,151 +1,109 @@
 // =============================================================================
 // agent-discover — Local embedding provider
 //
-// Runs Xenova/all-MiniLM-L6-v2 (or any HF feature-extraction model) inside
-// the agent-discover process via @huggingface/transformers. No API key, no
-// network call after the initial model download. Default dimensions: 384.
+// Runs an ONNX feature-extraction model in-process via @huggingface/transformers
+// (optional dependency: `npm install @huggingface/transformers`). No API key;
+// one model download on first use, then fully offline.
 //
-// Loaded lazily so installs without @huggingface/transformers don't break —
-// the import is dynamic, and isAvailable() returns false if the package or
-// the model can't be loaded. Mirrors agent-knowledge's local provider so
-// the same model is downloaded once and reused across both servers.
+// Default: multilingual-e5-small (~130 MB, q8) — the model measured on the
+// retrieval bench (bench/retrieval/README.md); multilingual, so German queries
+// match English tool metadata. It gets its trained "query: " / "passage: "
+// prefixes; any other model id (AGENT_DISCOVER_EMBEDDING_MODEL) runs
+// unprefixed with mean pooling.
 // =============================================================================
 
-import type { EmbeddingProvider } from './types.js';
+import type { EmbedKind, EmbeddingProvider } from './types.js';
 
-const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
-const DEFAULT_DIMENSIONS = 384;
-const DEFAULT_BATCH_SIZE = 8;
-const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
-const DEFAULT_NUM_THREADS = 1;
+export const DEFAULT_LOCAL_MODEL = 'Xenova/multilingual-e5-small';
+
+/** Input prefixes per side; e5 is trained with "query: " / "passage: ". */
+type Prefixes = Record<EmbedKind, string>;
+const E5: Prefixes = { query: 'query: ', document: 'passage: ' };
+const NONE: Prefixes = { query: '', document: '' };
+
+const BATCH_SIZE = 16;
 
 type PipelineFn = (
   texts: string[],
   options: { pooling: string; normalize: boolean },
-) => Promise<{ tolist(): number[][]; dispose?: () => void }>;
+) => Promise<{ tolist(): number[][] }>;
 
-let _pipeline: PipelineFn | null = null;
-let _pipelineLoading: Promise<PipelineFn | null> | null = null;
-let _idleTimer: ReturnType<typeof setTimeout> | null = null;
-let _idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
-
-const _numThreads = parseInt(
-  process.env.AGENT_DISCOVER_EMBEDDING_THREADS ?? String(DEFAULT_NUM_THREADS),
-  10,
-);
-process.env.ONNX_NUM_THREADS = String(_numThreads);
-process.env.OMP_NUM_THREADS = String(_numThreads);
-
-async function loadPipeline(model: string): Promise<PipelineFn | null> {
+async function loadPipeline(model: string, threads: number): Promise<PipelineFn | null> {
   try {
-    process.stderr.write(
-      `[agent-discover] Loading embedding model ${model} (q8, ${_numThreads} thread(s))...\n`,
-    );
-    // Indirect import so TypeScript doesn't require the optional
-    // @huggingface/transformers package at compile time. The factory only
-    // calls this provider when the user explicitly requests local embeddings.
+    // Indirect import: the package is optional and absent from the type graph.
     const moduleName = '@huggingface/transformers';
-    const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<unknown>;
-    const mod = (await dynamicImport(moduleName).catch(() => null)) as {
-      pipeline?: unknown;
+    const mod = (await import(moduleName).catch(() => null)) as {
+      pipeline?: (task: string, m: string, o: Record<string, unknown>) => Promise<unknown>;
     } | null;
-    if (!mod || typeof mod.pipeline !== 'function') {
+    if (!mod?.pipeline) {
       process.stderr.write(
-        '[agent-discover] @huggingface/transformers not installed — local embeddings unavailable. ' +
-          'Install with: npm install @huggingface/transformers\n',
+        '[agent-discover] local embeddings need @huggingface/transformers (npm install @huggingface/transformers)\n',
       );
       return null;
     }
-    const pipelineFn = mod.pipeline as (
-      task: string,
-      m: string,
-      opts: Record<string, unknown>,
-    ) => Promise<unknown>;
-    const pipe = await pipelineFn('feature-extraction', model, {
+    process.stderr.write(`[agent-discover] loading embedding model ${model} (q8)\n`);
+    return (await mod.pipeline('feature-extraction', model, {
       dtype: 'q8',
-      session_options: {
-        intraOpNumThreads: _numThreads,
-        interOpNumThreads: _numThreads,
-      },
-    });
-    if (!pipe || typeof pipe !== 'function') {
-      throw new Error('failed to construct transformer pipeline');
-    }
-    process.stderr.write(`[agent-discover] Embedding model loaded\n`);
-    return pipe as PipelineFn;
+      session_options: { intraOpNumThreads: threads, interOpNumThreads: threads },
+    })) as PipelineFn;
   } catch (err) {
     process.stderr.write(
-      `[agent-discover] Failed to load embedding model ${model}: ${(err as Error).message}\n`,
+      `[agent-discover] failed to load embedding model ${model}: ${(err as Error).message}\n`,
     );
     return null;
   }
 }
 
-function resetIdleTimer(): void {
-  if (_idleTimer) clearTimeout(_idleTimer);
-  if (_idleTimeoutMs <= 0) return;
-  _idleTimer = setTimeout(() => {
-    if (_pipeline) {
-      process.stderr.write('[agent-discover] Unloading embedding model (idle timeout)\n');
-      _pipeline = null;
-      _pipelineLoading = null;
-    }
-    _idleTimer = null;
-  }, _idleTimeoutMs);
-}
-
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   readonly name = 'local';
-  readonly dimensions: number;
   readonly model: string;
-  private readonly batchSize: number;
+  private readonly prefixes: Prefixes;
+  private pipeline: Promise<PipelineFn | null> | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(modelOverride?: string, batchSize?: number, idleTimeoutMs?: number) {
-    this.model = modelOverride || DEFAULT_MODEL;
-    this.dimensions = DEFAULT_DIMENSIONS;
-    this.batchSize = batchSize ?? DEFAULT_BATCH_SIZE;
-    if (idleTimeoutMs !== undefined) _idleTimeoutMs = idleTimeoutMs;
+  constructor(
+    model = DEFAULT_LOCAL_MODEL,
+    private readonly idleMs = 60_000,
+    private readonly threads = 1,
+  ) {
+    this.model = model;
+    this.prefixes = model === DEFAULT_LOCAL_MODEL ? E5 : NONE;
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
-    const pipe = await this.getPipeline();
-    if (!pipe) return texts.map(() => []);
-    resetIdleTimer();
-    const results: number[][] = [];
-    for (let i = 0; i < texts.length; i += this.batchSize) {
-      const batch = texts.slice(i, i + this.batchSize);
+  /** Loads the model; false when the package or the model is unavailable. */
+  async load(): Promise<boolean> {
+    this.pipeline ??= loadPipeline(this.model, this.threads);
+    return (await this.pipeline) !== null;
+  }
+
+  async embed(texts: string[], kind: EmbedKind): Promise<number[][]> {
+    if (!(await this.load())) return texts.map(() => []);
+    const pipe = (await this.pipeline)!;
+    const prefix = this.prefixes[kind];
+    const out: number[][] = [];
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batch = texts.slice(i, i + BATCH_SIZE).map((t) => prefix + t);
       try {
-        const output = await pipe(batch, { pooling: 'mean', normalize: true });
-        results.push(...output.tolist());
+        const res = await pipe(batch, { pooling: 'mean', normalize: true });
+        out.push(...res.tolist());
       } catch (err) {
         process.stderr.write(
           `[agent-discover] embedding batch failed: ${(err as Error).message}\n`,
         );
-        results.push(...batch.map(() => []));
+        out.push(...batch.map(() => []));
       }
     }
-    resetIdleTimer();
-    return results;
+    this.armIdleUnload();
+    return out;
   }
 
-  async embedOne(text: string): Promise<number[]> {
-    const r = await this.embed([text]);
-    return r[0] ?? [];
-  }
-
-  async isAvailable(): Promise<boolean> {
-    return (await this.getPipeline()) !== null;
-  }
-
-  private async getPipeline(): Promise<PipelineFn | null> {
-    if (_pipeline) return _pipeline;
-    if (!_pipelineLoading) {
-      _pipelineLoading = loadPipeline(this.model).then((pipe) => {
-        _pipeline = pipe;
-        if (pipe) resetIdleTimer();
-        return pipe;
-      });
-    }
-    return _pipelineLoading;
+  private armIdleUnload(): void {
+    if (this.idleMs <= 0) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      this.pipeline = null;
+      this.idleTimer = null;
+    }, this.idleMs);
+    this.idleTimer.unref();
   }
 }
