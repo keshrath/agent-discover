@@ -16,6 +16,8 @@ export interface Config {
   readonly idleMs: number;
   /** Upstream connections idle longer than this are closed (AGENT_DISCOVER_CONN_IDLE_MS, default 10 min). */
   readonly connIdleMs: number;
+  /** Idle 2025 HTTP sessions (no open stream) are closed after this long (AGENT_DISCOVER_SESSION_IDLE_MS, default 30 min, 0 = never). */
+  readonly sessionIdleMs: number;
   /** native = enabled servers' tools exposed as <server>__<tool>; proxy = meta tools only (AGENT_DISCOVER_MODE). */
   readonly mode: ExposureMode;
   /** Operator opt-in: install_server may run without human consent when the client cannot elicit. */
@@ -40,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.AGENT_DISCOVER_HOST || '127.0.0.1',
     idleMs: int(env.AGENT_DISCOVER_IDLE_MS, 30 * 60_000),
     connIdleMs: int(env.AGENT_DISCOVER_CONN_IDLE_MS, 10 * 60_000),
+    sessionIdleMs: int(env.AGENT_DISCOVER_SESSION_IDLE_MS, 30 * 60_000),
     mode: env.AGENT_DISCOVER_MODE === 'proxy' ? 'proxy' : 'native',
     allowUnconfirmedInstall: env.AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL === '1',
     registryUrl: (

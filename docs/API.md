@@ -22,17 +22,20 @@ Every request and WebSocket upgrade passes the request guard:
 
 ## Environment
 
-| Variable                                   | Default                       | Meaning                                                                                 |
-| ------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`                      | `3424`                        | Daemon port                                                                             |
-| `AGENT_DISCOVER_HOST`                      | `127.0.0.1`                   | Listen address                                                                          |
-| `AGENT_DISCOVER_DB`                        | `~/.claude/agent-discover.db` | SQLite path (1.x location, migrated in place)                                           |
-| `AGENT_DISCOVER_MODE`                      | `native`                      | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only |
-| `AGENT_DISCOVER_IDLE_MS`                   | `1800000`                     | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)   |
-| `AGENT_DISCOVER_CONN_IDLE_MS`              | `600000`                      | Idle upstream connections are closed                                                    |
-| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL` | unset                         | `1` lets `install_server` run without an elicitation prompt (operator opt-in)           |
-| `AGENT_DISCOVER_SETUP_FILE`                | unset                         | Declarative server list synced at daemon start                                          |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`        | `none`                        | `openai` / `local` adds semantic ranking                                                |
+| Variable                                   | Default                                    | Meaning                                                                                                |
+| ------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `AGENT_DISCOVER_PORT`                      | `3424`                                     | Daemon port                                                                                            |
+| `AGENT_DISCOVER_HOST`                      | `127.0.0.1`                                | Listen address                                                                                         |
+| `AGENT_DISCOVER_DB`                        | `~/.claude/agent-discover.db`              | SQLite path (1.x location, migrated in place)                                                          |
+| `AGENT_DISCOVER_MODE`                      | `native`                                   | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only                |
+| `AGENT_DISCOVER_IDLE_MS`                   | `1800000`                                  | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)                  |
+| `AGENT_DISCOVER_CONN_IDLE_MS`              | `600000`                                   | Idle upstream connections are closed                                                                   |
+| `AGENT_DISCOVER_SESSION_IDLE_MS`           | `1800000`                                  | 2025 HTTP sessions with no open stream are closed after this long (`0` = never)                        |
+| `AGENT_DISCOVER_REGISTRY_URL`              | `https://registry.modelcontextprotocol.io` | Official MCP Registry (or a compatible sub-registry) mirrored locally                                  |
+| `AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL` | unset                                      | HTTPS URL of an operator-hosted OAuth Client ID Metadata Document; unset = dynamic client registration |
+| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL` | unset                                      | `1` lets `install_server` run without an elicitation prompt (operator opt-in)                          |
+| `AGENT_DISCOVER_SETUP_FILE`                | unset                                      | Declarative server list synced at daemon start                                                         |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`        | `none`                                     | `openai` / `local` adds semantic ranking                                                               |
 
 ## MCP
 

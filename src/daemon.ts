@@ -39,7 +39,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   const { port, host, idleMs } = ctx.config;
   const mcpHost = localhostHostValidation();
   const mcpOrigin = localhostOriginValidation();
-  const mcp = createMcpEndpoint(createMcpFactory(ctx));
+  const mcp = createMcpEndpoint(createMcpFactory(ctx), ctx.config.sessionIdleMs);
   const rest = createRestHandler(ctx);
 
   let open = 0;

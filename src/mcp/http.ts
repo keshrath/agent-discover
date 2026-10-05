@@ -8,7 +8,9 @@
 //   - legacy (2025-06-18 / 2025-11-25): a sessionful
 //     NodeStreamableHTTPServerTransport per client, so 2025 clients keep the
 //     standalone GET stream (list_changed) and server→client elicitation
-//     (the SDK's MRTR legacy shim).
+//     (the SDK's MRTR legacy shim). A session with no open response (no
+//     GET stream, no request in flight) idle longer than `sessionIdleMs` is
+//     closed; its client gets 404 and re-initializes.
 // Host/Origin/Content-Type are enforced by the daemon's request guard
 // before a request reaches this module.
 // =============================================================================
@@ -26,6 +28,9 @@ import type { McpFactory } from './server.js';
 interface LegacySession {
   transport: NodeStreamableHTTPServerTransport;
   server: Server;
+  /** Responses currently open (the GET stream, requests in flight). */
+  open: number;
+  lastSeen: number;
 }
 
 export interface McpEndpoint {
@@ -48,7 +53,7 @@ function jsonRpcError(res: ServerResponse, status: number, code: number, message
   res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code, message } }));
 }
 
-export function createMcpEndpoint(factory: McpFactory): McpEndpoint {
+export function createMcpEndpoint(factory: McpFactory, sessionIdleMs: number): McpEndpoint {
   const modern = createMcpHandler(() => factory.build(), { legacy: 'reject', onerror: log });
   const modernNode = toNodeHandler(modern, { onerror: log });
   const sessions = new Map<string, LegacySession>();
@@ -63,17 +68,36 @@ export function createMcpEndpoint(factory: McpFactory): McpEndpoint {
       const server = factory.build();
       const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => void sessions.set(id, { transport, server }),
+        onsessioninitialized: (id) => void sessions.set(id, session!),
         onsessionclosed: (id) => void sessions.delete(id),
       });
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
+      session = { transport, server, open: 0, lastSeen: Date.now() };
       await server.connect(transport);
-      session = { transport, server };
     }
-    await session.transport.handleRequest(req, res, body);
+    const s = session;
+    s.open++;
+    res.on('close', () => {
+      s.open--;
+      s.lastSeen = Date.now();
+    });
+    await s.transport.handleRequest(req, res, body);
   }
+
+  const sweeper = sessionIdleMs
+    ? setInterval(
+        () => {
+          const cutoff = Date.now() - sessionIdleMs;
+          for (const s of sessions.values()) {
+            if (s.open === 0 && s.lastSeen < cutoff) void s.transport.close().catch(() => {});
+          }
+        },
+        Math.max(250, Math.min(60_000, Math.floor(sessionIdleMs / 4))),
+      )
+    : undefined;
+  sweeper?.unref();
 
   return {
     async handle(req, res) {
@@ -98,6 +122,7 @@ export function createMcpEndpoint(factory: McpFactory): McpEndpoint {
     },
     sessionCount: () => sessions.size,
     async close() {
+      clearInterval(sweeper);
       await Promise.all([...sessions.values()].map((s) => s.transport.close().catch(() => {})));
       sessions.clear();
       await modern.close();
