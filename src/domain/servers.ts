@@ -76,8 +76,10 @@ function rowToServer(row: ServerRow): ServerEntry {
 }
 
 function validateShape(s: {
+  name: string;
   transport: ServerTransport;
   command?: string | null;
+  args?: string[];
   url?: string | null;
   headers?: Record<string, string>;
 }): void {
@@ -117,8 +119,10 @@ export function validateServerInput(input: ServerInput): void {
     throw new ValidationError('Name cannot contain "__" (reserved as tool namespace separator)');
   }
   validateShape({
+    name: input.name,
     transport: input.transport ?? 'stdio',
     command: input.command,
+    args: input.args,
     url: input.url,
     headers: input.headers,
   });
@@ -197,8 +201,10 @@ export class ServerStore {
   update(name: string, updates: ServerUpdate): ServerEntry {
     const existing = this.require(name);
     const merged = {
+      name: existing.name,
       transport: updates.transport ?? existing.transport,
       command: updates.command ?? existing.command,
+      args: updates.args ?? existing.args,
       url: updates.url ?? existing.url,
       headers: updates.headers ?? existing.headers,
     };

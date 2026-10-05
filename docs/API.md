@@ -19,20 +19,29 @@ Every request and WebSocket upgrade passes the request guard:
 - `Origin`, when present, must be `http(s)://` with a loopback hostname, or exactly `file://` (agent-desk). `null` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
 - POST/PUT/PATCH/DELETE with a body must be `application/json` (415 otherwise).
 - CORS: allowed origins are reflected; never `*`.
+- **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` is served only when `Origin` is absent (same-origin dashboard, local non-browser clients), exactly `file://` or the daemon's own origin; any other Origin gets 403, so another local web page never learns it. `/mcp` is unaffected.
+
+See [SECURITY.md](SECURITY.md) for the whole trust model.
 
 ## Environment
 
-| Variable                                   | Default                       | Meaning                                                                                 |
-| ------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------- |
-| `AGENT_DISCOVER_PORT`                      | `3424`                        | Daemon port                                                                             |
-| `AGENT_DISCOVER_HOST`                      | `127.0.0.1`                   | Listen address                                                                          |
-| `AGENT_DISCOVER_DB`                        | `~/.claude/agent-discover.db` | SQLite path (1.x location, migrated in place)                                           |
-| `AGENT_DISCOVER_MODE`                      | `native`                      | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only |
-| `AGENT_DISCOVER_IDLE_MS`                   | `1800000`                     | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)   |
-| `AGENT_DISCOVER_CONN_IDLE_MS`              | `600000`                      | Idle upstream connections are closed                                                    |
-| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL` | unset                         | `1` lets `install_server` run without an elicitation prompt (operator opt-in)           |
-| `AGENT_DISCOVER_SETUP_FILE`                | unset                         | Declarative server list synced at daemon start                                          |
-| `AGENT_DISCOVER_EMBEDDING_PROVIDER`        | `none`                        | `openai` / `local` adds semantic ranking                                                |
+| Variable                                              | Default                       | Meaning                                                                                  |
+| ----------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `AGENT_DISCOVER_PORT`                                 | `3424`                        | Daemon port                                                                              |
+| `AGENT_DISCOVER_HOST`                                 | `127.0.0.1`                   | Listen address                                                                           |
+| `AGENT_DISCOVER_DB`                                   | `~/.claude/agent-discover.db` | SQLite path (1.x location, migrated in place)                                            |
+| `AGENT_DISCOVER_MODE`                                 | `native`                      | `native`: enabled servers' tools listed as `<server>__<tool>`; `proxy`: meta tools only  |
+| `AGENT_DISCOVER_IDLE_MS`                              | `1800000`                     | Daemon exits after this long with no open MCP streams and no WS clients (`0` = never)    |
+| `AGENT_DISCOVER_CONN_IDLE_MS`                         | `600000`                      | Idle upstream connections are closed                                                     |
+| `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL`            | unset                         | `1` lets `install_server` run without an elicitation prompt (operator opt-in)            |
+| `AGENT_DISCOVER_SETUP_FILE`                           | unset                         | Declarative server list synced at daemon start                                           |
+| `AGENT_DISCOVER_EMBEDDING_PROVIDER`                   | `none`                        | `openai` / `local` adds semantic ranking                                                 |
+| `AGENT_DISCOVER_SECRETS`                              | auto                          | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file) |
+| `AGENT_DISCOVER_MAX_TOOL_DESCRIPTION`                 | `1024`                        | Cap (chars) on tool descriptions shown to models (`0` = none)                            |
+| `AGENT_DISCOVER_MAX_SERVER_DESCRIPTION`               | `512`                         | Same for server descriptions                                                             |
+| `AGENT_DISCOVER_AUDIT_ARGS`                           | unset                         | `1` also records (masked) tool-call arguments in the audit log                           |
+| `AGENT_DISCOVER_AUDIT_MAX_ROWS`                       | `50000`                       | Audit retention (oldest rows pruned)                                                     |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `AGENT_DISCOVER_OTEL` | unset                         | Either one (or `AGENT_DISCOVER_OTEL=1`) turns OpenTelemetry on                           |
 
 ## MCP
 
@@ -80,7 +89,10 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `POST /api/servers/:id/health` → `{status, latency_ms, error?}` (real ping / `server/discover`)
 - `POST /api/servers/:id/reset-errors`
 - `POST /api/servers/:id/call` `{tool, args}` → upstream `CallToolResult`
-- `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection)
+- `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection). Values live in the OS keychain (or an encrypted file), never in SQLite; `GET` always returns `masked_value: "********"`.
+- `GET /api/servers/:id/trust` → `{name, quarantined, drift?: {changed: [{tool, description?, input_schema?, annotations?}], added, removed}, flagged_tools: [{tool, flags}], hashes, digest}`
+- `POST /api/servers/:id/approve` `{hashes}` → re-pins the current tools and lifts the quarantine. `hashes` must be the `hashes` of the reviewed `trust` report; 409 if the tool set changed since (review again).
+- `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete call_tool`.
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
 Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`.

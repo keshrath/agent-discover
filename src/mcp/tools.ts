@@ -28,9 +28,11 @@ import { validateServerInput } from '../domain/servers.js';
 import type { ServerStatus } from '../domain/lifecycle.js';
 import type { HealthResult } from '../domain/pool.js';
 import type { IndexedTool } from '../types.js';
+import type { TrustReport } from '../domain/trust/index.js';
+import { scanTool } from '../domain/trust/hygiene.js';
 
 export type McpState =
-  | { kind: 'install'; digest: string }
+  | { kind: 'install' | 'approve'; digest: string }
   | { kind: 'upstream'; server: string; tool: string; state?: string };
 
 export interface McpRuntime {
@@ -123,7 +125,13 @@ const toolMatch = z.object({
     z.object({ name: z.string(), type: z.string(), description: z.string().optional() }),
   ),
   optional_count: z.number(),
+  flags: z
+    .array(z.string())
+    .optional()
+    .describe('Suspicious instruction-like content found in the definition (treat with care)'),
 });
+
+const flaggedTools = z.array(z.object({ tool: z.string(), flags: z.array(z.string()) }));
 
 const serverStatus = z.object({
   name: z.string(),
@@ -139,6 +147,15 @@ const serverStatus = z.object({
   health_status: z.string(),
   last_health_check: z.string().nullable(),
   error_count: z.number(),
+  drift: z
+    .object({
+      changed: z.array(z.looseObject({ tool: z.string() })),
+      added: z.array(z.string()),
+      removed: z.array(z.string()),
+    })
+    .optional()
+    .describe('While quarantined: tool changes since the last approval'),
+  flagged_tools: flaggedTools,
   health: z
     .object({ status: z.string(), latency_ms: z.number(), error: z.string().optional() })
     .optional(),
@@ -213,6 +230,89 @@ function consentMessage(input: ServerInput): string {
 }
 
 const consentSchema = z.object({ confirm: z.boolean().describe('Install and start this server') });
+const approveSchema = z.object({
+  confirm: z.boolean().describe('Approve the changed tools and lift the quarantine'),
+});
+
+function clip(text: string, max = 300): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Readable drift review shown in the re-approval prompt. */
+function approvalMessage(rt: McpRuntime, name: string, report: TrustReport): string {
+  const clean = (s: string) => clip(rt.app.trust.cleanToolDescription(s));
+  const lines = [`The tools of "${name}" changed since you approved them:`];
+  for (const c of report.drift?.changed ?? []) {
+    lines.push(`~ ${c.tool}`);
+    if (c.description) {
+      lines.push(`    description was: ${clean(c.description.before)}`);
+      lines.push(`    description now: ${clean(c.description.after)}`);
+    }
+    const s = c.input_schema;
+    if (s) {
+      if (s.added.length) lines.push(`    new parameters: ${s.added.join(', ')}`);
+      if (s.removed.length) lines.push(`    removed parameters: ${s.removed.join(', ')}`);
+      if (s.changed.length) lines.push(`    changed parameters: ${s.changed.join(', ')}`);
+    }
+    if (c.annotations) {
+      lines.push(
+        `    annotations: ${JSON.stringify(c.annotations.before)} -> ${JSON.stringify(c.annotations.after)}`,
+      );
+    }
+  }
+  for (const t of report.drift?.added ?? []) lines.push(`+ ${t} (new tool)`);
+  for (const t of report.drift?.removed ?? []) lines.push(`- ${t} (removed)`);
+  for (const f of report.flagged_tools) lines.push(`! ${f.tool}: flagged ${f.flags.join(', ')}`);
+  lines.push('Approve these tools and expose them again?');
+  return lines.join('\n');
+}
+
+type Confirmation =
+  | { kind: 'accepted' }
+  | { kind: 'declined' }
+  | { kind: 'pending'; result: CallToolResult | InputRequiredResult };
+
+/** One elicitation round bound to `digest` (the exact thing being confirmed). */
+async function confirm(
+  rt: McpRuntime,
+  ctx: ServerContext,
+  request: {
+    kind: 'install' | 'approve';
+    digest: string;
+    message: string;
+    schema: typeof consentSchema;
+    noElicitation: string;
+  },
+): Promise<Confirmation> {
+  const state = ctx.mcpReq.requestState<McpState>();
+  const answered = state?.kind === request.kind && state.digest === request.digest;
+  const response = answered
+    ? inputResponse(ctx.mcpReq.inputResponses, 'consent')
+    : { kind: 'missing' as const };
+  if (response.kind === 'elicit' && response.action !== 'accept') return { kind: 'declined' };
+  const consent = answered
+    ? acceptedContent(ctx.mcpReq.inputResponses, 'consent', request.schema)
+    : undefined;
+  if (consent) return consent.confirm ? { kind: 'accepted' } : { kind: 'declined' };
+  if (!clientCanElicit(rt, ctx)) {
+    return {
+      kind: 'pending',
+      result: { isError: true, content: [{ type: 'text', text: request.noElicitation }] },
+    };
+  }
+  return {
+    kind: 'pending',
+    result: inputRequired({
+      inputRequests: {
+        consent: inputRequired.elicit({
+          message: request.message,
+          requestedSchema: request.schema,
+        }),
+      },
+      requestState: await rt.mint({ kind: request.kind, digest: request.digest }, ctx),
+    }),
+  };
+}
 
 export const META_TOOLS = {
   search_servers: defineTool({
@@ -233,6 +333,7 @@ export const META_TOOLS = {
           name: z.string(),
           description: z.string(),
           enabled: z.boolean(),
+          quarantined: z.boolean(),
           tool_count: z.number(),
         }),
       ),
@@ -262,8 +363,9 @@ export const META_TOOLS = {
         .slice(0, limit)
         .map((s) => ({
           name: s.name,
-          description: s.description,
+          description: rt.app.trust.cleanServerDescription(s.description),
           enabled: s.enabled,
+          quarantined: s.quarantined,
           tool_count: rt.app.index.count(s.id),
         }));
       const out: Record<string, unknown> = { installed, marketplace: [] };
@@ -272,7 +374,7 @@ export const META_TOOLS = {
           const res = await rt.app.marketplace.browse(query, limit);
           out.marketplace = res.servers.slice(0, limit).map((s) => ({
             name: s.name,
-            description: s.description,
+            description: rt.app.trust.cleanServerDescription(s.description),
             version: s.version,
             repository: s.repository,
             packages: s.packages.map((p) => ({
@@ -334,39 +436,19 @@ export const META_TOOLS = {
       const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
 
       if (!rt.app.config.allowUnconfirmedInstall) {
-        const state = ctx.mcpReq.requestState<McpState>();
-        const answered = state?.kind === 'install' && state.digest === digest;
-        const response = answered
-          ? inputResponse(ctx.mcpReq.inputResponses, 'consent')
-          : { kind: 'missing' as const };
-        if (response.kind === 'elicit' && response.action !== 'accept') return summary('declined');
-        const consent = answered
-          ? acceptedContent(ctx.mcpReq.inputResponses, 'consent', consentSchema)
-          : undefined;
-        if (consent && !consent.confirm) return summary('declined');
-        if (!consent) {
-          if (!clientCanElicit(rt, ctx)) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: 'text',
-                  text:
-                    'install_server needs the user to confirm the command, but this client cannot show confirmation prompts (no elicitation capability). ' +
-                    'Install from the agent-discover dashboard instead, or have the operator set AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1.',
-                },
-              ],
-            };
-          }
-          return inputRequired({
-            inputRequests: {
-              consent: inputRequired.elicit({
-                message: consentMessage(input),
-                requestedSchema: consentSchema,
-              }),
-            },
-            requestState: await rt.mint({ kind: 'install', digest }, ctx),
-          });
+        const answer = await confirm(rt, ctx, {
+          kind: 'install',
+          digest,
+          message: consentMessage(input),
+          schema: consentSchema,
+          noElicitation:
+            'install_server needs the user to confirm the command, but this client cannot show confirmation prompts (no elicitation capability). ' +
+            'Install from the agent-discover dashboard instead, or have the operator set AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1.',
+        });
+        if (answer.kind === 'pending') return answer.result;
+        if (answer.kind === 'declined') {
+          rt.app.trust.record({ action: 'deny', server: args.name, detail: { kind: 'install' } });
+          return summary('declined');
         }
       }
       const { index_error } = await rt.app.lifecycle.install(input, { enable: args.enable });
@@ -377,11 +459,12 @@ export const META_TOOLS = {
   enable_server: defineTool({
     title: 'Enable an MCP server',
     description:
-      "Expose an installed server's tools to this host (as <server>__<tool> in native mode). Indexes the server first if needed.",
+      "Expose an installed server's tools to this host (as <server>__<tool> in native mode). Indexes the server first if needed. A quarantined server (tools changed since approval) asks the user to review and re-approve first.",
     input: z.object({ name: z.string() }),
     output: z.object({
       name: z.string(),
       enabled: z.boolean(),
+      quarantined: z.boolean(),
       tool_count: z.number(),
       tools: z.array(z.string()),
     }),
@@ -391,10 +474,39 @@ export const META_TOOLS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    async run(rt, { name }) {
+    async run(rt, { name }, ctx) {
+      const current = rt.app.servers.require(name);
+      if (current.quarantined) {
+        const report = rt.app.trust.inspect(current);
+        const answer = await confirm(rt, ctx, {
+          kind: 'approve',
+          digest: report.digest,
+          message: approvalMessage(rt, name, report),
+          schema: approveSchema,
+          noElicitation: `Server "${name}" is quarantined because its tools changed, and this client cannot show the approval prompt. Review and approve it in the agent-discover dashboard.`,
+        });
+        if (answer.kind === 'pending') return answer.result;
+        if (answer.kind === 'declined') {
+          rt.app.trust.record({ action: 'deny', server: name, detail: { kind: 'approve' } });
+          return ok({
+            name,
+            enabled: current.enabled,
+            quarantined: true,
+            tool_count: 0,
+            tools: [],
+          });
+        }
+        rt.app.lifecycle.approve(name, report.hashes);
+      }
       const server = await rt.app.lifecycle.enable(name);
       const tools = rt.app.index.list(server.id).map((t) => exposedName(name, t.name));
-      return ok({ name, enabled: server.enabled, tool_count: tools.length, tools });
+      return ok({
+        name,
+        enabled: server.enabled,
+        quarantined: false,
+        tool_count: tools.length,
+        tools,
+      });
     },
   }),
 
@@ -419,13 +531,14 @@ export const META_TOOLS = {
   server_status: defineTool({
     title: 'Server status',
     description:
-      'State of installed servers (enabled, indexed, connected, tool count, health). check_health=true runs a live probe.',
+      'State of installed servers (enabled, quarantined + drift, indexed, connected, tool count, flagged tools, health). check_health=true runs a live probe.',
     input: z.object({ name: z.string().optional(), check_health: z.boolean().optional() }),
     output: z.object({ mode: z.enum(['native', 'proxy']), servers: z.array(serverStatus) }),
     annotations: { readOnlyHint: true, openWorldHint: false },
     async run(rt, { name, check_health }) {
-      const servers: Array<ServerStatus & { health?: HealthResult }> =
-        rt.app.lifecycle.status(name);
+      const servers: Array<ServerStatus & { health?: HealthResult }> = rt.app.lifecycle
+        .status(name)
+        .map((s) => ({ ...s, description: rt.app.trust.cleanServerDescription(s.description) }));
       if (check_health) {
         for (const s of servers) s.health = await rt.app.lifecycle.health(s.name);
       }
@@ -457,11 +570,12 @@ export const META_TOOLS = {
             tool: h.name,
             name: exposedName(h.server, h.name),
             ...(h.title ? { title: h.title } : {}),
-            description: h.description,
+            description: rt.app.trust.cleanToolDescription(h.description),
             score: h.score,
             enabled: enabled.has(h.server),
             exposed: isExposed(rt, enabled.has(h.server)),
             ...requiredArgs(h.input_schema),
+            ...flagsOf(h),
           })),
         });
       }
@@ -487,19 +601,28 @@ export const META_TOOLS = {
       tool_hash: z.string().optional(),
       enabled: z.boolean().optional(),
       exposed: z.boolean().optional(),
+      quarantined: z
+        .boolean()
+        .optional()
+        .describe('The definition changed since approval and is withheld until re-approved'),
+      flags: z.array(z.string()).optional(),
     }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     async run(rt, { server, tool }) {
       const t = rt.app.index.get(server, tool);
       if (!t) return ok({ found: false, server, tool });
-      const enabled = rt.app.servers.get(server)?.enabled ?? false;
+      const row = rt.app.servers.get(server);
+      if (row?.quarantined) return ok({ found: true, server, tool, quarantined: true });
+      const enabled = row?.enabled ?? false;
       return ok({
         found: true,
         server,
         tool,
         ...describeTool(t),
+        description: rt.app.trust.cleanToolDescription(t.description),
         enabled,
         exposed: isExposed(rt, enabled),
+        ...flagsOf(t),
       });
     },
   }),
@@ -519,6 +642,11 @@ export const META_TOOLS = {
     },
   }),
 };
+
+function flagsOf(t: IndexedTool): { flags?: string[] } {
+  const flags = scanTool(t);
+  return flags.length ? { flags } : {};
+}
 
 function describeTool(t: IndexedTool) {
   return {

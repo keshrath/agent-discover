@@ -10,6 +10,7 @@
 
 import { randomBytes } from 'node:crypto';
 import {
+  PROTOCOL_VERSION_META_KEY,
   ProtocolError,
   ProtocolErrorCode,
   Server,
@@ -55,7 +56,7 @@ export function createMcpFactory(app: AppContext): McpFactory {
     return app.index.listEnabled().map((t) => ({
       name: exposedName(t.server, t.name),
       ...(t.title ? { title: t.title } : {}),
-      description: `[${t.server}] ${t.description}`,
+      description: `[${t.server}] ${app.trust.cleanToolDescription(t.description)}`,
       inputSchema: t.input_schema as Tool['inputSchema'],
       ...(t.output_schema ? { outputSchema: t.output_schema as Tool['outputSchema'] } : {}),
       ...(t.annotations ? { annotations: t.annotations } : {}),
@@ -126,8 +127,27 @@ export function createMcpFactory(app: AppContext): McpFactory {
         );
 
       server.setRequestHandler('tools/list', () => ({ tools: allTools() }));
-      server.setRequestHandler('tools/call', async (req, ctx) => {
-        const { name, arguments: args } = req.params;
+      server.setRequestHandler('tools/call', (req, ctx) => {
+        const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
+        const protocolVersion = envelope?.[PROTOCOL_VERSION_META_KEY];
+        return app.trust.telemetry.serverCall(
+          {
+            tool: req.params.name,
+            requestId: ctx.mcpReq.id,
+            protocolVersion:
+              typeof protocolVersion === 'string'
+                ? protocolVersion
+                : server.getNegotiatedProtocolVersion(),
+            meta: ctx.mcpReq._meta as Record<string, unknown> | undefined,
+          },
+          () => callTool(req.params.name, req.params.arguments, ctx),
+        );
+      });
+      const callTool = async (
+        name: string,
+        args: Record<string, unknown> | undefined,
+        ctx: ServerContext,
+      ) => {
         if (name in META_TOOLS) {
           const result = await runMetaTool(rt, name as MetaToolName, args, ctx);
           if (isInputRequiredResult(result)) return result;
@@ -143,7 +163,7 @@ export function createMcpFactory(app: AppContext): McpFactory {
         const result = await forward(parsed.server, parsed.tool, args, ctx);
         if (isInputRequiredResult(result)) return result;
         return server.projectCallToolResult(result, def.output_schema ?? undefined);
-      });
+      };
       server.setRequestHandler('prompts/list', () => ({ prompts: PROMPTS }));
       server.setRequestHandler('prompts/get', (req) =>
         getPrompt(req.params.name, req.params.arguments),

@@ -1,0 +1,21 @@
+# Security model
+
+agent-discover sits between an agent host and untrusted MCP servers, so it assumes upstream tools, their descriptions and other local web pages are hostile. Layers, outermost first:
+
+1. **Request guard** (`src/transport/guard.ts`): Host / Origin / Content-Type checks on `/api`, `/mcp` and `/ws` (see [API.md](API.md#security)). Loopback only by default.
+2. **REST token** (`src/transport/token.ts`): the guard admits any loopback origin, so a page on another local dev server could still POST. All mutating `/api/*` calls therefore need `X-Agent-Discover-Token`, minted per daemon launch and compared in constant time. `GET /api/token` is only answered for an absent Origin (same-origin dashboard, local clients), `file://` (agent-desk) or the daemon's own origin.
+3. **Tool pinning and quarantine** (`src/domain/trust/pins.ts`): the first index of a server pins a hash of each tool's description, input schema and annotations (table `server_pins`). Any later change, addition or removal ("rug pull") quarantines the server: its tools disappear from native `tools/list` and search, `call_tool` and `enable` are refused, `get_tool` withholds the definition. The quarantine lifts automatically if the tools revert, or after explicit re-approval:
+   - MCP `enable_server` elicits with a readable diff (old vs new description, parameter changes, new/removed tools, hygiene flags);
+   - REST `GET /api/servers/:id/trust` then `POST /api/servers/:id/approve {hashes}` (409 if the set changed since the review).
+     Servers indexed before 2.0 are pinned to their current tools on upgrade.
+4. **Description hygiene** (`trust/hygiene.ts`): everything shown to a model is stripped of control, zero-width, bidi and tag characters and capped (`AGENT_DISCOVER_MAX_TOOL_DESCRIPTION` 1024, `..._MAX_SERVER_DESCRIPTION` 512). Six explicit regex heuristics FLAG (never drop) suspicious text: `invisible-chars`, `instruction-override`, `hidden-tag`, `exfiltration`, `secret-access`, `conceal-from-user`. Flags appear on `search_tools` / `get_tool` matches, in `server_status` (`flagged_tools`), in the approval prompt and in the audit log. These are heuristics, not a guarantee.
+5. **Secrets** (`trust/secret-store.ts`): values go to the OS keychain (`@napi-rs/keyring`, service `agent-discover`). Without a usable keychain they go to an AES-256-GCM file (`agent-discover-secrets.json`, key in a 0600 `.key` file next to the DB); the choice is logged once. `AGENT_DISCOVER_SECRETS=keyring|file` forces one. SQLite keeps only key names and the backend. Pre-2.0 plaintext rows are moved on startup and wiped (`secure_delete` + WAL truncate). Secrets are never listed unmasked, never in audit entries, and remote upstreams only receive declared headers.
+6. **Audit log** (`trust/audit.ts`): append-only table `audit_log` (an UPDATE trigger aborts edits; only retention deletes, `AGENT_DISCOVER_AUDIT_MAX_ROWS`). Records install, approve, deny, enable, disable, uninstall, quarantine, release, flag, secret changes and every `call_tool` (server, tool, duration, error). Arguments are recorded only with `AGENT_DISCOVER_AUDIT_ARGS=1`, with secret-looking keys and the server's secret/env values masked. Read via `GET /api/audit`.
+7. **OpenTelemetry** (`trust/telemetry.ts`, opt-in): enabled by `OTEL_EXPORTER_OTLP_ENDPOINT` or `AGENT_DISCOVER_OTEL=1` (needs the optional `@opentelemetry/api` + `sdk-node`). SERVER span `tools/call <tool>` per incoming call and CLIENT span per upstream hop with MCP semconv attributes; W3C `traceparent`/`tracestate` is extracted from the incoming `params._meta` and injected into the upstream call. Histograms `mcp.server.operation.duration` / `mcp.client.operation.duration`.
+
+## Not yet covered
+
+- **Sandboxing** upstream stdio servers (Docker / sandbox-runtime) is deferred past 2.0: servers run with the user's privileges.
+- `/mcp` from other loopback origins is not token-protected (the SDK's localhost validation applies).
+- `servers.env` values are plaintext config in the DB (only secrets moved to the keychain); put credentials in secrets.
+- Hygiene flags are advisory; a determined description can evade regexes. Pinning, not flagging, is the control that stops tool-definition swaps.

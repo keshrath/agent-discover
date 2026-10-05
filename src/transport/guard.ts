@@ -74,7 +74,7 @@ export function createRequestGuard(port: number, bindHost = '127.0.0.1'): Reques
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Agent-Discover-Token',
       });
       res.end();
       return true;

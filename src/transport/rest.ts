@@ -4,7 +4,8 @@
 // Thin adapter over the domain services for the dashboard (and any local
 // tooling). Every server state change goes through ServerLifecycle, so REST
 // and MCP behave identically. Host/Origin/Content-Type are enforced by the
-// daemon's request guard before routing.
+// daemon's request guard before routing; state-changing /api requests also
+// need the per-launch token (transport/token.ts).
 //
 // Endpoints are documented in docs/API.md.
 // =============================================================================
@@ -21,9 +22,11 @@ import { NotFoundError, RegistryError, UpstreamError, ValidationError } from '..
 import { isCommandOnPath, type ElicitationContent } from '../domain/pool.js';
 import { maskEnv, restoreMaskedEnv } from '../domain/secrets.js';
 import { version } from '../version.js';
+import { TOKEN_HEADER, mayReadToken, type RestToken } from './token.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BODY_LIMIT = 131_072;
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
@@ -59,6 +62,7 @@ function serverFields(body: Record<string, unknown>): ServerUpdate {
 
 export function createRestHandler(
   ctx: AppContext,
+  token: RestToken,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const router = createRouter();
   const uiDir = join(__dirname, '..', 'ui');
@@ -102,6 +106,11 @@ export function createRestHandler(
       mode: ctx.config.mode,
       uptime: Math.floor((Date.now() - startTime) / 1000),
     });
+  });
+
+  route('GET', '/api/token', (req, res) => {
+    if (!mayReadToken(req)) return json(res, { error: 'Forbidden origin', code: 'FORBIDDEN' }, 403);
+    json(res, { token: token.value, header: TOKEN_HEADER });
   });
 
   route('GET', '/api/status', (_req, res) => {
@@ -157,6 +166,37 @@ export function createRestHandler(
     json(res, view(await lifecycle.disable(byId(p.id).name)));
   });
 
+  // -- trust: drift review + re-approval, audit log -------------------------
+
+  route('GET', '/api/servers/:id/trust', (_req, res, p) => {
+    const server = byId(p.id);
+    json(res, { name: server.name, quarantined: server.quarantined, ...ctx.trust.inspect(server) });
+  });
+
+  route('POST', '/api/servers/:id/approve', async (req, res, p) => {
+    const hashes = strArray((await body(req)).hashes);
+    if (!hashes) throw new ValidationError('hashes (the reviewed tool hash set) is required');
+    json(res, view(lifecycle.approve(byId(p.id).name, hashes)));
+  });
+
+  route('GET', '/api/audit', (req, res) => {
+    const q = query(req);
+    const num = (k: string) => {
+      const n = parseInt(q.get(k) ?? '', 10);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    json(
+      res,
+      ctx.trust.audit.list({
+        limit: num('limit'),
+        before: num('before'),
+        server: q.get('server') ?? undefined,
+        action: q.get('action') ?? undefined,
+        tool: q.get('tool') ?? undefined,
+      }),
+    );
+  });
+
   route('POST', '/api/servers/:id/index', async (_req, res, p) => {
     json(res, await upstream(() => lifecycle.reindex(byId(p.id).name)));
   });
@@ -182,22 +222,19 @@ export function createRestHandler(
   // -- secrets / metrics -----------------------------------------------------
 
   route('GET', '/api/servers/:id/secrets', (_req, res, p) => {
-    json(res, ctx.secrets.list(byId(p.id).id));
+    json(res, ctx.secrets.list(byId(p.id)));
   });
 
   route('PUT', '/api/servers/:id/secrets/:key', async (req, res, p) => {
     const server = byId(p.id);
     const value = str((await body(req)).value);
     if (!value) throw new ValidationError('value is required');
-    ctx.secrets.set(server.id, p.key, value);
-    await pool.disconnect(server.name); // next use reconnects with the new secret
+    await lifecycle.setSecret(server.name, p.key, value);
     json(res, { status: 'set', key: p.key });
   });
 
   route('DELETE', '/api/servers/:id/secrets/:key', async (_req, res, p) => {
-    const server = byId(p.id);
-    ctx.secrets.delete(server.id, p.key);
-    await pool.disconnect(server.name);
+    await lifecycle.deleteSecret(byId(p.id).name, p.key);
     json(res, { status: 'deleted', key: p.key });
   });
 
@@ -523,6 +560,20 @@ export function createRestHandler(
 
   return async (req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (
+      MUTATING.has(req.method ?? '') &&
+      pathname.startsWith('/api/') &&
+      !token.verify(req.headers[TOKEN_HEADER])
+    ) {
+      return json(
+        res,
+        {
+          error: `Missing or invalid ${TOKEN_HEADER} header (GET /api/token)`,
+          code: 'TOKEN_REQUIRED',
+        },
+        403,
+      );
+    }
     if (await router.handle(req, res)) return;
     if (req.method === 'GET' && !pathname.startsWith('/api/')) {
       const file = /^\/tester(\/|$)/.test(pathname)

@@ -12,6 +12,11 @@
 // per-server protocol-era cache, and a tool index with tool_hash. It alters
 // in place (never drops `servers`, which would cascade-delete secrets and
 // metrics through the ON DELETE CASCADE foreign keys).
+//
+// Migration 8 is the trust schema: tool pins (rug-pull defense), the
+// append-only audit log and the secrets backend marker (values leave the DB;
+// SecretsService moves legacy plaintext on startup). Servers indexed before 8 are pinned to their current tools: they
+// were installed by the user, so the upgrade trusts what is there.
 // =============================================================================
 
 import Database from 'better-sqlite3';
@@ -59,7 +64,7 @@ export function createDb(options: DbOptions = {}): Db {
   };
 }
 
-function resolveDbPath(path?: string): string {
+export function resolveDbPath(path?: string): string {
   if (path) return path;
   const envPath = process.env.AGENT_DISCOVER_DB;
   if (envPath) return envPath;
@@ -333,4 +338,70 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 8,
+    up: (db: Database.Database) => {
+      addColumnIfMissing(db, 'server_secrets', 'backend', 'TEXT');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS server_pins (
+          server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+          tools TEXT NOT NULL,
+          pinned_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          action TEXT NOT NULL,
+          server TEXT,
+          tool TEXT,
+          duration_ms INTEGER,
+          is_error INTEGER,
+          detail TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_server ON audit_log(server, id);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
+        CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+      `);
+
+      const rows = db
+        .prepare(
+          `SELECT t.server_id, t.name, t.description, t.input_schema, t.annotations, t.tool_hash
+           FROM server_tools t JOIN servers s ON s.id = t.server_id
+           WHERE s.indexed_at IS NOT NULL ORDER BY t.server_id, t.name`,
+        )
+        .all() as Array<{
+        server_id: number;
+        name: string;
+        description: string | null;
+        input_schema: string;
+        annotations: string | null;
+        tool_hash: string;
+      }>;
+      const pins = new Map<number, Record<string, unknown>>();
+      for (const r of rows) {
+        const tools = pins.get(r.server_id) ?? {};
+        tools[r.name] = {
+          hash: r.tool_hash,
+          description: r.description ?? '',
+          input_schema: safeJson(r.input_schema) ?? {},
+          annotations: safeJson(r.annotations),
+        };
+        pins.set(r.server_id, tools);
+      }
+      const insert = db.prepare(
+        'INSERT OR IGNORE INTO server_pins (server_id, tools) VALUES (?, ?)',
+      );
+      for (const [serverId, tools] of pins) insert.run(serverId, JSON.stringify(tools));
+    },
+  },
 ];
+
+function safeJson(raw: string | null): unknown {
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}

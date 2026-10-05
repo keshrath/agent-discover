@@ -10,7 +10,6 @@
 
 import { readFileSync, existsSync } from 'fs';
 import type { ServerLifecycle } from './lifecycle.js';
-import type { SecretsService } from './secrets.js';
 
 export interface SetupServerEntry {
   name: string;
@@ -65,7 +64,6 @@ export function readSetupFile(filePath: string): SetupFile {
 
 async function syncSingleFile(
   lifecycle: ServerLifecycle,
-  secrets: SecretsService,
   path: string,
   result: SyncResult,
 ): Promise<void> {
@@ -107,7 +105,7 @@ async function syncSingleFile(
           result.errors.push({ name: entry.name, error: `index failed: ${index_error}` });
       } else {
         for (const [key, value] of Object.entries(resolvedSecrets)) {
-          secrets.set(existing.id, key, value);
+          await lifecycle.setSecret(existing.name, key, value);
         }
         result.skipped.push(entry.name);
       }
@@ -126,7 +124,6 @@ async function syncSingleFile(
 
 export async function syncSetupFile(
   lifecycle: ServerLifecycle,
-  secrets: SecretsService,
   filePath?: string,
 ): Promise<SyncResult> {
   const result: SyncResult = { registered: [], enabled: [], skipped: [], errors: [] };
@@ -136,10 +133,10 @@ export async function syncSetupFile(
     result.errors.push({ name: basePath, error: 'setup file not found' });
     return result;
   }
-  await syncSingleFile(lifecycle, secrets, basePath, result);
+  await syncSingleFile(lifecycle, basePath, result);
   const localPath = basePath.replace(/\.json$/, '.local.json');
   if (localPath !== basePath && existsSync(localPath)) {
-    await syncSingleFile(lifecycle, secrets, localPath, result);
+    await syncSingleFile(lifecycle, localPath, result);
   }
   if (result.registered.length + result.enabled.length + result.errors.length > 0) {
     process.stderr.write(

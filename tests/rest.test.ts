@@ -16,6 +16,7 @@ afterEach(async () => d.stop());
 function api(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+  headers.set('x-agent-discover-token', d.restToken);
   return fetch(d.base + path, { ...init, headers });
 }
 
