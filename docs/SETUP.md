@@ -14,7 +14,7 @@
 
 ## Prerequisites
 
-- **Node.js**: v20.11 or later
+- **Node.js**: v22 or later
 - **npm**: bundled with Node
 - An MCP-compatible AI client (Claude Code, Cursor, OpenCode, Windsurf, Aider, Continue, etc.) — or a plain REST consumer
 - (Source builds only) git

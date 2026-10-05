@@ -1,7 +1,7 @@
 # agent-discover
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-8-purple)]()
 

@@ -44,7 +44,7 @@ Modes (`AGENT_DISCOVER_MODE`):
 
 ## 2. Install and connect
 
-Requirements: Node.js 20.11 or newer. The servers you install may need `npx`, `uvx` or `docker` on the PATH (the Browse tab warns when one is missing).
+Requirements: Node.js 22 or newer. The servers you install may need `npx`, `uvx` or `docker` on the PATH.
 
 **Claude Code:**
 
@@ -287,7 +287,7 @@ Point `AGENT_DISCOVER_SETUP_FILE` at a JSON file to have servers ensured at daem
 
 **Marketplace search is empty.** The registry mirror may not have synced yet (`GET /api/registry`; `POST /api/registry/sync` forces it), or the network blocks the registries. `GET /api/browse` reports per-source errors.
 
-**`uvx not found`.** Install [uv](https://docs.astral.sh/uv/); the Browse tab banner comes from `GET /api/prereqs`.
+**`uvx not found`.** Install [uv](https://docs.astral.sh/uv/) so Python servers can start.
 
 **403 `TOKEN_REQUIRED`.** A mutating REST call without `X-Agent-Discover-Token`. Fetch it from `GET /api/token`.
 
