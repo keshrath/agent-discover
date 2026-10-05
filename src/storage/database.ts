@@ -87,31 +87,46 @@ export function dataDir(
   return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'agent-discover');
 }
 
-/**
- * 1.x kept its DB in ~/.claude. Move it (with WAL/SHM and the secret files) into
- * the data dir once. A DB another process holds open cannot be renamed on
- * Windows (a 1.x daemon still running): it is then used in place this launch.
- */
-function adoptLegacyDb(legacyDir: string, dir: string): string | null {
-  const legacy = join(legacyDir, DB_FILE);
-  if (!existsSync(legacy)) return null;
+/** Whether another process has the SQLite DB open (a 1.x daemon still running). */
+function inUse(path: string): boolean {
+  const probe = new Database(path, { timeout: 0, fileMustExist: true });
   try {
-    renameSync(legacy, join(dir, DB_FILE));
+    probe.pragma('locking_mode = EXCLUSIVE');
+    probe.exec('BEGIN EXCLUSIVE');
+    probe.exec('COMMIT');
+    return false;
   } catch (err) {
-    process.stderr.write(
-      `[agent-discover] using ${legacy} in place (could not move it to ${dir}: ${(err as Error).message})
-`,
-    );
-    return legacy;
+    if ((err as { code?: string }).code === 'SQLITE_BUSY') return true;
+    throw err;
+  } finally {
+    probe.close();
   }
-  for (const f of [...COMPANIONS, ...SECRET_FILES]) {
-    if (existsSync(join(legacyDir, f))) renameSync(join(legacyDir, f), join(dir, f));
-  }
-  process.stderr.write(`[agent-discover] moved the 1.x database from ${legacyDir} to ${dir}
-`);
-  return null;
 }
 
+/**
+ * 1.x kept its DB in ~/.claude. Move it (with WAL/SHM and the secret files) into
+ * the data dir once. Never while another process uses it: migrating the schema
+ * under a running 1.x would break that process.
+ */
+function adoptLegacyDb(legacyDir: string, dir: string): void {
+  const legacy = join(legacyDir, DB_FILE);
+  if (!existsSync(legacy)) return;
+  if (inUse(legacy)) {
+    throw new Error(
+      `${legacy} is in use by another process (agent-discover 1.x still running?). Stop it and start again; the database then moves to ${dir}.`,
+    );
+  }
+  for (const f of [DB_FILE, ...COMPANIONS, ...SECRET_FILES]) {
+    if (existsSync(join(legacyDir, f))) renameSync(join(legacyDir, f), join(dir, f));
+  }
+  process.stderr.write(`[agent-discover] moved the 1.x database from ${legacyDir} to ${dir}\n`);
+}
+
+/**
+ * $AGENT_DISCOVER_DB, else agent-discover.db in dataDir(). The 1.x DB is adopted
+ * only into the default data dir: an explicit AGENT_DISCOVER_DATA_DIR is a
+ * separate instance (tests, a second profile) and must not take the user's data.
+ */
 export function resolveDbPath(
   path?: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -123,8 +138,8 @@ export function resolveDbPath(
   const dir = dataDir(env, platform, home);
   mkdirSync(dir, { recursive: true });
   const db = join(dir, DB_FILE);
-  if (existsSync(db)) return db;
-  return adoptLegacyDb(join(home, '.claude'), dir) ?? db;
+  if (!existsSync(db) && !env.AGENT_DISCOVER_DATA_DIR) adoptLegacyDb(join(home, '.claude'), dir);
+  return db;
 }
 
 /** Apply every migration above the stored version, in one transaction. */

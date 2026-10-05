@@ -5,6 +5,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -69,10 +70,11 @@ describe('resolveDbPath', () => {
     for (const f of ['-wal', '-shm']) writeFileSync(join(legacy, `agent-discover.db${f}`), '');
     writeFileSync(join(legacy, 'agent-discover-secrets.json'), '{"a":1}');
     writeFileSync(join(legacy, 'agent-discover-secrets.key'), 'k');
-    const env = { AGENT_DISCOVER_DATA_DIR: join(home, 'data') };
+    const env = { XDG_DATA_HOME: join(home, 'xdg') };
+    const data = join(home, 'xdg', 'agent-discover');
 
     const path = resolveDbPath(undefined, env, 'linux', home);
-    expect(path).toBe(join(home, 'data', 'agent-discover.db'));
+    expect(path).toBe(join(data, 'agent-discover.db'));
     for (const f of [
       'agent-discover.db',
       'agent-discover.db-wal',
@@ -80,10 +82,10 @@ describe('resolveDbPath', () => {
       'agent-discover-secrets.json',
       'agent-discover-secrets.key',
     ]) {
-      expect(existsSync(join(home, 'data', f))).toBe(true);
+      expect(existsSync(join(data, f))).toBe(true);
       expect(existsSync(join(legacy, f))).toBe(false);
     }
-    expect(readFileSync(join(home, 'data', 'agent-discover-secrets.json'), 'utf8')).toBe('{"a":1}');
+    expect(readFileSync(join(data, 'agent-discover-secrets.json'), 'utf8')).toBe('{"a":1}');
     const moved = new Database(path, { readonly: true });
     expect(moved.prepare('SELECT v FROM t').get()).toEqual({ v: 'kept' });
     moved.close();
@@ -94,21 +96,47 @@ describe('resolveDbPath', () => {
     expect(existsSync(join(legacy, 'agent-discover.db'))).toBe(true);
   });
 
-  it.skipIf(process.platform !== 'win32')(
-    'uses the legacy DB in place while another process holds it open',
-    () => {
-      const home = fakeHome();
-      const legacy = join(home, '.claude');
-      mkdirSync(legacy);
-      const held = new Database(join(legacy, 'agent-discover.db'));
-      try {
-        const env = { AGENT_DISCOVER_DATA_DIR: join(home, 'data') };
-        expect(resolveDbPath(undefined, env, 'win32', home)).toBe(
-          join(legacy, 'agent-discover.db'),
-        );
-      } finally {
-        held.close();
-      }
-    },
-  );
+  it('never adopts the 1.x database into an explicit AGENT_DISCOVER_DATA_DIR', () => {
+    const home = fakeHome();
+    mkdirSync(join(home, '.claude'));
+    writeFileSync(join(home, '.claude', 'agent-discover.db'), '');
+    const env = { AGENT_DISCOVER_DATA_DIR: join(home, 'data') };
+    expect(resolveDbPath(undefined, env, 'linux', home)).toBe(
+      join(home, 'data', 'agent-discover.db'),
+    );
+    expect(existsSync(join(home, '.claude', 'agent-discover.db'))).toBe(true);
+    expect(existsSync(join(home, 'data', 'agent-discover.db'))).toBe(false);
+  });
+
+  it('refuses to take the 1.x database while another process has it open', async () => {
+    const home = fakeHome();
+    const legacy = join(home, '.claude', 'agent-discover.db');
+    mkdirSync(join(home, '.claude'));
+    const init = new Database(legacy);
+    init.pragma('journal_mode = WAL');
+    init.exec('CREATE TABLE t (v TEXT)');
+    init.close();
+    // A separate process: POSIX locks do not conflict within one process.
+    const holder = spawn(
+      process.execPath,
+      [
+        '-e',
+        `const d = new (require('better-sqlite3'))(process.argv[1]); d.prepare('SELECT * FROM t').all(); console.log('open'); setInterval(() => {}, 1000);`,
+        legacy,
+      ],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    try {
+      await new Promise((r) => holder.stdout!.once('data', r));
+      const env = { XDG_DATA_HOME: join(home, 'xdg') };
+      expect(() => resolveDbPath(undefined, env, 'linux', home)).toThrow(
+        /in use by another process/,
+      );
+      expect(existsSync(legacy)).toBe(true);
+      expect(existsSync(join(home, 'xdg', 'agent-discover', 'agent-discover.db'))).toBe(false);
+    } finally {
+      holder.kill();
+      await new Promise((r) => holder.once('exit', r));
+    }
+  });
 });
