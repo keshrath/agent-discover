@@ -9,7 +9,6 @@
 export type ServerSource = 'local' | 'registry' | 'manual' | 'setup-file';
 export type ServerTransport = 'stdio' | 'sse' | 'streamable-http';
 export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
-export type SandboxMode = 'none' | 'docker';
 
 /**
  * A server row. States (SPEC §2): installed = the row exists; indexed =
@@ -37,10 +36,6 @@ export interface ServerEntry {
   readonly homepage: string | null;
   readonly enabled: boolean;
   readonly quarantined: boolean;
-  /** "docker" launches the stdio server in a container (trust/sandbox.ts). */
-  readonly sandbox: SandboxMode;
-  /** Container network access (only meaningful with sandbox "docker"). */
-  readonly sandbox_network: boolean;
   readonly indexed_at: string | null;
   readonly health_status: HealthStatus;
   readonly last_health_check: string | null;
@@ -64,8 +59,6 @@ export interface ServerInput {
   package_version?: string;
   repository?: string;
   homepage?: string;
-  sandbox?: SandboxMode;
-  sandbox_network?: boolean;
 }
 
 export type ServerUpdate = Partial<Omit<ServerInput, 'name' | 'source'>>;

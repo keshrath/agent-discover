@@ -11,6 +11,7 @@ import { createDb, migrations, runMigrations } from '../src/storage/database.js'
 import { ServerStore } from '../src/domain/servers.js';
 import { ToolIndex } from '../src/domain/tool-index.js';
 import { SecretsService } from '../src/domain/secrets.js';
+import { MemorySecretBackend } from '../src/domain/trust/secret-store.js';
 import { NoopEmbeddingProvider } from '../src/embeddings/index.js';
 import { toolHash } from '../src/domain/tool-hash.js';
 
@@ -99,7 +100,12 @@ describe('migration 7 (v1.4 → 2.0)', () => {
     );
     expect(await index.search('do it')).toHaveLength(1); // FTS survived
 
-    expect(new SecretsService(db).getEnvForServer(b.id)).toEqual({ AUTHORIZATION: 'Bearer x' });
+    // Legacy plaintext moves into the backend and is wiped from the row.
+    const backend = new MemorySecretBackend();
+    expect(new SecretsService(db, backend).getEnvForServer(b)).toEqual({
+      AUTHORIZATION: 'Bearer x',
+    });
+    expect(db.queryOne<{ value: string }>('SELECT value FROM server_secrets')!.value).toBe('');
     expect(
       db.queryOne<{ call_count: number }>('SELECT call_count FROM server_metrics')!.call_count,
     ).toBe(7);

@@ -147,7 +147,6 @@ const serverStatus = z.object({
   health_status: z.string(),
   last_health_check: z.string().nullable(),
   error_count: z.number(),
-  sandbox: z.string(),
   drift: z
     .object({
       changed: z.array(z.looseObject({ tool: z.string() })),

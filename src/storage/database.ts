@@ -14,9 +14,8 @@
 // metrics through the ON DELETE CASCADE foreign keys).
 //
 // Migration 8 is the trust schema: tool pins (rug-pull defense), the
-// append-only audit log, the secrets backend marker (values leave the DB;
-// SecretsService moves legacy plaintext on startup) and per-server sandbox
-// settings. Servers indexed before 8 are pinned to their current tools: they
+// append-only audit log and the secrets backend marker (values leave the DB;
+// SecretsService moves legacy plaintext on startup). Servers indexed before 8 are pinned to their current tools: they
 // were installed by the user, so the upgrade trusts what is there.
 // =============================================================================
 
@@ -343,8 +342,6 @@ export const migrations: Migration[] = [
     version: 8,
     up: (db: Database.Database) => {
       addColumnIfMissing(db, 'server_secrets', 'backend', 'TEXT');
-      addColumnIfMissing(db, 'servers', 'sandbox', "TEXT DEFAULT 'none'");
-      addColumnIfMissing(db, 'servers', 'sandbox_network', 'INTEGER DEFAULT 1');
       db.exec(`
         CREATE TABLE IF NOT EXISTS server_pins (
           server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,

@@ -57,8 +57,6 @@ function serverFields(body: Record<string, unknown>): ServerUpdate {
     package_version: str(body.package_version),
     repository: str(body.repository),
     homepage: str(body.homepage),
-    sandbox: str(body.sandbox) as ServerUpdate['sandbox'],
-    sandbox_network: typeof body.sandbox_network === 'boolean' ? body.sandbox_network : undefined,
   };
 }
 

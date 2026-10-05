@@ -102,15 +102,10 @@ describe('calls', () => {
   });
 
   it('quarantine blocks calls and exposure; trust hooks run', async () => {
-    const seen: string[] = [];
-    d.ctx.lifecycle.hooks = {
-      beforeCall: (s, tool) => void seen.push(`${s.name}/${tool}`),
-      afterIndex: (s, diff, lc) => {
-        if (diff.changed.length) lc.setQuarantined(s.name, true);
-      },
-    };
     await d.ctx.lifecycle.callTool('up', 'echo', { text: 'x' });
-    expect(seen).toEqual(['up/echo']);
+    expect(d.ctx.trust.audit.list({ action: 'call_tool' }).entries.map((e) => e.tool)).toEqual([
+      'echo',
+    ]);
 
     await d.ctx.lifecycle.update('up', { env: { FIXTURE_DESCRIPTION: 'drifted' } });
     await d.ctx.lifecycle.reindex('up');

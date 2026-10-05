@@ -23,8 +23,6 @@ export interface SetupServerEntry {
   tags?: string[];
   secrets?: Record<string, string>;
   enabled?: boolean;
-  sandbox?: 'none' | 'docker';
-  sandbox_network?: boolean;
 }
 
 export interface SetupFile {
@@ -99,8 +97,6 @@ async function syncSingleFile(
             url: entry.url,
             headers: entry.headers,
             tags: entry.tags,
-            sandbox: entry.sandbox,
-            sandbox_network: entry.sandbox_network,
           },
           { secrets: resolvedSecrets },
         );

@@ -75,7 +75,6 @@ export interface ServerStatus {
   health_status: string;
   last_health_check: string | null;
   error_count: number;
-  sandbox: string;
   /** Present while quarantined: what changed since the last approval. */
   drift?: TrustReport['drift'];
   flagged_tools: TrustReport['flagged_tools'];
@@ -183,7 +182,6 @@ export class ServerLifecycle {
         ...(server.transport === 'stdio'
           ? { command: [server.command, ...server.args].join(' ') }
           : { url: server.url }),
-        ...(server.sandbox !== 'none' ? { sandbox: server.sandbox } : {}),
         ...(opts.secrets ? { secrets: Object.keys(opts.secrets) } : {}),
       },
     });
@@ -390,7 +388,6 @@ export class ServerLifecycle {
         health_status: s.health_status,
         last_health_check: s.last_health_check,
         error_count: s.error_count,
-        sandbox: s.sandbox,
         ...(s.quarantined && trust?.drift ? { drift: trust.drift } : {}),
         flagged_tools: trust?.flagged_tools ?? [],
       };
