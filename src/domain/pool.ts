@@ -2,7 +2,7 @@
 // agent-discover — Upstream connection pool
 //
 // One SDK v2 Client per upstream server, opened lazily and shared by every
-// caller in the daemon (MCP, REST, tester). Responsibilities:
+// caller in the daemon (MCP, REST). Responsibilities:
 //   - connect with `versionNegotiation: 'auto'`, reusing the cached era
 //     verdict as `prior` so npx-launched servers are not spawned twice;
 //   - drop a connection the moment its transport closes (child crash) and
@@ -16,7 +16,8 @@
 //     2026 ones);
 //   - upstream elicitation/create pushes (2025 servers) go to the caller's
 //     `onElicit` (the downstream client) when it is the only such call in
-//     flight on that connection, else to the dashboard queue; roots and
+//     flight on that connection, else to the queue the Claude Code pane
+//     answers (GET /api/elicitations); roots and
 //     sampling handlers.
 // =============================================================================
 
@@ -51,8 +52,6 @@ const HEALTH_TIMEOUT_MS = 5_000;
 const LEGACY_VERDICT_TTL_MS = 7 * 86_400_000;
 const MAX_BACKOFF_MS = 60_000;
 const ELICITATION_TIMEOUT_MS = 2 * 60_000;
-const TRANSIENT_TTL_MS = 15 * 60_000;
-const TRANSIENT_PREFIX = '__transient__';
 
 /**
  * Probes the era in place: the SDK spawns a disposable sibling process for the
@@ -87,8 +86,6 @@ export interface PoolDeps {
   setEraVerdict(name: string, era: 'modern' | 'legacy' | null, discover?: unknown): void;
   /** Upstream announced tools/list_changed. */
   onToolsChanged(name: string): void;
-  /** A connection opened or closed (dashboard refresh). */
-  onConnectionChange(): void;
   recordCall(server: string, tool: string, latencyMs: number, success: boolean): void;
   logs: LogService;
   roots: () => Array<{ uri: string; name?: string }>;
@@ -140,17 +137,8 @@ export interface HealthResult {
   error?: string;
 }
 
-export interface TransientHandle {
-  handle: string;
-  serverName: string;
-  tools: Tool[];
-  capabilities: Record<string, unknown>;
-  serverVersion?: { name: string; version: string };
-  expiresAt: number;
-}
-
 /** Probes whether `cmd` resolves on PATH (shell so Windows .cmd shims count). Never blocks the loop. */
-export function isCommandOnPath(cmd: string): Promise<boolean> {
+function isCommandOnPath(cmd: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       const child = spawn(`${cmd} --version`, { shell: true, stdio: 'ignore', windowsHide: true });
@@ -183,7 +171,6 @@ export class ConnectionPool {
   private readonly conns = new Map<string, Connection>();
   private readonly pending = new Map<string, Promise<Connection>>();
   private readonly failures = new Map<string, { count: number; retryAt: number }>();
-  private readonly transient = new Map<string, { config: ServerConfig; expiresAt: number }>();
   private readonly elicitations = new Map<
     string,
     {
@@ -194,7 +181,6 @@ export class ConnectionPool {
   >();
   private seq = 0;
   private readonly sweeper: NodeJS.Timeout;
-  elicitationListener?: (pending: PendingElicitation) => void;
 
   constructor(private readonly deps: PoolDeps) {
     this.sweeper = setInterval(() => this.sweepIdle(), Math.min(60_000, deps.idleMs || 60_000));
@@ -203,10 +189,6 @@ export class ConnectionPool {
 
   isConnected(name: string): boolean {
     return this.conns.has(name);
-  }
-
-  connectedNames(): string[] {
-    return [...this.conns.keys()].filter((n) => !n.startsWith(TRANSIENT_PREFIX)).sort();
   }
 
   /** Open (or reuse) the connection for `name`. */
@@ -244,7 +226,6 @@ export class ConnectionPool {
     } catch {
       /* already gone */
     }
-    this.deps.onConnectionChange();
   }
 
   async closeAll(): Promise<void> {
@@ -259,7 +240,7 @@ export class ConnectionPool {
         `"${name}" failed to connect ${failure.count}x; retrying in ${Math.ceil((failure.retryAt - Date.now()) / 1000)}s`,
       );
     }
-    const config = this.transient.get(name)?.config ?? this.deps.resolveConfig(name);
+    const config = this.deps.resolveConfig(name);
     const cached = this.priorFor(name);
     let prior = cached;
     let client: Client;
@@ -297,17 +278,13 @@ export class ConnectionPool {
       elicitors: new Set(),
     };
     client.onclose = () => {
-      if (this.conns.get(name)?.client !== client) return;
-      this.conns.delete(name);
-      this.deps.onConnectionChange();
+      if (this.conns.get(name)?.client === client) this.conns.delete(name);
     };
     this.conns.set(name, conn);
-    this.deps.onConnectionChange();
     return conn;
   }
 
   private priorFor(name: string): PriorDiscovery | undefined {
-    if (name.startsWith(TRANSIENT_PREFIX)) return undefined;
     const verdict = this.deps.getEraVerdict(name);
     if (!verdict) return undefined;
     if (verdict.era === 'modern' && verdict.discover) {
@@ -400,10 +377,7 @@ export class ConnectionPool {
       Object.keys(config.headers).length > 0 ? { headers: config.headers } : undefined;
     const url = new URL(config.url);
     const ownAuth = Object.keys(config.headers).some((h) => h.toLowerCase() === 'authorization');
-    const authProvider =
-      ownAuth || config.name.startsWith(TRANSIENT_PREFIX)
-        ? undefined
-        : this.deps.oauth?.provider(config.name);
+    const authProvider = ownAuth ? undefined : this.deps.oauth?.provider(config.name);
     const transport =
       config.transport === 'sse'
         ? new SSEClientTransport(url, { requestInit, authProvider })
@@ -555,71 +529,12 @@ export class ConnectionPool {
     if (!this.deps.idleMs) return;
     const cutoff = Date.now() - this.deps.idleMs;
     for (const [name, conn] of this.conns) {
-      if (conn.inflight === 0 && conn.lastUsed < cutoff && !name.startsWith(TRANSIENT_PREFIX)) {
-        void this.disconnect(name);
-      }
+      if (conn.inflight === 0 && conn.lastUsed < cutoff) void this.disconnect(name);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Transient (ad-hoc, dashboard tester) servers
-  // ---------------------------------------------------------------------------
-
-  async openTransient(
-    config: Omit<ServerConfig, 'name'>,
-    ttlMs = TRANSIENT_TTL_MS,
-  ): Promise<TransientHandle> {
-    const handle = `${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
-    const serverName = `${TRANSIENT_PREFIX}${handle}`;
-    const expiresAt = Date.now() + ttlMs;
-    this.transient.set(handle, { config: { ...config, name: serverName }, expiresAt });
-    this.transient.set(serverName, { config: { ...config, name: serverName }, expiresAt });
-    try {
-      await this.connect(serverName);
-    } catch (err) {
-      this.transient.delete(handle);
-      this.transient.delete(serverName);
-      throw err;
-    }
-    setTimeout(() => void this.releaseTransient(handle), ttlMs).unref();
-    const client = this.conns.get(serverName)!.client;
-    const v = client.getServerVersion();
-    return {
-      handle,
-      serverName,
-      tools: await this.listTools(serverName),
-      capabilities: (client.getServerCapabilities() ?? {}) as Record<string, unknown>,
-      serverVersion: v ? { name: v.name, version: v.version } : undefined,
-      expiresAt,
-    };
-  }
-
-  resolveTransient(handle: string): string | null {
-    const entry = this.transient.get(handle);
-    if (!entry || handle.startsWith(TRANSIENT_PREFIX)) return null;
-    if (entry.expiresAt < Date.now()) {
-      void this.releaseTransient(handle);
-      return null;
-    }
-    return entry.config.name;
-  }
-
-  transientConfig(serverName: string): ServerConfig | null {
-    return serverName.startsWith(TRANSIENT_PREFIX)
-      ? (this.transient.get(serverName)?.config ?? null)
-      : null;
-  }
-
-  async releaseTransient(handle: string): Promise<void> {
-    const entry = this.transient.get(handle);
-    if (!entry) return;
-    this.transient.delete(handle);
-    this.transient.delete(entry.config.name);
-    await this.disconnect(entry.config.name);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Dashboard elicitation queue (upstream 2025 servers push elicitation/create)
+  // Elicitation queue (upstream 2025 servers push elicitation/create; the pane answers)
   // ---------------------------------------------------------------------------
 
   private queueElicitation(
@@ -650,7 +565,6 @@ export class ConnectionPool {
       }, ELICITATION_TIMEOUT_MS);
       timer.unref();
       this.elicitations.set(id, { resolve, timer, request });
-      this.elicitationListener?.(request);
     });
   }
 

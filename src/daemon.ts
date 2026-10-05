@@ -2,12 +2,11 @@
 // agent-discover — Daemon
 //
 // The single long-running process (SPEC §1): one node:http server on
-// 127.0.0.1:<port> serving the dashboard, REST /api/*, WebSocket and MCP
+// 127.0.0.1:<port> serving REST /api/* (the Claude Code pane) and MCP
 // Streamable HTTP at /mcp. Every host connects here (directly over HTTP or
 // through the stdio shim), so proxy/connection state has one owner.
 //
-// Exits after `idleMs` with no open HTTP exchanges (MCP streams, SSE) and no
-// WebSocket clients.
+// Exits after `idleMs` with no open HTTP exchanges (MCP streams, SSE).
 // =============================================================================
 
 import { createServer, type Server } from 'node:http';
@@ -18,7 +17,6 @@ import { createMcpFactory } from './mcp/server.js';
 import { createMcpEndpoint, type McpEndpoint } from './mcp/http.js';
 import { createRestHandler } from './transport/rest.js';
 import { createRequestGuard } from './transport/guard.js';
-import { setupWebSocket } from './transport/ws.js';
 import { createRestToken } from './transport/token.js';
 import { loadTelemetry } from './domain/trust/telemetry.js';
 import { version } from './version.js';
@@ -66,10 +64,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   let open = 0;
   let lastActivity = Date.now();
   const guard = createRequestGuard(boundPort, host);
-  const mcp = createMcpEndpoint(
-    createMcpFactory(ctx, `http://${host}:${boundPort}`),
-    ctx.config.sessionIdleMs,
-  );
+  const mcp = createMcpEndpoint(createMcpFactory(ctx), ctx.config.sessionIdleMs);
   httpServer.on('request', (req, res) => {
     lastActivity = Date.now();
     open++;
@@ -77,7 +72,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
       open--;
       lastActivity = Date.now();
     });
-    if (guard.handle(req, res)) return;
+    if (guard(req, res)) return;
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (pathname === '/mcp' && (!mcpHost(req, res) || !mcpOrigin(req, res))) return;
     const handler = pathname === '/mcp' ? mcp.handle(req, res) : rest(req, res);
@@ -87,10 +82,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
       res.end(JSON.stringify({ error: 'Internal server error' }));
     });
   });
-  const ws = setupWebSocket(httpServer, ctx, guard);
-  const unsubscribe = ctx.lifecycle.onChange((e) => {
-    if (e.type === 'tools') mcp.notifyToolsChanged();
-  });
+  const unsubscribe = ctx.lifecycle.onToolsChanged(() => mcp.notifyToolsChanged());
 
   let closing: Promise<void> | null = null;
   const daemon: Daemon = {
@@ -103,7 +95,6 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
       closing ??= (async () => {
         clearInterval(idleTimer);
         unsubscribe();
-        ws.close();
         await mcp.close().catch(() => {});
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
@@ -115,7 +106,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
 
   const idleTimer = setInterval(
     () => {
-      if (!idleMs || open > 0 || ws.clientCount() > 0) return;
+      if (!idleMs || open > 0) return;
       if (Date.now() - lastActivity < idleMs) return;
       if (options.onIdle) options.onIdle(daemon);
       else void daemon.close().then(() => process.exit(0));

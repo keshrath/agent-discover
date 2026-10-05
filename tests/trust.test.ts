@@ -154,14 +154,14 @@ describe('pins, drift quarantine and re-approval', () => {
     expect(d!.ctx.servers.get('up')!.quarantined).toBe(false);
   });
 
-  it('MCP: a client that cannot elicit is pointed at the dashboard; get_tool withholds', async () => {
+  it('MCP: a client that cannot elicit is pointed at /discover; get_tool withholds', async () => {
     await drift();
     const c = await client({ era: 'modern', elicitation: false });
     const res = (await c.callTool({
       name: 'enable_server',
       arguments: { name: 'up' },
     })) as CallToolResult;
-    expect(JSON.stringify(res)).toMatch(/dashboard/);
+    expect(JSON.stringify(res)).toMatch(/\/discover/);
     expect(d!.ctx.servers.get('up')!.quarantined).toBe(true);
 
     const tool = (await c.callTool({
@@ -377,15 +377,18 @@ describe('REST token', () => {
     await startDaemon();
   });
 
-  it('GET /api/token: only absent, file:// or own-origin requests may read it', async () => {
+  it('GET /api/token: only requests without an Origin may read it', async () => {
     const host = `127.0.0.1:${d!.port}`;
     const ok = await raw('/api/token', { host });
     expect(ok.status).toBe(200);
     expect(JSON.parse(ok.body)).toEqual({ token: d!.restToken, header: 'x-agent-discover-token' });
-    expect((await raw('/api/token', { host, origin: 'file://' })).status).toBe(200);
-    expect((await raw('/api/token', { host, origin: `http://${host}` })).status).toBe(200);
-    // other origins (even loopback ones the guard admits) never learn the token
-    for (const origin of ['http://localhost:5173', 'http://127.0.0.1:1', 'https://evil.example']) {
+    // any origin (even loopback ones the guard admits, the daemon's own included) never learns it
+    for (const origin of [
+      `http://${host}`,
+      'http://localhost:5173',
+      'http://127.0.0.1:1',
+      'https://evil.example',
+    ]) {
       const res = await raw('/api/token', { host, origin });
       expect(res.status).toBe(403);
       expect(res.body).not.toContain(d!.restToken);
@@ -396,8 +399,8 @@ describe('REST token', () => {
     const req = (origin: string | undefined) =>
       ({ headers: { origin, host: 'localhost:3424' } }) as unknown as IncomingMessage;
     expect(mayReadToken(req(undefined))).toBe(true);
-    expect(mayReadToken(req('file://'))).toBe(true);
-    expect(mayReadToken(req('HTTP://LOCALHOST:3424'))).toBe(true);
+    expect(mayReadToken(req('file://'))).toBe(false);
+    expect(mayReadToken(req('HTTP://LOCALHOST:3424'))).toBe(false);
     expect(mayReadToken(req('http://localhost:3000'))).toBe(false);
     expect(mayReadToken(req('null'))).toBe(false);
   });

@@ -1,11 +1,10 @@
 // =============================================================================
-// REST adapter + request guard (Host / Origin / Content-Type on /api, /mcp, WS)
+// REST adapter + request guard (Host / Origin / Content-Type on /api, /mcp)
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { request as httpRequest } from 'node:http';
-import WebSocket from 'ws';
-import { FIXTURE, startTestDaemon, waitFor, type TestDaemon } from './helpers.js';
+import { FIXTURE, startTestDaemon, type TestDaemon } from './helpers.js';
 
 let d: TestDaemon;
 beforeEach(async () => {
@@ -58,14 +57,6 @@ describe('servers via REST', () => {
     const detail = await (await api(`/api/servers/${server.id}`)).json();
     expect(detail.tools.map((t: { name: string }) => t.name)).toContain('echo');
 
-    const call = await (
-      await api(`/api/servers/${server.id}/call`, {
-        method: 'POST',
-        body: JSON.stringify({ tool: 'echo', args: { text: 'rest' } }),
-      })
-    ).json();
-    expect(call.content).toEqual([{ type: 'text', text: 'rest' }]);
-
     expect(
       (await (await api(`/api/servers/${server.id}/disable`, { method: 'POST' })).json()).enabled,
     ).toBe(false);
@@ -90,6 +81,22 @@ describe('servers via REST', () => {
       homepage: null,
     });
     expect(s.index_error).toMatch(/Failed to connect/);
+  });
+
+  it('lists declared headers that are empty and have no secret as missing_secrets', async () => {
+    const s = d.ctx.servers.create({
+      name: 'gated',
+      transport: 'streamable-http',
+      url: 'http://127.0.0.1:9/mcp',
+      headers: { 'X-Api-Key': '', 'X-Team': 'a' },
+    });
+    const missing = async () => (await (await api(`/api/servers/${s.id}`)).json()).missing_secrets;
+    expect(await missing()).toEqual(['X-Api-Key']);
+    await api(`/api/servers/${s.id}/secrets/x-api-key`, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 'k' }),
+    });
+    expect(await missing()).toEqual([]);
   });
 
   it('masks env values and keeps the original when a masked value comes back', async () => {
@@ -136,8 +143,7 @@ describe('request guard', () => {
     const ok = await raw('/api/health', { Host: host(), Origin: 'http://localhost:5173' });
     expect(ok.status).toBe(200);
     expect(ok.headers['access-control-allow-origin']).toBe('http://localhost:5173');
-    const electron = await raw('/api/health', { Host: host(), Origin: 'file://' });
-    expect(electron.status).toBe(200);
+    expect((await raw('/api/health', { Host: host(), Origin: 'file://' })).status).toBe(403);
     const plain = await raw('/api/health', { Host: host() });
     expect(plain.headers['access-control-allow-origin']).toBeUndefined();
   });
@@ -150,28 +156,5 @@ describe('request guard', () => {
       '{}',
     );
     expect(res.status).toBe(415);
-  });
-
-  it('applies Host/Origin to WebSocket upgrades and pushes state', async () => {
-    const bad = new WebSocket(`ws://127.0.0.1:${d.port}/ws`, {
-      headers: { Origin: 'https://evil.com' },
-    });
-    const badResult = await new Promise<string>((resolve) => {
-      bad.on('open', () => resolve('open'));
-      bad.on('error', () => resolve('rejected'));
-    });
-    expect(badResult).toBe('rejected');
-
-    const ws = new WebSocket(`ws://127.0.0.1:${d.port}/ws`);
-    const states: Array<{ servers: unknown[] }> = [];
-    ws.on('message', (m) => {
-      const msg = JSON.parse(m.toString());
-      if (msg.type === 'state') states.push(msg);
-    });
-    await waitFor(() => states.length === 1);
-    expect(states[0].servers).toEqual([]);
-    await d.ctx.lifecycle.install({ name: 'up', command: process.execPath, args: [FIXTURE] });
-    await waitFor(() => states.some((s) => s.servers.length === 1));
-    ws.close();
   });
 });

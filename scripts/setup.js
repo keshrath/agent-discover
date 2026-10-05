@@ -84,10 +84,9 @@ if (!IS_CLAUDE) {
   console.log(`
 Setup complete!
 
-Daemon (dashboard + /mcp): node dist/index.js daemon
+Daemon (REST + /mcp):      node dist/index.js daemon
 MCP server (stdio shim):   node dist/index.js
 Streamable HTTP endpoint:  http://127.0.0.1:3424/mcp
-Dashboard URL:        http://localhost:3424
 `);
   process.exit(0);
 }
@@ -116,7 +115,7 @@ Restart Claude Code to load the new MCP server. The server will:
   - Start (or reuse) the shared agent-discover daemon on 127.0.0.1:3424
   - Expose search_tools / call_tool / install_server / enable_server and friends
   - Expose enabled servers' tools as serverName__toolName
-  - Serve the dashboard at http://localhost:3424
+  - Manage servers in Claude Code with /discover (install the plugin: see README)
 
 For more info, see: https://github.com/keshrath/agent-discover#readme
 `);

@@ -53,7 +53,7 @@ async function authorizeUrl(): Promise<string> {
   return status.authorize_url;
 }
 
-describe('dashboard sign-in', () => {
+describe('REST sign-in (the /discover pane)', () => {
   it('registers dynamically, signs in through the loopback callback and indexes', async () => {
     const url = new URL(await authorizeUrl());
     expect(as.registrations).toBe(1);

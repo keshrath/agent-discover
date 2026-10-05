@@ -21,7 +21,6 @@ describe('release manifests', () => {
   it('keep every version file on the package version', () => {
     expect(server.version).toBe(pkg.version);
     expect(server.packages.map((p) => p.version)).toEqual([pkg.version]);
-    expect(read('agent-desk-plugin.json').version).toBe(pkg.version);
     expect(read('plugin/.claude-plugin/plugin.json').version).toBe(pkg.version);
   });
 

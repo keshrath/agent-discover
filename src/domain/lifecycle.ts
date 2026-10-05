@@ -3,9 +3,9 @@
 //
 // The single authority over a server's states (SPEC §2):
 //   installed → indexed → enabled → (connected, lazily) ; quarantined
-// MCP tools, REST routes, the setup file and the dashboard all go through
-// this service, so every path persists the same way and fires the same
-// change events (which drive tools/list_changed and dashboard refreshes).
+// MCP tools, REST routes (the Claude Code pane) and the setup file all go
+// through this service, so every path persists the same way and fires the
+// same tools-changed events (which drive tools/list_changed).
 //
 // Indexing is independent of enablement: install probes the server once
 // (connect → tools/list → persist → disconnect), disable never touches the
@@ -58,12 +58,6 @@ export interface TrustHooks {
   record?(event: AuditEvent): void;
 }
 
-export type LifecycleEvent =
-  /** The set or shape of exposed tools may have changed → tools/list_changed. */
-  | { type: 'tools' }
-  /** Server rows or connection state changed (dashboard). */
-  | { type: 'servers' };
-
 export interface ServerStatus {
   name: string;
   description: string;
@@ -103,7 +97,8 @@ export class ServerLifecycle {
   readonly pool: ConnectionPool;
   private readonly servers: ServerStore;
   private readonly index: ToolIndex;
-  private readonly listeners = new Set<(event: LifecycleEvent) => void>();
+  /** Called when the set or shape of exposed tools may have changed → tools/list_changed. */
+  private readonly listeners = new Set<() => void>();
   private readonly indexing = new Map<string, Promise<IndexDiff>>();
   hooks: TrustHooks;
 
@@ -121,7 +116,6 @@ export class ServerLifecycle {
           process.stderr.write(`[agent-discover] re-index of "${name}" failed: ${String(err)}\n`),
         );
       },
-      onConnectionChange: () => this.emit({ type: 'servers' }),
       recordCall: (server, tool, latency, ok) => {
         const row = this.servers.get(server);
         if (row) deps.metrics.recordCall(row.id, tool, latency, ok);
@@ -134,24 +128,21 @@ export class ServerLifecycle {
     });
   }
 
-  onChange(listener: (event: LifecycleEvent) => void): () => void {
+  onToolsChanged(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  private emit(event: LifecycleEvent): void {
+  /** Fires tools/list_changed when `exposed` (the change touched an enabled server's tools). */
+  private changed(exposed: boolean): void {
+    if (!exposed) return;
     for (const l of this.listeners) {
       try {
-        l(event);
+        l();
       } catch {
         /* listener failures never break the lifecycle */
       }
     }
-  }
-
-  private changed(exposed: boolean): void {
-    this.emit({ type: 'servers' });
-    if (exposed) this.emit({ type: 'tools' });
   }
 
   resolveConfig(name: string) {
@@ -169,7 +160,7 @@ export class ServerLifecycle {
 
   /**
    * Persist a server and index it. Consent is the caller's job (MCP elicits,
-   * REST/dashboard and the setup file are user/operator driven). An index
+   * REST (the pane) and the setup file are user/operator driven). An index
    * failure leaves the server installed-but-unindexed and is reported.
    */
   async install(
@@ -193,7 +184,6 @@ export class ServerLifecycle {
         ...(opts.secrets ? { secrets: Object.keys(opts.secrets) } : {}),
       },
     });
-    this.changed(false);
     let diff: IndexDiff | undefined;
     let indexError: string | undefined;
     try {
@@ -284,7 +274,6 @@ export class ServerLifecycle {
 
   resetErrors(name: string): void {
     this.servers.resetErrorCount(this.servers.require(name).id);
-    this.emit({ type: 'servers' });
   }
 
   setQuarantined(name: string, quarantined: boolean): void {
@@ -322,7 +311,7 @@ export class ServerLifecycle {
         ].filter(Boolean)
       : [];
     return new RegistryError(
-      `Server "${server.name}" is quarantined: its tools changed since they were approved${parts.length ? ` (${parts.join('; ')})` : ''}. Review and re-approve with enable_server or the dashboard (POST /api/servers/${server.id}/approve).`,
+      `Server "${server.name}" is quarantined: its tools changed since they were approved${parts.length ? ` (${parts.join('; ')})` : ''}. Review and re-approve with enable_server or the Claude Code /discover pane (POST /api/servers/${server.id}/approve).`,
       'QUARANTINED',
       409,
     );
@@ -374,7 +363,6 @@ export class ServerLifecycle {
     const server = this.servers.require(name);
     const result = await this.pool.health(name);
     this.servers.recordHealth(server.id, result.status);
-    this.emit({ type: 'servers' });
     return result;
   }
 

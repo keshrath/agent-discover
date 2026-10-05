@@ -1,23 +1,10 @@
 // =============================================================================
-// agent-discover — Minimal HTTP helpers (JSON responses, JSON bodies, static
-// files, a :param router). node:http only.
+// agent-discover — Minimal HTTP helpers (JSON responses, JSON bodies, a
+// :param router). node:http only.
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFile, realpath } from 'node:fs/promises';
-import { extname, join, resolve, sep } from 'node:path';
 import { RegistryError, ValidationError } from '../types.js';
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-};
 
 export function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, {
@@ -52,27 +39,6 @@ export async function readJson(
     throw new ValidationError('Body must be a JSON object');
   }
   return parsed as Record<string, unknown>;
-}
-
-/** Serve a file from `baseDir`; refuses traversal and symlinks escaping it. */
-export async function serveStatic(
-  res: ServerResponse,
-  baseDir: string,
-  pathname: string,
-): Promise<void> {
-  const root = resolve(baseDir);
-  try {
-    const target = await realpath(join(root, decodeURIComponent(pathname)));
-    if (!target.startsWith(root + sep)) throw new Error('outside root');
-    const body = await readFile(target);
-    res.writeHead(200, {
-      'Content-Type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
-      'X-Content-Type-Options': 'nosniff',
-    });
-    res.end(body);
-  } catch {
-    json(res, { error: 'Not found' }, 404);
-  }
 }
 
 export type RouteHandler = (

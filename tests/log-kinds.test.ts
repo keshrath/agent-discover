@@ -40,14 +40,4 @@ describe('LogService kind', () => {
     expect(svc.count('notification')).toBe(1);
     expect(svc.count()).toBe(3);
   });
-
-  it('emits onEntry for all kinds', () => {
-    const svc = new LogService();
-    const seen: string[] = [];
-    svc.onEntry = (e) => seen.push(e.kind);
-    svc.push('s', 't', {}, 'r', 1, true);
-    svc.pushNotification('s', 'n', {});
-    svc.pushProgress('s', 1, 10, undefined, undefined);
-    expect(seen).toEqual(['call', 'notification', 'progress']);
-  });
 });

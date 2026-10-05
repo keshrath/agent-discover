@@ -16,48 +16,19 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { createServer, connect } from 'node:net';
+import { connect } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { Client, type CallToolResult } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { FIXTURE, connectClient, waitFor } from '../helpers.js';
-import { dataDir } from '../../src/storage/database.js';
+import { FIXTURE, connectClient, freePort, isAlive, killTree, waitFor } from '../helpers.js';
+import { dataDir } from '../../src/config.js';
 
 const E2E = process.env.AGENT_DISCOVER_E2E === '1';
 const BIN = resolve(import.meta.dirname, '..', '..', 'dist', 'index.js');
 const EVERYTHING = '@modelcontextprotocol/server-everything';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function freePort(): Promise<number> {
-  return new Promise((res) => {
-    const s = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => res(port));
-    });
-  });
-}
-
-function isAlive(pid: number | null | undefined): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function killTree(pid: number | undefined): void {
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
-    else process.kill(-pid, 'SIGKILL');
-  } catch {
-    /* already gone */
-  }
-}
 
 function scratch(label: string): string {
   return mkdtempSync(join(tmpdir(), `agent-discover-e2e-${label}-`));
@@ -159,12 +130,16 @@ const withoutMeta = (r: CallToolResult) => ({ ...r, _meta: undefined });
 // 1. stdio shim
 // ---------------------------------------------------------------------------
 
+// Scratch dirs are made in beforeAll: a describe body also runs when the suite is skipped.
 describe.skipIf(!E2E)('1. stdio shims share one daemon', () => {
-  const dir = scratch('shim');
+  let dir = '';
   let port = 0;
   const clients: Client[] = [];
   const env = () => scratchEnv(dir, port, { AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL: '1' });
-  const daemonLog = () => join(tmpdir(), `agent-discover-${port}.log`);
+  const daemonLog = () => join(dir, 'data', `daemon-${port}.log`);
+  beforeAll(() => {
+    dir = scratch('shim');
+  });
 
   async function shim(era: 'modern' | 'legacy'): Promise<Client> {
     const c = new Client(
@@ -187,7 +162,6 @@ describe.skipIf(!E2E)('1. stdio shims share one daemon', () => {
 
   it('two shims started at once spawn exactly one daemon and see the same state', async () => {
     port = await freePort();
-    rmSync(daemonLog(), { force: true });
     const [a, b] = await Promise.all([shim('legacy'), shim('modern')]);
     const pid = (await health(`http://127.0.0.1:${port}`))!.pid;
     expect(isAlive(pid)).toBe(true);
@@ -241,7 +215,7 @@ describe.skipIf(!E2E)('1. stdio shims share one daemon', () => {
 // ---------------------------------------------------------------------------
 
 describe.skipIf(!E2E)('2-6. one daemon, both eras', () => {
-  const dir = scratch('main');
+  let dir = '';
   let d: DaemonProc;
   let token = '';
   let call: ReturnType<typeof api>;
@@ -257,6 +231,7 @@ describe.skipIf(!E2E)('2-6. one daemon, both eras', () => {
   };
 
   beforeAll(async () => {
+    dir = scratch('main');
     d = await startDaemonProc(scratchEnv(dir, await freePort()));
     token = await restToken(d.base);
     call = api(d.base, token);
@@ -606,11 +581,17 @@ describe.skipIf(!E2E)('2-6. one daemon, both eras', () => {
 // ---------------------------------------------------------------------------
 
 describe.skipIf(!E2E)('7. migration from 1.4.1', () => {
-  const dir = scratch('mig');
-  const home = join(dir, 'home');
-  const legacyDb = join(home, '.claude', 'agent-discover.db');
+  let dir = '';
+  let home = '';
+  let legacyDb = '';
   let v14: ChildProcess | undefined;
   let d: DaemonProc | undefined;
+
+  beforeAll(() => {
+    dir = scratch('mig');
+    home = join(dir, 'home');
+    legacyDb = join(home, '.claude', 'agent-discover.db');
+  });
 
   afterAll(async () => {
     killTree(v14?.pid);
@@ -747,7 +728,7 @@ describe.skipIf(!E2E)('7. migration from 1.4.1', () => {
     const db = new Database(target, { readonly: true });
     try {
       expect(db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'").get()).toEqual({
-        value: '10',
+        value: '11',
       });
       expect(db.prepare('SELECT DISTINCT backend, value FROM server_secrets').all()).toEqual([
         { backend: 'file', value: '' },

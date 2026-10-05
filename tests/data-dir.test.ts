@@ -9,7 +9,8 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { dataDir, resolveDbPath } from '../src/storage/database.js';
+import { dataDir } from '../src/config.js';
+import { resolveDbPath } from '../src/storage/database.js';
 
 const dirs: string[] = [];
 function fakeHome(): string {

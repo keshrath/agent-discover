@@ -2,7 +2,9 @@
 // Shared test helpers: temp daemon, SDK clients of both eras, fixture upstream.
 // =============================================================================
 
+import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -88,5 +90,38 @@ export async function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<
   while (!check()) {
     if (Date.now() > deadline) throw new Error('waitFor timed out');
     await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+export function freePort(): Promise<number> {
+  return new Promise((res) => {
+    const s = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address() as { port: number };
+      s.close(() => res(port));
+    });
+  });
+}
+
+export function isAlive(pid: number | null | undefined): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Kill a spawned daemon with its upstream children. A plain process.kill on Windows
+ * orphans them, and an orphan keeps the test's temp dir pinned so it cannot be removed.
+ */
+export function killTree(pid: number | null | undefined): void {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+    else process.kill(-pid, 'SIGKILL');
+  } catch {
+    /* already gone */
   }
 }

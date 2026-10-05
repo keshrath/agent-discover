@@ -1,7 +1,7 @@
 // =============================================================================
 // A 2025 upstream pushes elicitation/create mid-call: the gateway parks the
 // call and asks the downstream client (MRTR round for 2026, the SDK legacy
-// shim for 2025); a client that cannot elicit falls back to the dashboard.
+// shim for 2025); a client that cannot elicit falls back to the pane's queue.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -66,7 +66,7 @@ describe.each(['modern', 'legacy'] as const)('%s downstream', (era) => {
 });
 
 describe('downstream without elicitation', () => {
-  it('falls back to the dashboard queue', async () => {
+  it('falls back to the pending queue (answered in the /discover pane)', async () => {
     const c = await client({ era: 'modern', elicitation: false });
     const pending = confirm(c);
     await waitFor(() => d.ctx.lifecycle.pool.listPendingElicitations().length === 1);

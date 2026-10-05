@@ -32,7 +32,6 @@ export class LogService {
   private readonly max: number;
   private readonly retentionMs: number;
   private seq = 0;
-  onEntry?: (entry: LogEntry) => void;
 
   constructor(max = DEFAULT_MAX, retentionDays?: number) {
     this.max = max;
@@ -65,7 +64,6 @@ export class LogService {
     };
     this.buffer.push(entry);
     if (this.buffer.length > this.max) this.buffer.shift();
-    if (this.onEntry) this.onEntry(entry);
     return entry;
   }
 
@@ -107,9 +105,5 @@ export class LogService {
   count(kind?: LogKind): number {
     if (!kind) return this.buffer.length;
     return this.buffer.reduce((n, e) => n + (e.kind === kind ? 1 : 0), 0);
-  }
-
-  clear(): void {
-    this.buffer.length = 0;
   }
 }

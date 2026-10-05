@@ -6,7 +6,7 @@
 import { copyFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attention, base, readStatus } from './status.mjs';
+import { attention, readStatus } from './status.mjs';
 
 // Keep the status line segment at a path that survives plugin updates.
 const data = process.env.CLAUDE_PLUGIN_DATA;
@@ -44,5 +44,5 @@ const issues = [
   attn.length - quarantined && `${attn.length - quarantined} unhealthy`,
 ].filter(Boolean);
 const out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } };
-if (issues.length) out.systemMessage = `agent-discover: ${issues.join(', ')} - ${base}/#/servers`;
+if (issues.length) out.systemMessage = `agent-discover: ${issues.join(', ')} - /discover to review`;
 process.stdout.write(JSON.stringify(out));

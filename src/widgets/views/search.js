@@ -1,19 +1,16 @@
 // search_servers / search_tools results.
 import { h } from '../lib/dom.js';
 import { action } from '../lib/bridge.js';
-import { badge, dashLink, header, plural, serverRoute, dashUrl, stateChip } from '../lib/ui.js';
+import { badge, header, link, plural, stateChip } from '../lib/ui.js';
 import { renderTester } from './tester.js';
 import { renderInstall } from './install.js';
 
 export function renderSearchServers(sc, ctx) {
   const total = sc.installed.length + sc.marketplace.length;
-  const route = `/browse?q=${encodeURIComponent(sc.query)}`;
   return [
     header(
-      ctx,
       total ? plural(total, 'server') : 'No servers found',
       `for “${sc.query}” · ${sc.installed.length} installed · ${sc.marketplace.length} in registries`,
-      route,
     ),
     total
       ? h(
@@ -43,11 +40,7 @@ function installedRow(s, ctx) {
       { kind: s.enabled ? 'ghost' : 'primary' },
     );
   return row(
-    [
-      h('span', { class: 'name mono' }, s.name),
-      stateChip(s.enabled ? 'enabled' : 'installed'),
-      dashLink(ctx, '↗', dashUrl(ctx, serverRoute(s.name))),
-    ],
+    [h('span', { class: 'name mono' }, s.name), stateChip(s.enabled ? 'enabled' : 'installed')],
     s.description,
     [badge(plural(s.tool_count, 'tool'))],
     toggle(),
@@ -72,7 +65,7 @@ function marketRow(s, ctx) {
     [
       p ? badge(`${p.registry_type} ${p.identifier}`, 'neutral') : null,
       s.status !== 'active' ? badge(s.status, 'warning') : null,
-      s.repository ? dashLink(ctx, 'source ↗', s.repository) : null,
+      s.repository ? link(ctx, 'source ↗', s.repository) : null,
     ],
     p || s.remotes.length
       ? action(
@@ -113,10 +106,8 @@ export function renderSearchTools(sc, ctx) {
   const total = sc.results.reduce((n, r) => n + r.matches.length, 0);
   return [
     header(
-      ctx,
       total ? plural(total, 'tool') : 'No tools found',
       `for ${sc.results.map((r) => `“${r.query}”`).join(', ')}`,
-      '/servers',
     ),
     total
       ? sc.results.map((r) =>

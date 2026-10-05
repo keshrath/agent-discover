@@ -10,8 +10,8 @@
 // moved into the backend on startup and the plaintext is wiped
 // (secure_delete + WAL truncate so no copy survives in free pages).
 //
-// Server env values (not secrets) are masked the same way in dashboard
-// state; a masked value sent back unchanged keeps the stored original.
+// Server env values (not secrets) are masked the same way in REST
+// responses; a masked value sent back unchanged keeps the stored original.
 // =============================================================================
 
 import type { Db } from '../storage/database.js';

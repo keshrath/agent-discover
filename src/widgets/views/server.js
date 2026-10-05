@@ -1,16 +1,7 @@
 // server_status cards, and the enable_server / disable_server confirmation.
 import { h } from '../lib/dom.js';
 import { action } from '../lib/bridge.js';
-import {
-  dashLink,
-  dashUrl,
-  header,
-  healthDot,
-  plural,
-  serverRoute,
-  serverState,
-  stateChip,
-} from '../lib/ui.js';
+import { header, healthDot, plural, serverState, stateChip } from '../lib/ui.js';
 
 const TOOL_PREVIEW = 12;
 
@@ -20,7 +11,6 @@ export function renderStatus(sc, ctx) {
   const quarantined = n((x) => x.quarantined);
   return [
     header(
-      ctx,
       `${n((x) => x.enabled)} of ${plural(s.length, 'server')} enabled`,
       [
         `${n((x) => x.connected)} connected`,
@@ -29,7 +19,6 @@ export function renderStatus(sc, ctx) {
       ]
         .filter(Boolean)
         .join(' · '),
-      '/servers',
     ),
     s.length
       ? s.map((x) => card(x, sc, ctx))
@@ -38,7 +27,6 @@ export function renderStatus(sc, ctx) {
 }
 
 function card(s, sc, ctx) {
-  const url = dashUrl(ctx, serverRoute(s.name));
   return h(
     'section',
     { class: 'card' },
@@ -60,25 +48,24 @@ function card(s, sc, ctx) {
       h(
         'div',
         { class: 'actions' },
-        s.quarantined
-          ? dashLink(ctx, 'Review changes ↗', url)
-          : action(
-              s.enabled ? 'Disable' : 'Enable',
-              async () => {
-                const r = await ctx.call(s.enabled ? 'disable_server' : 'enable_server', {
-                  name: s.name,
-                });
-                ctx.say(`User ${r.enabled ? 'enabled' : 'disabled'} ${s.name}.`);
-                const next = await ctx.call('server_status', {});
-                ctx.rerender({ ...sc, servers: next.servers });
-              },
-              { kind: s.enabled ? 'ghost' : 'primary' },
-            ),
+        // enable_server on a quarantined server asks the user to review and approve the change.
+        action(
+          s.quarantined ? 'Review changes' : s.enabled ? 'Disable' : 'Enable',
+          async () => {
+            const r = await ctx.call(
+              s.enabled && !s.quarantined ? 'disable_server' : 'enable_server',
+              { name: s.name },
+            );
+            ctx.say(`User ${r.enabled ? 'enabled' : 'disabled'} ${s.name}.`);
+            const next = await ctx.call('server_status', {});
+            ctx.rerender({ ...sc, servers: next.servers });
+          },
+          { kind: s.enabled && !s.quarantined ? 'ghost' : 'primary' },
+        ),
       ),
     ),
     stats(s),
     s.health?.error ? h('div', { class: 'alert danger small mono' }, s.health.error) : null,
-    s.quarantined ? null : dashLink(ctx, 'Open in dashboard ↗', url),
   );
 }
 
@@ -131,7 +118,6 @@ export function renderToggle(sc, ctx) {
           },
           { kind: sc.enabled ? 'ghost' : 'primary' },
         ),
-        dashLink(ctx, '↗', dashUrl(ctx, serverRoute(sc.name))),
       ),
     ),
     sc.enabled

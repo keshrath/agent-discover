@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server';
 import { OUTPUTS, type Outputs } from '../../src/widgets/types.js';
 import { resultText } from '../../src/widgets/text.js';
-import { DASHBOARD_META_KEY, WIDGET_MIME, WIDGET_URI } from '../../src/widgets/resources.js';
+import { WIDGET_MIME, WIDGET_URI } from '../../src/widgets/resources.js';
 // @ts-expect-error -- plain browser ESM without type declarations
 import { viewOf } from '../../src/widgets/lib/view.js';
 import { capture, toolOf, type CaptureSession } from './capture.js';
@@ -28,16 +28,13 @@ describe('every meta tool result', () => {
     );
   });
 
-  it.each(VIEW_TOOLS)('%s: schema, view dispatch, text and dashboard _meta agree', (tool) => {
+  it.each(VIEW_TOOLS)('%s: schema, view dispatch and text agree', (tool) => {
     const variants = Object.entries(s.results).filter(([v]) => toolOf(v) === tool);
     for (const [variant, res] of variants) {
       const sc = res.structuredContent as Outputs[typeof tool];
       expect(OUTPUTS[tool].safeParse(sc).success, variant).toBe(true);
       expect(viewOf(sc), variant).toBe(tool);
-      expect(res.content, variant).toEqual([
-        { type: 'text', text: resultText(tool, sc, { dashboard: s.daemon.base }) },
-      ]);
-      expect(res._meta?.[DASHBOARD_META_KEY], variant).toBe(s.daemon.base);
+      expect(res.content, variant).toEqual([{ type: 'text', text: resultText(tool, sc) }]);
     }
   });
 

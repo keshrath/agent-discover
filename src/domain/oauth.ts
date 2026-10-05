@@ -16,7 +16,7 @@
 // The redirect target is the daemon's own loopback callback
 // (http://127.0.0.1:<port>/oauth/callback, RFC 8252 §7.3). The authorization
 // URL is never opened by agent-discover: it is handed to the user through
-// URL-mode elicitation, the dashboard (GET /api/servers/:id/auth) or the
+// URL-mode elicitation, the Claude Code pane (GET /api/servers/:id/auth) or the
 // error text, and only http(s) URLs are ever passed on.
 //
 // Client identity: with AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL set (an

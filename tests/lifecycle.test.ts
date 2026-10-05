@@ -5,19 +5,18 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import { startTestDaemon, installFixture, waitFor, type TestDaemon } from './helpers.js';
-import type { LifecycleEvent } from '../src/domain/lifecycle.js';
 
 let d: TestDaemon;
-let events: LifecycleEvent['type'][];
+let events: number;
 
 beforeEach(async () => {
   d = await startTestDaemon();
-  events = [];
-  d.ctx.lifecycle.onChange((e) => events.push(e.type));
+  events = 0;
+  d.ctx.lifecycle.onToolsChanged(() => events++);
 });
 afterEach(async () => d.stop());
 
-const toolEvents = () => events.filter((e) => e === 'tools').length;
+const toolEvents = () => events;
 
 describe('install → index → enable/disable → uninstall', () => {
   it('indexes on install and disconnects the probe connection', async () => {

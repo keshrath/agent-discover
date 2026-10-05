@@ -1,8 +1,8 @@
 // =============================================================================
 // structuredContent contract of the meta tools. These zod schemas are the
 // tools' advertised outputSchemas (src/mcp/tools.ts) and the input of every
-// presentation surface: the markdown fallback (text.ts), the MCP Apps widget
-// (main.js) and the dashboard.
+// presentation surface: the markdown fallback (text.ts) and the MCP Apps
+// widget (main.js).
 // =============================================================================
 
 import * as z from 'zod';

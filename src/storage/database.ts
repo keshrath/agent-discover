@@ -21,6 +21,7 @@
 
 import Database from 'better-sqlite3';
 import { homedir } from 'os';
+import { dataDir } from '../config.js';
 import { join } from 'path';
 import { existsSync, mkdirSync, renameSync } from 'fs';
 import { toolHash } from '../domain/tool-hash.js';
@@ -69,23 +70,6 @@ const DB_FILE = 'agent-discover.db';
 /** Files that live next to the DB: SQLite WAL/SHM and the file secret store (secret-store.ts). */
 const COMPANIONS = [`${DB_FILE}-wal`, `${DB_FILE}-shm`];
 const SECRET_FILES = ['agent-discover-secrets.json', 'agent-discover-secrets.key'];
-
-/**
- * Per-user data directory: $AGENT_DISCOVER_DATA_DIR, else the platform default
- * (%LOCALAPPDATA%agent-discover, ~/Library/Application Support/agent-discover,
- * $XDG_DATA_HOME/agent-discover or ~/.local/share/agent-discover).
- */
-export function dataDir(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  home = homedir(),
-): string {
-  if (env.AGENT_DISCOVER_DATA_DIR) return env.AGENT_DISCOVER_DATA_DIR;
-  if (platform === 'win32')
-    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agent-discover');
-  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'agent-discover');
-  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'agent-discover');
-}
 
 /** Whether another process has the SQLite DB open (a 1.x daemon still running). */
 function inUse(path: string): boolean {
@@ -549,6 +533,11 @@ export const migrations: Migration[] = [
         insert.run(row.id, doc.name, doc.description, doc.args);
       }
     },
+  },
+  {
+    // 3.0: the web dashboard's tester presets went with the dashboard.
+    version: 11,
+    up: (db: Database.Database) => db.exec('DROP TABLE IF EXISTS test_presets;'),
   },
 ];
 

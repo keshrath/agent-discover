@@ -4,7 +4,7 @@
 // agent-discover — CLI entry
 //
 //   agent-discover          stdio shim: ensures the daemon, bridges stdio ⇄ /mcp
-//   agent-discover daemon   the daemon itself (dashboard + REST + WS + /mcp)
+//   agent-discover daemon   the daemon itself (REST + /mcp)
 // =============================================================================
 
 import { loadConfig } from './config.js';

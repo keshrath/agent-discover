@@ -2,7 +2,7 @@
 // agent-discover — Application context
 //
 // Dependency injection root. Creates and wires together all services. One
-// context lives in the daemon; every transport (MCP, REST, WS) shares it.
+// context lives in the daemon; every transport (MCP, REST) shares it.
 // =============================================================================
 
 import { createDb, resolveDbPath, type Db, type DbOptions } from './storage/database.js';
@@ -16,7 +16,6 @@ import { OAuthManager } from './domain/oauth.js';
 import { SecretsService } from './domain/secrets.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
-import { PresetsService } from './domain/presets.js';
 import { maybeCreateDefaultSamplingProvider } from './domain/sampling.js';
 import { syncSetupFile, type SyncResult } from './domain/setup.js';
 import { TrustService } from './domain/trust/index.js';
@@ -39,7 +38,6 @@ export interface AppContext {
   readonly secrets: SecretsService;
   readonly metrics: MetricsService;
   readonly logs: LogService;
-  readonly presets: PresetsService;
   readonly trust: TrustService;
   syncSetup(filePath?: string): Promise<SyncResult>;
   close(): Promise<void>;
@@ -114,7 +112,6 @@ export function createContext(options: ContextOptions = {}): AppContext {
     secrets,
     metrics,
     logs,
-    presets: new PresetsService(db),
     trust,
     syncSetup: (filePath) => syncSetupFile(lifecycle, filePath),
     async close() {

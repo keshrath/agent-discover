@@ -24,11 +24,10 @@
     "agent-discover": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-ui.js && node src/widgets/build.mjs",
+    "build": "tsc && node src/widgets/build.mjs",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e:ui": "playwright test",
     "plugin:check": "claude plugin validate plugin && claude plugin test plugin",
     "widgets:shots": "tsx tests/widgets/shoot.ts",
     "test:coverage": "vitest run --coverage",
@@ -58,8 +57,6 @@
     "@modelcontextprotocol/node": "^2.1.0",
     "@modelcontextprotocol/server": "^2.2.0",
     "better-sqlite3": "12.8.0",
-    "morphdom": "^2.7.8",
-    "ws": "8.20.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -70,7 +67,6 @@
     "@playwright/test": "^1.59.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
-    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.2.4",
     "esbuild": "^0.28.2",
     "eslint": "^10.1.0",
@@ -101,7 +97,6 @@
   "files": [
     "dist/",
     "scripts/",
-    "agent-desk-plugin.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

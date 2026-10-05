@@ -2,19 +2,16 @@
 // agent-discover — Per-launch REST token
 //
 // The request guard admits any loopback Origin (other local dev servers,
-// tools' dashboards). Pages there could still POST state-changing requests
-// (e.g. /api/transient spawns a command), so every POST/PUT/PATCH/DELETE on
+// tools' web UIs). Pages there could still POST state-changing requests
+// (e.g. /api/install spawns a command), so every POST/PUT/PATCH/DELETE on
 // /api/* must carry `X-Agent-Discover-Token` = a random value minted at
 // daemon start (constant-time compare). GET stays open on loopback.
 //
-// Who may READ the token (GET /api/token)? Only requests whose Origin is
-//   - absent: same-origin GETs from the dashboard (browsers omit Origin
-//     there), non-browser local clients (already able to read the DB), and
-//     no-cors loads whose response is opaque to the page;
-//   - exactly `file://`: agent-desk's Electron renderer;
-//   - the daemon's own origin (`http://<Host>`).
-// Any other origin, loopback or not, gets 403, so a foreign page can never
-// learn the token. /mcp and the stdio shim are unaffected.
+// Who may READ the token (GET /api/token)? Only requests without an Origin:
+// non-browser local clients (the Claude Code pane, scripts; already able to
+// read the DB) and no-cors loads whose response is opaque to the page. Any
+// Origin, loopback or not, gets 403, so a web page can never learn the token.
+// /mcp and the stdio shim are unaffected.
 // =============================================================================
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -39,12 +36,7 @@ export function createRestToken(value = randomBytes(32).toString('base64url')): 
   };
 }
 
-/** See header: absent Origin, `file://`, or the daemon's own origin. */
+/** See header: only requests without an Origin. */
 export function mayReadToken(req: IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  return (
-    origin === undefined ||
-    origin === 'file://' ||
-    origin.toLowerCase() === `http://${String(req.headers.host).toLowerCase()}`
-  );
+  return req.headers.origin === undefined;
 }

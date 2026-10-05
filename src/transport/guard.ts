@@ -1,12 +1,12 @@
 // =============================================================================
-// agent-discover — Request guard (every HTTP request and WebSocket upgrade)
+// agent-discover — Request guard (every HTTP request)
 //
 //   - Host must exactly equal one of the loopback names with the daemon's
 //     port (localhost:P, 127.0.0.1:P, [::1]:P), plus the bound host when the
 //     operator binds elsewhere. Defeats DNS rebinding.
 //   - Origin, when present, must parse to http(s) with a loopback hostname
-//     (`new URL().hostname`, so localhost.evil.com fails), or be exactly
-//     `file://` (agent-desk's Electron renderer). `null` is rejected.
+//     (`new URL().hostname`, so localhost.evil.com fails). `null` and
+//     `file://` are rejected.
 //   - Requests with a body on POST/PUT/PATCH/DELETE must be application/json,
 //     so CORS-safelisted form posts never reach a handler.
 //   - Allowed cross-origin callers get their Origin reflected; never `*`.
@@ -16,15 +16,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
 const LOOPBACK_SET: ReadonlySet<string> = new Set(LOOPBACK);
-const ELECTRON_FILE_ORIGIN = 'file://';
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-export interface RequestGuard {
-  checkHost(host: string | undefined): boolean;
-  checkOrigin(origin: string | undefined): boolean;
-  /** Apply the policy; true when the request was answered (rejected / preflight). */
-  handle(req: IncomingMessage, res: ServerResponse): boolean;
-}
+/** Apply the policy; true when the request was answered (rejected / preflight). */
+export type RequestGuard = (req: IncomingMessage, res: ServerResponse) => boolean;
 
 function reject(res: ServerResponse, status: number, error: string): void {
   res.writeHead(status, {
@@ -45,7 +40,6 @@ export function createRequestGuard(port: number, bindHost = '127.0.0.1'): Reques
 
   function checkOrigin(origin: string | undefined): boolean {
     if (origin === undefined) return true;
-    if (origin === ELECTRON_FILE_ORIGIN) return true;
     let url: URL;
     try {
       url = new URL(origin);
@@ -57,7 +51,7 @@ export function createRequestGuard(port: number, bindHost = '127.0.0.1'): Reques
     return LOOPBACK_SET.has(url.hostname);
   }
 
-  function handle(req: IncomingMessage, res: ServerResponse): boolean {
+  return (req, res) => {
     if (!checkHost(req.headers.host)) {
       reject(res, 403, 'Forbidden host');
       return true;
@@ -91,7 +85,5 @@ export function createRequestGuard(port: number, bindHost = '127.0.0.1'): Reques
       return true;
     }
     return false;
-  }
-
-  return { checkHost, checkOrigin, handle };
+  };
 }

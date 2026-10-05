@@ -109,8 +109,7 @@ const WIDGET_RESOURCE = {
   mimeType: WIDGET_MIME,
 };
 
-/** `dashboard`: origin of the daemon's dashboard, used for deep links in results. */
-export function createMcpFactory(app: AppContext, dashboard: string): McpFactory {
+export function createMcpFactory(app: AppContext): McpFactory {
   const info = readPackageMeta();
   // Single daemon process serves every MRTR round, so a per-process key works.
   const codec = createRequestStateCodec<McpState>({ key: randomBytes(32), ttlSeconds: 600 });
@@ -157,7 +156,7 @@ export function createMcpFactory(app: AppContext, dashboard: string): McpFactory
           inputResponses: upstream ? (ctx.mcpReq.inputResponses as InputResponses) : undefined,
           requestState: upstream?.state,
           // A 2026 downstream answers through an MRTR round, a 2025 one through the SDK's
-          // legacy shim; without elicitation support the dashboard queue answers.
+          // legacy shim; without elicitation support the pane's queue answers.
           onElicit: clientCanElicit(server, ctx)
             ? (q) => new Promise((answer) => questions.push({ ...q, answer }))
             : undefined,
@@ -305,7 +304,6 @@ export function createMcpFactory(app: AppContext, dashboard: string): McpFactory
       const rt: McpRuntime = {
         app,
         server,
-        dashboard,
         mint: (s, ctx) => codec.mint(s, ctx),
         forward: (name, tool, args, ctx) => forward(server, name, tool, args, ctx),
       };

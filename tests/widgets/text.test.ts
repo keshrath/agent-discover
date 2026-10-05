@@ -12,8 +12,6 @@ import {
 } from '../../src/widgets/text.js';
 import type { Outputs, ServerStatusRow } from '../../src/widgets/types.js';
 
-const DASH = { dashboard: 'http://127.0.0.1:3424' };
-
 const row = (over: Partial<ServerStatusRow>): ServerStatusRow => ({
   name: 'pg',
   description: '',
@@ -48,37 +46,34 @@ describe('markdown escaping', () => {
 
 describe('renderers', () => {
   it('search_servers: one table for installed and registry servers, browse link', () => {
-    const text = searchServersText(
-      {
-        query: 'pg',
-        installed: [{ name: 'pg', description: 'Postgres | SQL', enabled: false, tool_count: 4 }],
-        marketplace: [
-          {
-            source: 'npm',
-            name: '@neon/mcp',
-            description: 'Neon',
-            version: '1.0.0',
-            status: 'active',
-            repository: null,
-            packages: [
-              {
-                registry_type: 'npm',
-                identifier: '@neon/mcp',
-                version: '1.0.0',
-                transport: 'stdio',
-              },
-            ],
-            remotes: [],
-          },
-        ],
-        marketplace_errors: { npm: 'timeout' },
-      },
-      DASH,
-    );
+    const text = searchServersText({
+      query: 'pg',
+      installed: [{ name: 'pg', description: 'Postgres | SQL', enabled: false, tool_count: 4 }],
+      marketplace: [
+        {
+          source: 'npm',
+          name: '@neon/mcp',
+          description: 'Neon',
+          version: '1.0.0',
+          status: 'active',
+          repository: null,
+          packages: [
+            {
+              registry_type: 'npm',
+              identifier: '@neon/mcp',
+              version: '1.0.0',
+              transport: 'stdio',
+            },
+          ],
+          remotes: [],
+        },
+      ],
+      marketplace_errors: { npm: 'timeout' },
+    });
     expect(text).toContain('| `pg` | installed | 4 | Postgres \\| SQL |');
     expect(text).toContain('| `@neon/mcp` | available | npm `@neon/mcp@1.0.0` | Neon |');
     expect(text).toContain('npm search failed: timeout');
-    expect(text).toContain('http://127.0.0.1:3424/#/browse?q=pg');
+    expect(text).not.toContain('http');
   });
 
   it('search_tools: per-query tables and a hint for servers that are not exposed', () => {
@@ -108,21 +103,18 @@ describe('renderers', () => {
     expect(text).toContain('Not exposed: `pg`.');
   });
 
-  it('server_status: state words and deep links for servers that need attention', () => {
-    const text = serverStatusText(
-      {
-        mode: 'native',
-        servers: [
-          row({ name: 'a/b', quarantined: true, enabled: true }),
-          row({ name: 'c', enabled: true, connected: true, health_status: 'healthy' }),
-        ],
-      },
-      DASH,
-    );
+  it('server_status: state words and where to review a quarantined server', () => {
+    const text = serverStatusText({
+      mode: 'native',
+      servers: [
+        row({ name: 'a/b', quarantined: true, enabled: true }),
+        row({ name: 'c', enabled: true, connected: true, health_status: 'healthy' }),
+      ],
+    });
     expect(text).toMatch(/2 of 2 installed servers enabled, 1 connected, 1 quarantined/);
     expect(text).toContain('| `a/b` | QUARANTINED |');
     expect(text).toContain('| `c` | connected | healthy | 3 |');
-    expect(text).toContain('Review `a/b`: http://127.0.0.1:3424/#/servers/a%2Fb');
+    expect(text).toMatch(/`enable_server` asks the user to review.*`\/discover`/);
   });
 
   it('install plan: exact command, keys never values, provenance marks', () => {
@@ -154,11 +146,11 @@ describe('renderers', () => {
       tools: [],
     };
     expect(installServerText(base)).toMatch(/declined.*do not retry/);
-    expect(installServerText({ ...base, status: 'consent_required' }, DASH)).toContain(
-      'http://127.0.0.1:3424/#/browse?q=w',
+    expect(installServerText({ ...base, status: 'consent_required' })).toMatch(
+      /`\/discover w`.*AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1/,
     );
     expect(
-      installServerText({ ...base, status: 'installed', tool_count: 2, tools: ['a', 'b'] }, DASH),
+      installServerText({ ...base, status: 'installed', tool_count: 2, tools: ['a', 'b'] }),
     ).toMatch(/Installed `w`: 2 tools indexed \(`a`, `b`\)\.\nCall `enable_server`/);
   });
 

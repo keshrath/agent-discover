@@ -3,39 +3,22 @@
 // the shim survives a daemon restart, and the daemon idle-exits.
 // =============================================================================
 
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client, type CallToolResult } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { FIXTURE, startTestDaemon, waitFor } from './helpers.js';
+import { FIXTURE, freePort, isAlive, killTree, startTestDaemon, waitFor } from './helpers.js';
 
 const BIN = resolve(__dirname, '..', 'dist', 'index.js');
 
-function freePort(): Promise<number> {
-  return new Promise((res) => {
-    const s = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => res(port));
-    });
-  });
-}
-
-function isAlive(pid: number | null): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 describe.skipIf(!existsSync(BIN))('stdio shim → shared daemon', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agent-discover-shim-'));
+  let dir = '';
   let port = 0;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'agent-discover-shim-'));
+  });
   const clients: Client[] = [];
 
   const env = () => ({
@@ -77,13 +60,9 @@ describe.skipIf(!existsSync(BIN))('stdio shim → shared daemon', () => {
   afterAll(async () => {
     await Promise.all(clients.map((c) => c.close().catch(() => {})));
     const pid = await daemonPid();
-    if (pid) process.kill(pid);
+    killTree(pid);
     await waitFor(() => !isAlive(pid), 10_000).catch(() => {});
-    try {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
-    } catch {
-      // Windows: a hard-killed daemon's orphaned upstream child can briefly pin the temp dir.
-    }
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   });
 
   it('spawns one daemon that both hosts share, with list_changed fan-out', async () => {
@@ -113,7 +92,7 @@ describe.skipIf(!existsSync(BIN))('stdio shim → shared daemon', () => {
   it('re-spawns the daemon and replays the handshake after it dies', async () => {
     const a = clients[0];
     const pid = (await daemonPid())!;
-    process.kill(pid);
+    killTree(pid);
     await new Promise((r) => setTimeout(r, 500));
     const status = (await a.callTool({ name: 'server_status', arguments: {} })) as CallToolResult;
     expect((status.structuredContent as { servers: Array<{ name: string }> }).servers[0].name).toBe(

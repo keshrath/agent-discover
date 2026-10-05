@@ -5,6 +5,9 @@
 // the tests agree on defaults.
 // =============================================================================
 
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+
 export type ExposureMode = 'native' | 'proxy';
 
 export interface Config {
@@ -62,4 +65,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ).replace(/\/+$/, ''),
     oauthClientMetadataUrl: env.AGENT_DISCOVER_OAUTH_CLIENT_METADATA_URL || undefined,
   };
+}
+
+/**
+ * Per-user data directory: $AGENT_DISCOVER_DATA_DIR, else the platform default
+ * (%LOCALAPPDATA%agent-discover, ~/Library/Application Support/agent-discover,
+ * $XDG_DATA_HOME/agent-discover or ~/.local/share/agent-discover).
+ */
+export function dataDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string {
+  if (env.AGENT_DISCOVER_DATA_DIR) return env.AGENT_DISCOVER_DATA_DIR;
+  if (platform === 'win32')
+    return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agent-discover');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'agent-discover');
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'agent-discover');
+}
+
+/** The DB's directory ($AGENT_DISCOVER_DB's, else the data dir): also holds the shim's daemon log and lock. */
+export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.AGENT_DISCOVER_DB ? dirname(env.AGENT_DISCOVER_DB) : dataDir(env);
 }

@@ -1,8 +1,8 @@
 // =============================================================================
 // agent-discover — REST transport
 //
-// Thin adapter over the domain services for the dashboard (and any local
-// tooling). Every server state change goes through ServerLifecycle, so REST
+// Thin adapter over the domain services for the Claude Code pane (and any
+// local tooling). Every server state change goes through ServerLifecycle, so REST
 // and MCP behave identically. Host/Origin/Content-Type are enforced by the
 // daemon's request guard before routing; state-changing /api requests also
 // need the per-launch token (transport/token.ts).
@@ -11,21 +11,16 @@
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { createRouter, json, readJson, serveStatic } from './http.js';
-import type { Client } from '@modelcontextprotocol/client';
+import { createRouter, json, readJson } from './http.js';
 import type { AppContext } from '../context.js';
-import { configuredRoots } from '../context.js';
 import type { ServerEntry, ServerInput, ServerTransport, ServerUpdate } from '../types.js';
 import { NotFoundError, RegistryError, UpstreamError, ValidationError } from '../types.js';
-import { isCommandOnPath, type ElicitationContent } from '../domain/pool.js';
+import type { ElicitationContent } from '../domain/pool.js';
 import { maskEnv, restoreMaskedEnv } from '../domain/secrets.js';
 import type { PlanRequest } from '../domain/marketplace.js';
 import { version } from '../version.js';
 import { TOKEN_HEADER, mayReadToken, type RestToken } from './token.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const BODY_LIMIT = 131_072;
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -86,18 +81,24 @@ export function createRestHandler(
   token: RestToken,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const router = createRouter();
-  const uiDir = join(__dirname, '..', 'ui');
   const startTime = Date.now();
   const { lifecycle, servers, index } = ctx;
   const pool = lifecycle.pool;
 
   // Env values are masked on the way out; a masked value sent back unchanged keeps the original.
-  const view = (s: ServerEntry) => ({
-    ...s,
-    env: maskEnv(s.env),
-    connected: pool.isConnected(s.name),
-    tool_count: index.count(s.id),
-  });
+  // `missing_secrets`: declared headers left empty with no secret to fill them (toConfig drops those).
+  const view = (s: ServerEntry) => {
+    const stored = new Set(ctx.secrets.list(s).map((x) => x.key.toLowerCase()));
+    return {
+      ...s,
+      env: maskEnv(s.env),
+      connected: pool.isConnected(s.name),
+      tool_count: index.count(s.id),
+      missing_secrets: Object.keys(s.headers).filter(
+        (h) => s.headers[h] === '' && !stored.has(h.toLowerCase()),
+      ),
+    };
+  };
   const byId = (id: string): ServerEntry => {
     const server = servers.getById(parseInt(id, 10));
     if (!server) throw new NotFoundError('Server', id);
@@ -231,15 +232,6 @@ export function createRestHandler(
     json(res, { status: 'reset' });
   });
 
-  route('POST', '/api/servers/:id/call', async (req, res, p) => {
-    const server = byId(p.id);
-    const b = await body(req);
-    const tool = str(b.tool);
-    if (!tool) throw new ValidationError('tool is required');
-    const args = (b.args && typeof b.args === 'object' ? b.args : {}) as Record<string, unknown>;
-    json(res, await upstream(() => lifecycle.callTool(server.name, tool, args)));
-  });
-
   // -- secrets / metrics -----------------------------------------------------
 
   route('GET', '/api/servers/:id/secrets', (_req, res, p) => {
@@ -306,7 +298,7 @@ export function createRestHandler(
 
   route('GET', '/api/metrics', (_req, res) => json(res, ctx.metrics.getOverview()));
 
-  // -- marketplace / prerequisites ------------------------------------------
+  // -- marketplace ------------------------------------------------------------
 
   route('GET', '/api/browse', async (req, res) => {
     const q = query(req);
@@ -314,7 +306,7 @@ export function createRestHandler(
     json(res, await upstream(() => ctx.marketplace.search(q.get('query') ?? '', limit)));
   });
 
-  // Exact-name install from search results: the plan is what the dashboard shows for consent.
+  // Exact-name install from search results: the plan is what the pane shows for consent.
   const planRequest = (src: { get(k: string): string | null | undefined }): PlanRequest => {
     const source = src.get('source') ?? 'registry';
     if (source !== 'registry' && source !== 'npm' && source !== 'pypi') {
@@ -356,15 +348,6 @@ export function createRestHandler(
     json(res, await upstream(() => ctx.registry.sync()));
   });
 
-  route('GET', '/api/prereqs', async (_req, res) => {
-    const [npx, uvx, docker, uv] = await Promise.all(
-      ['npx', 'uvx', 'docker', 'uv'].map((c) => isCommandOnPath(c)),
-    );
-    json(res, { npx, uvx, docker, uv });
-  });
-
-  route('POST', '/api/sync', async (_req, res) => json(res, await ctx.syncSetup()));
-
   // -- logs ------------------------------------------------------------------
 
   route('GET', '/api/logs', (req, res) => {
@@ -373,256 +356,7 @@ export function createRestHandler(
     const offset = Math.max(parseInt(q.get('offset') ?? '0', 10) || 0, 0);
     json(res, { entries: ctx.logs.list(limit, offset), total: ctx.logs.count() });
   });
-  route('DELETE', '/api/logs', (_req, res) => {
-    ctx.logs.clear();
-    json(res, { status: 'cleared' });
-  });
-  route('GET', '/api/logs/notifications', (_req, res) => {
-    json(res, { entries: ctx.logs.list(200, 0, 'notification') });
-  });
-  route('GET', '/api/logs/progress', (_req, res) => {
-    json(res, { entries: ctx.logs.list(200, 0, 'progress') });
-  });
-
-  // -- tester (MCP Inspector parity); connects lazily -----------------------
-
-  function testerName(p: Record<string, string>): string {
-    if (p.id) return byId(p.id).name;
-    const name = pool.resolveTransient(p.handle);
-    if (!name) throw new NotFoundError('Transient server', p.handle);
-    return name;
-  }
-
-  /** Run a client operation for a tester route, logging it like a proxied call. */
-  async function logged<T>(
-    name: string,
-    kind: 'resource-read' | 'prompt-get' | 'ping',
-    label: string,
-    args: Record<string, unknown>,
-    fn: (c: Client) => Promise<T>,
-  ): Promise<T> {
-    const start = Date.now();
-    try {
-      const out = await fn(await pool.connect(name));
-      ctx.logs.push(name, label, args, JSON.stringify(out), Date.now() - start, true, kind);
-      return out;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      ctx.logs.push(name, label, args, msg, Date.now() - start, false, kind);
-      throw err;
-    }
-  }
-
-  for (const prefix of ['/api/servers/:id', '/api/transient/:handle']) {
-    const get = (path: string, fn: (name: string, q: URLSearchParams) => Promise<unknown>) =>
-      route('GET', prefix + path, async (req, res, p) => {
-        const name = testerName(p);
-        json(res, await upstream(() => fn(name, query(req))));
-      });
-    const post = (
-      path: string,
-      fn: (name: string, b: Record<string, unknown>) => Promise<unknown>,
-    ) =>
-      route('POST', prefix + path, async (req, res, p) => {
-        const name = testerName(p);
-        const b = await body(req);
-        json(res, await upstream(() => fn(name, b)));
-      });
-    const cursor = (q: URLSearchParams) => {
-      const c = q.get('cursor');
-      return c ? { cursor: c } : undefined;
-    };
-    const uri = (b: Record<string, unknown>) => {
-      const u = str(b.uri);
-      if (!u) throw new ValidationError('uri is required');
-      return u;
-    };
-
-    get('/info', async (name) => {
-      await pool.connect(name);
-      return pool.info(name);
-    });
-    get('/tools', async (name) => ({ tools: await pool.listTools(name) }));
-    get('/resources', async (name, q) => (await pool.connect(name)).listResources(cursor(q)));
-    get('/resource-templates', async (name, q) =>
-      (await pool.connect(name)).listResourceTemplates(cursor(q)),
-    );
-    post('/resource/read', async (name, b) => {
-      const u = uri(b);
-      return logged(name, 'resource-read', u, { uri: u }, (c) => c.readResource({ uri: u }));
-    });
-    post('/resource/subscribe', async (name, b) => {
-      await (await pool.connect(name)).subscribeResource({ uri: uri(b) });
-      return { ok: true };
-    });
-    post('/resource/unsubscribe', async (name, b) => {
-      await (await pool.connect(name)).unsubscribeResource({ uri: uri(b) });
-      return { ok: true };
-    });
-    get('/prompts', async (name, q) => (await pool.connect(name)).listPrompts(cursor(q)));
-    post('/prompt/get', async (name, b) => {
-      const promptName = str(b.name);
-      if (!promptName) throw new ValidationError('name is required');
-      const args = strMap(b.arguments) ?? {};
-      return logged(name, 'prompt-get', promptName, args, (c) =>
-        c.getPrompt({ name: promptName, arguments: args }),
-      );
-    });
-    post('/ping', async (name) => {
-      const h = await pool.health(name);
-      ctx.logs.push(
-        name,
-        'ping',
-        {},
-        h.error ?? 'pong',
-        h.latency_ms,
-        h.status === 'healthy',
-        'ping',
-      );
-      if (h.status !== 'healthy') throw new UpstreamError(h.error ?? 'ping failed');
-      return { ok: true, rtt_ms: h.latency_ms };
-    });
-    post('/logging-level', async (name, b) => {
-      const level = str(b.level) ?? '';
-      const valid = [
-        'debug',
-        'info',
-        'notice',
-        'warning',
-        'error',
-        'critical',
-        'alert',
-        'emergency',
-      ];
-      if (!valid.includes(level)) {
-        throw new ValidationError(`level must be one of: ${valid.join(', ')}`);
-      }
-      await (await pool.connect(name)).setLoggingLevel(level as 'info');
-      return { ok: true, level };
-    });
-    get('/export', async (name, q) => {
-      const format = q.get('format') ?? 'mcp-json';
-      if (format !== 'mcp-json' && format !== 'agent-discover') {
-        throw new ValidationError('format must be one of: mcp-json, agent-discover');
-      }
-      // Stored config only — secrets are never exported.
-      const row = servers.get(name);
-      const cfg = row ? { ...row, url: row.url ?? undefined } : pool.transientConfig(name);
-      if (!cfg) throw new NotFoundError('Server', name);
-      const entry: Record<string, unknown> =
-        cfg.transport === 'stdio'
-          ? {
-              command: cfg.command,
-              ...(cfg.args.length ? { args: cfg.args } : {}),
-              ...(Object.keys(cfg.env).length ? { env: cfg.env } : {}),
-            }
-          : {
-              type: cfg.transport === 'sse' ? 'sse' : 'http',
-              url: cfg.url,
-              ...(Object.keys(cfg.headers).length ? { headers: cfg.headers } : {}),
-            };
-      const config =
-        format === 'agent-discover'
-          ? { servers: [{ name, ...entry, enabled: true }] }
-          : { mcpServers: { [name]: entry } };
-      return { format, config };
-    });
-    post('/call', async (name, b) => {
-      const tool = str(b.tool);
-      if (!tool) throw new ValidationError('tool is required');
-      const args = (b.args && typeof b.args === 'object' ? b.args : {}) as Record<string, unknown>;
-      return testerCall(name, tool, args);
-    });
-  }
-
-  // Registered servers go through the lifecycle (trust hooks); transient ones are pool-only.
-  function testerCall(name: string, tool: string, args: Record<string, unknown>) {
-    return servers.get(name)
-      ? lifecycle.callTool(name, tool, args)
-      : pool.callTool(name, tool, args);
-  }
-
-  // -- transient servers -----------------------------------------------------
-
-  route('POST', '/api/transient', async (req, res) => {
-    const b = await body(req);
-    const transport = (str(b.transport) ?? 'stdio') as ServerTransport;
-    const command = str(b.command);
-    const url = str(b.url);
-    if (transport === 'stdio') {
-      if (!command) throw new ValidationError('command is required for stdio transport');
-      if (!/^[@a-zA-Z0-9._/\\:-]+$/.test(command)) {
-        throw new ValidationError('command contains unsafe characters');
-      }
-    } else if (!url) {
-      throw new ValidationError('url is required for remote transports');
-    }
-    const env = Object.fromEntries(
-      Object.entries(strMap(b.env) ?? {}).filter(([, v]) => !/[\r\n]/.test(v)),
-    );
-    const ttl = typeof b.ttl_ms === 'number' && b.ttl_ms > 0 ? b.ttl_ms : undefined;
-    const handle = await upstream(() =>
-      pool.openTransient(
-        {
-          transport,
-          command,
-          args: strArray(b.args) ?? [],
-          env,
-          url,
-          headers: strMap(b.headers) ?? {},
-        },
-        ttl,
-      ),
-    );
-    json(res, handle, 201);
-  });
-
-  route('DELETE', '/api/transient/:handle', async (_req, res, p) => {
-    await pool.releaseTransient(p.handle);
-    json(res, { ok: true });
-  });
-
-  // -- presets ---------------------------------------------------------------
-
-  route('GET', '/api/presets', (req, res) => {
-    const q = query(req);
-    const kind = q.get('kind');
-    json(res, {
-      entries: ctx.presets.list({
-        server: q.get('server') ?? undefined,
-        kind: kind === 'tool' || kind === 'prompt' ? kind : undefined,
-        target: q.get('target') ?? undefined,
-      }),
-    });
-  });
-
-  route('POST', '/api/presets', async (req, res) => {
-    const b = await body(req);
-    const kind = str(b.kind);
-    if (kind !== 'tool' && kind !== 'prompt') {
-      throw new ValidationError('kind must be "tool" or "prompt"');
-    }
-    try {
-      const entry = ctx.presets.upsert({
-        server: str(b.server) ?? '',
-        kind,
-        target: str(b.target) ?? '',
-        preset: str(b.preset) ?? '',
-        payload: b.payload ?? {},
-      });
-      json(res, entry, 201);
-    } catch (err) {
-      throw new ValidationError(err instanceof Error ? err.message : String(err));
-    }
-  });
-
-  route('DELETE', '/api/presets/:id', (_req, res, p) => {
-    const id = parseInt(p.id, 10);
-    if (!Number.isFinite(id)) throw new ValidationError('invalid id');
-    json(res, { ok: ctx.presets.delete(id) });
-  });
-
-  // -- elicitation (upstream 2025 servers → dashboard human) ----------------
+  // -- elicitation (upstream servers asking the person, answered in the pane) --
 
   route('GET', '/api/elicitations', (_req, res) => {
     json(res, { entries: pool.listPendingElicitations() });
@@ -642,8 +376,6 @@ export function createRestHandler(
     json(res, { ok: true });
   });
 
-  route('GET', '/api/roots', (_req, res) => json(res, { roots: configuredRoots() }));
-
   return async (req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (
@@ -660,15 +392,6 @@ export function createRestHandler(
         403,
       );
     }
-    if (await router.handle(req, res)) return;
-    if (req.method === 'GET' && !pathname.startsWith('/api/')) {
-      const file = /^\/tester(\/|$)/.test(pathname)
-        ? '/tester-window.html'
-        : pathname === '/'
-          ? '/index.html'
-          : pathname;
-      return serveStatic(res, uiDir, file);
-    }
-    json(res, { error: 'Not found' }, 404);
+    if (!(await router.handle(req, res))) json(res, { error: 'Not found' }, 404);
   };
 }

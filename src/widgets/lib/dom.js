@@ -1,5 +1,5 @@
 /* global document, Node */
-// Tiny XSS-safe DOM builder shared by every widget (and reusable by the dashboard).
+// Tiny XSS-safe DOM builder shared by every widget.
 // Untrusted strings only ever become text nodes or attribute values; there is no
 // HTML-string path at all. `href`/`src` are restricted to safe schemes.
 

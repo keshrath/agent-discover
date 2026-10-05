@@ -13,14 +13,13 @@
 // =============================================================================
 
 import { spawn } from 'node:child_process';
-import { closeSync, openSync, statSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StreamableHTTPClientTransport, isInitializeRequest } from '@modelcontextprotocol/client';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/server';
-import type { Config } from './config.js';
+import { stateDir, type Config } from './config.js';
 
 const READY_TIMEOUT_MS = 20_000;
 const STALE_LOCK_MS = 30_000;
@@ -47,7 +46,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Make sure a daemon answers on the configured port, spawning one if needed. */
 export async function ensureDaemon(config: Config): Promise<void> {
   if (await isHealthy(config)) return;
-  const lock = join(tmpdir(), `agent-discover-${config.port}.lock`);
+  const dir = stateDir();
+  mkdirSync(dir, { recursive: true });
+  const lock = join(dir, `daemon-${config.port}.lock`);
+  const logFile = join(dir, `daemon-${config.port}.log`);
   let owner = false;
   try {
     closeSync(openSync(lock, 'wx'));
@@ -64,7 +66,7 @@ export async function ensureDaemon(config: Config): Promise<void> {
   }
   try {
     if (owner) {
-      const log = openSync(join(tmpdir(), `agent-discover-${config.port}.log`), 'a');
+      const log = openSync(logFile, 'a');
       const entry = fileURLToPath(new URL('./index.js', import.meta.url));
       spawn(process.execPath, [entry, 'daemon'], {
         detached: true,
@@ -80,7 +82,7 @@ export async function ensureDaemon(config: Config): Promise<void> {
       await sleep(150);
     }
     throw new Error(
-      `agent-discover daemon did not become ready on ${baseUrl(config)} (see ${join(tmpdir(), `agent-discover-${config.port}.log`)})`,
+      `agent-discover daemon did not become ready on ${baseUrl(config)} (see ${logFile})`,
     );
   } finally {
     if (owner) {

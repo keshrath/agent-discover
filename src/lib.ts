@@ -30,7 +30,6 @@ export {
   ServerLifecycle,
   splitToolName,
   type TrustHooks,
-  type LifecycleEvent,
   type ServerStatus,
 } from './domain/lifecycle.js';
 export { ConnectionPool, type HealthResult, type CallOptions } from './domain/pool.js';

@@ -33,7 +33,7 @@ import type { TrustReport } from '../domain/trust/index.js';
 import { scanTool } from '../domain/trust/hygiene.js';
 import { OUTPUTS, type InstallPlan as PlanView, type Outputs } from '../widgets/types.js';
 import { installPlanText, resultText } from '../widgets/text.js';
-import { DASHBOARD_META_KEY, WIDGET_META, WIDGET_TOOLS } from '../widgets/resources.js';
+import { WIDGET_META, WIDGET_TOOLS } from '../widgets/resources.js';
 
 export type McpState =
   | { kind: 'install' | 'approve'; digest: string }
@@ -46,8 +46,6 @@ export type McpState =
 export interface McpRuntime {
   app: AppContext;
   server: Server;
-  /** Dashboard origin (http://host:port) for deep links in results. */
-  dashboard: string;
   mint(state: McpState, ctx: ServerContext): Promise<string>;
   /** Forward a call to an upstream tool, relaying MRTR rounds. */
   forward(
@@ -79,15 +77,13 @@ function defineTool<I extends z.ZodType>(tool: MetaTool<I>): MetaTool<I> {
 
 /** A meta tool result: structuredContent plus its markdown rendering for text-only hosts. */
 function ok<K extends keyof Outputs>(
-  rt: McpRuntime,
   tool: K,
   structured: Outputs[K],
   isError = false,
 ): CallToolResult {
   return {
-    content: [{ type: 'text', text: resultText(tool, structured, { dashboard: rt.dashboard }) }],
+    content: [{ type: 'text', text: resultText(tool, structured) }],
     structuredContent: structured,
-    _meta: { [DASHBOARD_META_KEY]: rt.dashboard },
     ...(isError ? { isError } : {}),
   };
 }
@@ -360,7 +356,7 @@ export const META_TOOLS = {
         }));
         if (Object.keys(res.errors).length) out.marketplace_errors = res.errors;
       }
-      return ok(rt, 'search_servers', out);
+      return ok('search_servers', out);
     },
   }),
 
@@ -386,7 +382,6 @@ export const META_TOOLS = {
         const s = rt.app.servers.get(plan.server);
         const tools = s ? rt.app.index.list(s.id).map((t) => t.name) : [];
         return ok(
-          rt,
           'install_server',
           {
             name: plan.server,
@@ -457,7 +452,7 @@ export const META_TOOLS = {
             content: [
               {
                 type: 'text',
-                text: `Server "${name}" is quarantined because its tools changed, and this client cannot show the approval prompt. Review and approve it in the agent-discover dashboard.`,
+                text: `Server "${name}" is quarantined because its tools changed, and this client cannot show the approval prompt. Review and approve it in Claude Code with /discover.`,
               },
             ],
           }),
@@ -465,7 +460,7 @@ export const META_TOOLS = {
         if (answer.kind === 'pending') return answer.result;
         if (answer.kind === 'declined') {
           rt.app.trust.record({ action: 'deny', server: name, detail: { kind: 'approve' } });
-          return ok(rt, 'enable_server', {
+          return ok('enable_server', {
             name,
             enabled: current.enabled,
             quarantined: true,
@@ -477,7 +472,7 @@ export const META_TOOLS = {
       }
       const server = await rt.app.lifecycle.enable(name);
       const tools = rt.app.index.list(server.id).map((t) => exposedName(name, t.name));
-      return ok(rt, 'enable_server', {
+      return ok('enable_server', {
         name,
         enabled: server.enabled,
         quarantined: false,
@@ -501,7 +496,7 @@ export const META_TOOLS = {
     },
     async run(rt, { name }) {
       const server = await rt.app.lifecycle.disable(name);
-      return ok(rt, 'disable_server', { name, enabled: server.enabled });
+      return ok('disable_server', { name, enabled: server.enabled });
     },
   }),
 
@@ -519,7 +514,7 @@ export const META_TOOLS = {
       if (check_health) {
         for (const s of servers) s.health = await rt.app.lifecycle.health(s.name);
       }
-      return ok(rt, 'server_status', { mode: rt.app.config.mode, servers });
+      return ok('server_status', { mode: rt.app.config.mode, servers });
     },
   }),
 
@@ -554,7 +549,7 @@ export const META_TOOLS = {
           })),
         });
       }
-      return ok(rt, 'search_tools', { results });
+      return ok('search_tools', { results });
     },
   }),
 
@@ -568,12 +563,11 @@ export const META_TOOLS = {
     meta: { 'anthropic/maxResultSizeChars': 200_000 },
     async run(rt, { server, tool }) {
       const t = rt.app.index.get(server, tool);
-      if (!t) return ok(rt, 'get_tool', { found: false, server, tool });
+      if (!t) return ok('get_tool', { found: false, server, tool });
       const row = rt.app.servers.get(server);
-      if (row?.quarantined)
-        return ok(rt, 'get_tool', { found: true, server, tool, quarantined: true });
+      if (row?.quarantined) return ok('get_tool', { found: true, server, tool, quarantined: true });
       const enabled = row?.enabled ?? false;
-      return ok(rt, 'get_tool', {
+      return ok('get_tool', {
         found: true,
         server,
         tool,

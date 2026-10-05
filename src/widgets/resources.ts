@@ -25,9 +25,6 @@ export const WIDGET_TOOLS: ReadonlySet<string> = new Set([
 /** Tool `_meta` that points MCP Apps hosts at the widget (nested form + the legacy flat key). */
 export const WIDGET_META = { ui: { resourceUri: WIDGET_URI }, 'ui/resourceUri': WIDGET_URI };
 
-/** Result `_meta` key carrying the dashboard origin for widget links. */
-export const DASHBOARD_META_KEY = 'agent-discover/dashboard';
-
 // Same relative path from src/widgets (tests) and dist/widgets (runtime).
 const HTML = fileURLToPath(new URL('../../dist/widgets/app.html', import.meta.url));
 let cached: string | undefined;

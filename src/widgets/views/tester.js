@@ -3,7 +3,7 @@
 // Used by the tester widget and inline ("Try") in search results.
 import { h } from '../lib/dom.js';
 import { action } from '../lib/bridge.js';
-import { annotationBadges, badge, dashLink } from '../lib/ui.js';
+import { annotationBadges, badge, link } from '../lib/ui.js';
 import { buildForm } from '../lib/schema-form.js';
 
 /** renderTester(get_tool structuredContent, ctx) -> Node */
@@ -116,7 +116,7 @@ function block(c, ctx) {
         { class: 'row gap' },
         badge('link', 'info'),
         /^https?:/i.test(c.uri)
-          ? dashLink(ctx, c.name ?? c.uri, c.uri)
+          ? link(ctx, c.name ?? c.uri, c.uri)
           : h('span', { class: 'mono' }, c.name ?? c.uri),
         h('span', { class: 'muted' }, c.uri),
       );

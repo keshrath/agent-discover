@@ -1,16 +1,10 @@
 // =============================================================================
 // Markdown text of every meta tool result, for hosts that do not render MCP
 // Apps (Claude Code, Cursor, Codex, ...) and for the model. Pure functions over
-// the structuredContent contract in types.ts. Links are bare URLs: terminals
-// autolink them and markdown hosts render them.
+// the structuredContent contract in types.ts.
 // =============================================================================
 
 import type { InstallPlan, Outputs, ServerStatusRow } from './types.js';
-
-export interface TextOptions {
-  /** Dashboard origin, e.g. http://127.0.0.1:3424. Omit to drop links. */
-  dashboard?: string;
-}
 
 const DESC_MAX = 90;
 const LIST_MAX = 20;
@@ -25,10 +19,6 @@ export function cell(s: string | undefined, max = DESC_MAX): string {
 
 const code = (s: string) => `\`${s.replace(/`/g, "'")}\``;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
-export function serverLink(name: string, o: TextOptions): string | undefined {
-  return o.dashboard ? `${o.dashboard}/#/servers/${encodeURIComponent(name)}` : undefined;
-}
 
 function table(head: string[], rows: string[][]): string {
   return [
@@ -54,7 +44,7 @@ export function serverState(s: Pick<ServerStatusRow, 'quarantined' | 'connected'
         : 'installed';
 }
 
-export function searchServersText(r: Outputs['search_servers'], o: TextOptions = {}): string {
+export function searchServersText(r: Outputs['search_servers']): string {
   const total = r.installed.length + r.marketplace.length;
   const lines: string[] = [];
   if (!total) lines.push(`No servers found for "${cell(r.query)}". Try broader terms.`);
@@ -96,7 +86,6 @@ export function searchServersText(r: Outputs['search_servers'], o: TextOptions =
   }
   for (const [source, error] of Object.entries(r.marketplace_errors ?? {}))
     lines.push('', `${source} search failed: ${cell(error, 200)}`);
-  if (o.dashboard) lines.push('', `${o.dashboard}/#/browse?q=${encodeURIComponent(r.query)}`);
   return lines.join('\n');
 }
 
@@ -137,7 +126,7 @@ export function searchToolsText(r: Outputs['search_tools']): string {
   return lines.join('\n');
 }
 
-export function serverStatusText(r: Outputs['server_status'], o: TextOptions = {}): string {
+export function serverStatusText(r: Outputs['server_status']): string {
   const s = r.servers;
   const count = (f: (x: ServerStatusRow) => boolean) => s.filter(f).length;
   const quarantined = count((x) => x.quarantined);
@@ -164,29 +153,18 @@ export function serverStatusText(r: Outputs['server_status'], o: TextOptions = {
         ]),
       ),
     );
-  for (const x of s.filter((x) => x.quarantined || x.health_status === 'unhealthy')) {
-    const link = serverLink(x.name, o);
-    if (link) lines.push(`${x.quarantined ? 'Review' : 'Check'} ${code(x.name)}: ${link}`);
-  }
-  if (o.dashboard) lines.push('', `Dashboard: ${o.dashboard}/#/servers`);
+  if (quarantined)
+    lines.push(
+      '',
+      'Quarantined servers changed their tools since approval: `enable_server` asks the user to review and approve, or they do it in Claude Code with `/discover`.',
+    );
   return lines.join('\n');
 }
 
-export function enableServerText(r: Outputs['enable_server'], o: TextOptions = {}): string {
-  const link = serverLink(r.name, o);
+export function enableServerText(r: Outputs['enable_server']): string {
   if (r.quarantined)
-    return [
-      `${code(r.name)} stays quarantined: the changed tools were not approved, so they stay hidden and cannot be called.`,
-      link ?? '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  return [
-    `Enabled ${code(r.name)}: ${plural(r.tool_count, 'tool')}${r.tools.length ? ` (${names(r.tools)})` : ''}.`,
-    link ?? '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    return `${code(r.name)} stays quarantined: the changed tools were not approved, so they stay hidden and cannot be called.`;
+  return `Enabled ${code(r.name)}: ${plural(r.tool_count, 'tool')}${r.tools.length ? ` (${names(r.tools)})` : ''}.`;
 }
 
 export function disableServerText(r: Outputs['disable_server']): string {
@@ -224,20 +202,18 @@ export function installPlanText(p: InstallPlan): string {
   return lines.join('\n');
 }
 
-export function installServerText(r: Outputs['install_server'], o: TextOptions = {}): string {
-  const link = serverLink(r.name, o);
+export function installServerText(r: Outputs['install_server']): string {
   switch (r.status) {
     case 'installed':
       return [
         `Installed ${code(r.name)}: ${plural(r.tool_count, 'tool')} indexed${r.enabled ? ' and exposed' : ''}${r.tools.length ? ` (${names(r.tools)})` : ''}.`,
         r.index_error ? `Indexing failed: ${cell(r.index_error, 300)}` : '',
         r.enabled ? '' : 'Call `enable_server` to expose its tools, or `call_tool` them directly.',
-        link ?? '',
       ]
         .filter(Boolean)
         .join('\n');
     case 'already_installed':
-      return `${code(r.name)} is already installed (${plural(r.tool_count, 'tool')}, ${r.enabled ? 'enabled' : 'not enabled'}).${link ? `\n${link}` : ''}`;
+      return `${code(r.name)} is already installed (${plural(r.tool_count, 'tool')}, ${r.enabled ? 'enabled' : 'not enabled'}).`;
     case 'declined':
       return `The user declined installing ${code(r.name)}. Nothing was installed; do not retry without asking.`;
     case 'consent_required':
@@ -245,10 +221,7 @@ export function installServerText(r: Outputs['install_server'], o: TextOptions =
         `Not installed: this client cannot show the confirmation prompt that install_server needs.`,
         ...(r.plan ? ['', '```', installPlanText(r.plan), '```'] : []),
         '',
-        o.dashboard
-          ? `The user can install it from the dashboard: ${o.dashboard}/#/browse?q=${encodeURIComponent(r.plan?.package ?? r.name)}`
-          : 'The user can install it from the agent-discover dashboard.',
-        'An operator can also set AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1.',
+        `In Claude Code the user can install it with \`/discover ${r.plan?.package ?? r.name}\`; elsewhere an operator can set AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1.`,
       ].join('\n');
   }
 }
@@ -257,7 +230,7 @@ export function getToolText(r: Outputs['get_tool']): string {
   if (!r.found)
     return `No indexed tool ${code(`${r.server} / ${r.tool}`)}. \`search_tools\` lists what exists.`;
   if (r.quarantined)
-    return `${code(r.server)} is quarantined: its tools changed since approval, so the definition of ${code(r.tool)} is withheld. The user re-approves with \`enable_server\` or in the dashboard.`;
+    return `${code(r.server)} is quarantined: its tools changed since approval, so the definition of ${code(r.tool)} is withheld. The user re-approves with \`enable_server\` or in Claude Code with \`/discover\`.`;
   const how = r.exposed
     ? `Call it directly as ${code(r.name ?? r.tool)}.`
     : `Call it with \`call_tool\` {server: "${r.server}", tool: "${r.tool}", arguments}.`;
@@ -276,25 +249,21 @@ export function getToolText(r: Outputs['get_tool']): string {
 }
 
 /** Text block for a meta tool's structuredContent. */
-export function resultText<K extends keyof Outputs>(
-  tool: K,
-  sc: Outputs[K],
-  o: TextOptions = {},
-): string {
+export function resultText<K extends keyof Outputs>(tool: K, sc: Outputs[K]): string {
   const r = sc as never;
   switch (tool) {
     case 'search_servers':
-      return searchServersText(r, o);
+      return searchServersText(r);
     case 'search_tools':
       return searchToolsText(r);
     case 'server_status':
-      return serverStatusText(r, o);
+      return serverStatusText(r);
     case 'enable_server':
-      return enableServerText(r, o);
+      return enableServerText(r);
     case 'disable_server':
       return disableServerText(r);
     case 'install_server':
-      return installServerText(r, o);
+      return installServerText(r);
     case 'get_tool':
       return getToolText(r);
   }

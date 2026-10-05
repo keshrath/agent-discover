@@ -10,13 +10,10 @@ import {
 } from '@modelcontextprotocol/ext-apps';
 import { h, mount } from './dom.js';
 
-/** Result `_meta` key with the dashboard origin (src/widgets/resources.ts). */
-const DASHBOARD_META_KEY = 'agent-discover/dashboard';
-
 /**
  * startWidget({ name, render })
  * render(structuredContent, ctx) -> Node | Node[];
- * ctx = { call, callRaw, openLink, say, rerender, dashboard }.
+ * ctx = { call, callRaw, openLink, say, rerender }.
  * `call(tool, args)` invokes one of OUR server tools through the host and returns its
  * structuredContent (throws on isError) so actions can re-render in place.
  */
@@ -30,8 +27,6 @@ export async function startWidget({ name, render, placeholder }) {
   let last;
 
   const ctx = {
-    /** Dashboard origin from the last result's _meta (undefined until one arrives). */
-    dashboard: undefined,
     async call(tool, args) {
       const res = await ctx.callRaw(tool, args);
       if (res.isError && !res.structuredContent) throw new Error(textOf(res) || `${tool} failed`);
@@ -39,9 +34,7 @@ export async function startWidget({ name, render, placeholder }) {
     },
     /** Full CallToolResult (call_tool passes upstream results through verbatim). */
     async callRaw(tool, args) {
-      const res = await app.callServerTool({ name: tool, arguments: args ?? {} });
-      ctx.dashboard = res._meta?.[DASHBOARD_META_KEY] ?? ctx.dashboard;
-      return res;
+      return app.callServerTool({ name: tool, arguments: args ?? {} });
     },
     openLink(url) {
       return app.openLink({ url }).catch(() => window.open(url, '_blank', 'noopener'));
@@ -82,7 +75,6 @@ export async function startWidget({ name, render, placeholder }) {
     if (!last) mount(root, h('div', { class: 'empty' }, inputHint(p.arguments)));
   });
   app.addEventListener('toolresult', (res) => {
-    ctx.dashboard = res._meta?.[DASHBOARD_META_KEY] ?? ctx.dashboard;
     // install_server's consent_required result is an error that still carries a plan to show.
     if (res.isError && !res.structuredContent) {
       mount(root, h('div', { class: 'alert danger' }, textOf(res) || 'Tool failed'));

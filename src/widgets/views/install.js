@@ -1,10 +1,10 @@
 // install_server result: outcome plus the install plan (exact command or endpoint,
 // env/header keys without values, provenance badges). Consent itself is the host's
 // elicitation prompt; when the host cannot show one (consent_required) the plan is
-// shown with a link to install from the dashboard instead.
+// shown with where the user can install it instead.
 import { h } from '../lib/dom.js';
 import { action } from '../lib/bridge.js';
-import { badge, dashLink, dashUrl, plural, provenanceBadges, serverRoute } from '../lib/ui.js';
+import { badge, plural, provenanceBadges } from '../lib/ui.js';
 
 const quote = (a) => (/[\s"'`$]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a);
 
@@ -24,17 +24,16 @@ export function renderInstall(sc, ctx) {
             `${sc.name} installed · ${plural(sc.tool_count, 'tool')} indexed${sc.enabled ? ' and exposed' : ''}.`,
           ),
           sc.index_error ? h('div', { class: 'small mono' }, sc.index_error) : null,
-          h(
-            'div',
-            { class: 'row gap' },
-            sc.enabled
-              ? null
-              : action('Enable now', () => ctx.call('enable_server', { name: sc.name }), {
+          sc.enabled
+            ? null
+            : h(
+                'div',
+                { class: 'row gap' },
+                action('Enable now', () => ctx.call('enable_server', { name: sc.name }), {
                   kind: 'primary',
                   done: 'Enabled ✓',
                 }),
-            dashLink(ctx, 'Open in dashboard ↗', dashUrl(ctx, serverRoute(sc.name))),
-          ),
+              ),
         ),
         plan ? h('details', null, h('summary', null, 'What was installed'), planCard(plan)) : null,
       );
@@ -42,8 +41,7 @@ export function renderInstall(sc, ctx) {
       return h(
         'div',
         { class: 'alert info' },
-        `${sc.name} is already installed (${plural(sc.tool_count, 'tool')}, ${sc.enabled ? 'enabled' : 'not enabled'}). `,
-        dashLink(ctx, 'Open ↗', dashUrl(ctx, serverRoute(sc.name))),
+        `${sc.name} is already installed (${plural(sc.tool_count, 'tool')}, ${sc.enabled ? 'enabled' : 'not enabled'}).`,
       );
     case 'declined':
       return h(
@@ -69,12 +67,8 @@ export function renderInstall(sc, ctx) {
         plan ? planCard(plan) : null,
         h(
           'div',
-          { class: 'row gap end' },
-          dashLink(
-            ctx,
-            'Install from the dashboard ↗',
-            dashUrl(ctx, `/browse?q=${encodeURIComponent(plan?.package ?? sc.name)}`),
-          ),
+          { class: 'muted small' },
+          `Install it in Claude Code with /discover ${plan?.package ?? sc.name}, or have an operator set AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1.`,
         ),
       );
   }

@@ -54,17 +54,8 @@ export function annotationBadges(a = {}) {
   return out;
 }
 
-/** Dashboard deep link (routes in docs/API.md); undefined when the origin is unknown. */
-export function dashUrl(ctx, route = '/servers') {
-  return ctx.dashboard ? `${ctx.dashboard}/#${route}` : undefined;
-}
-
-export function serverRoute(name) {
-  return `/servers/${encodeURIComponent(name)}`;
-}
-
-export function dashLink(ctx, label, url) {
-  if (!url) return null;
+/** An external link the host opens (repositories, resource links). */
+export function link(ctx, label, url) {
   return h(
     'a',
     {
@@ -85,7 +76,7 @@ export function plural(n, word) {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-export function header(ctx, title, subtitle, route) {
+export function header(title, subtitle) {
   return h(
     'header',
     { class: 'row between head' },
@@ -95,6 +86,5 @@ export function header(ctx, title, subtitle, route) {
       h('div', { class: 'title' }, title),
       subtitle ? h('div', { class: 'muted' }, subtitle) : null,
     ),
-    dashLink(ctx, 'Dashboard ↗', dashUrl(ctx, route)),
   );
 }
