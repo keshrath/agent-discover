@@ -6,48 +6,69 @@
 // =============================================================================
 
 import type { CallToolResult, Client } from '@modelcontextprotocol/client';
-import type { MarketplaceResult } from '../../src/types.js';
+import {
+  buildInstallPlan,
+  type InstallCandidate,
+  type PackageSpec,
+} from '../../src/domain/install-plan.js';
+import type { MarketplaceEntry } from '../../src/domain/marketplace.js';
 import { FIXTURE, connectClient, startTestDaemon, type TestDaemon } from '../helpers.js';
 
 export const XSS = '<img src=x onerror="document.body.dataset.pwned=1"><script>alert(1)</script>';
 
-const REGISTRY: MarketplaceResult = {
-  next_cursor: null,
-  servers: [
-    {
+const pkg = (identifier: string, version?: string): PackageSpec => ({
+  registryType: 'npm',
+  identifier,
+  version,
+  transport: { type: 'stdio' },
+  runtimeArguments: [],
+  packageArguments: [],
+  environmentVariables: [],
+});
+
+/** Canned marketplace answers: no network, deterministic plans. */
+const CANDIDATES: InstallCandidate[] = [
+  {
+    source: 'registry',
+    registry: { status: 'active' },
+    server: {
       name: 'io.github.example/weather',
       description: `Weather forecasts and alerts. ${XSS}`,
       version: '2.1.3',
       repository: 'https://github.com/example/weather-mcp',
-      packages: [
-        {
-          registry_name: 'npm',
-          name: '@example/weather-mcp',
-          version: '2.1.3',
-          runtime: 'node',
-          license: 'MIT',
-          url: null,
-        },
-      ],
+      packages: [pkg('@example/weather-mcp', '2.1.3')],
+      remotes: [],
     },
-    {
+  },
+  {
+    source: 'registry',
+    registry: { status: 'active' },
+    server: {
       name: 'io.github.example/remote-notes',
       description: 'Hosted notes service',
       version: '1.0.0',
-      repository: null,
-      packages: [
+      packages: [],
+      remotes: [
         {
-          registry_name: 'remote',
-          name: 'notes',
-          version: '1.0.0',
-          runtime: 'streamable-http',
-          license: null,
+          type: 'streamable-http',
           url: 'https://notes.example.com/mcp',
+          headers: [],
+          variables: {},
         },
       ],
     },
-  ],
-};
+  },
+  {
+    source: 'npm',
+    server: {
+      name: '@example/weather-mcp',
+      description: 'Weather over npm',
+      version: '2.1.3',
+      packages: [pkg('@example/weather-mcp')],
+      remotes: [],
+    },
+  },
+];
 
 export type Captured = Record<string, CallToolResult>;
 
@@ -63,7 +84,36 @@ export interface CaptureSession {
 /** Start the daemon, run every meta tool once per result variant, keep the session open. */
 export async function capture(): Promise<CaptureSession> {
   const daemon = await startTestDaemon();
-  daemon.ctx.marketplace.browse = async () => REGISTRY;
+  daemon.ctx.marketplace.search = async () => ({
+    servers: CANDIDATES.map(
+      (c): MarketplaceEntry => ({
+        source: c.source,
+        name: c.server.name,
+        description: c.server.description,
+        version: c.server.version,
+        status: c.registry?.status ?? 'active',
+        repository: c.server.repository ?? null,
+        packages: c.server.packages.map((p) => ({
+          registry_type: p.registryType,
+          identifier: p.identifier,
+          version: p.version ?? null,
+          transport: p.transport.type,
+        })),
+        remotes: c.server.remotes.map((r) => ({ type: r.type, url: r.url })),
+      }),
+    ),
+    registry: 'mirror',
+    errors: {},
+  });
+  daemon.ctx.marketplace.plan = async (req) => {
+    const hit = CANDIDATES.find(
+      (c) => c.source === (req.source ?? 'registry') && c.server.name === req.name,
+    );
+    if (!hit) throw new Error(`no canned candidate ${req.name}`);
+    const server = structuredClone(hit.server);
+    if (req.version) for (const p of server.packages) p.version = req.version;
+    return buildInstallPlan({ ...hit, server }, { name: req.local_name });
+  };
   const prompts: string[] = [];
   let answer: 'accept' | 'decline' = 'accept';
   const client = await connectClient(daemon, {
@@ -94,13 +144,15 @@ export async function capture(): Promise<CaptureSession> {
   results.install_server_already = await call('install_server', { name: 'fixture', ...upstream });
   answer = 'decline';
   results.install_server_declined = await call('install_server', {
+    server: '@example/weather-mcp',
+    source: 'npm',
+    version: '2.1.3',
     name: 'declined',
-    package: '@example/weather-mcp@2.1.3',
   });
   answer = 'accept';
   results.install_server_consent = await call(
     'install_server',
-    { name: 'weather', package: '@example/weather-mcp' },
+    { server: '@example/weather-mcp', source: 'npm', name: 'weather' },
     noElicit,
   );
   await daemon.ctx.lifecycle.install({ name: 'spare', ...upstream });

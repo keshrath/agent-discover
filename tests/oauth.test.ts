@@ -30,7 +30,11 @@ afterEach(async () => {
   await as.close();
 });
 
-const api = (path: string, init?: RequestInit) => fetch(d.base + path, init);
+const api = (path: string, init: RequestInit = {}) =>
+  fetch(d.base + path, {
+    ...init,
+    headers: { ...init.headers, 'x-agent-discover-token': d.restToken },
+  });
 
 /** Play the user's browser: follow the AS redirect back to the daemon. */
 async function signIn(authorizeUrl: string): Promise<Response> {
@@ -62,7 +66,7 @@ describe('dashboard sign-in', () => {
     expect(await done.text()).toContain('authorized for &quot;secure&quot;');
     await waitFor(() => d.ctx.index.count(serverId) === 1, 10_000);
 
-    const keys = d.ctx.secrets.list(serverId).map((s) => s.key);
+    const keys = d.ctx.secrets.list({ id: serverId, name: 'secure' }).map((s) => s.key);
     expect(keys).toEqual(
       expect.arrayContaining([
         `oauth:client:${as.base}`,
@@ -72,7 +76,7 @@ describe('dashboard sign-in', () => {
       ]),
     );
     expect(keys).not.toContain('oauth:verifier');
-    expect(d.ctx.secrets.getEnvForServer(serverId)).toEqual({});
+    expect(d.ctx.secrets.getEnvForServer({ id: serverId, name: 'secure' })).toEqual({});
     expect(await (await api(`/api/servers/${serverId}/auth`)).json()).toMatchObject({
       status: 'authorized',
       issuer: as.base,

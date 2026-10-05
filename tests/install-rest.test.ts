@@ -39,6 +39,7 @@ afterAll(async () => {
 function api(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set('content-type', 'application/json');
+  headers.set('x-agent-discover-token', d.restToken);
   return fetch(d.base + path, { ...init, headers });
 }
 
@@ -95,7 +96,7 @@ describe('install routes', () => {
     expect(out.index_error).toBeUndefined();
     expect(out.tool_count).toBeGreaterThan(3);
     expect(out.plan.server).toBe('me');
-    expect(d.ctx.secrets.list(out.id).map((s) => s.key)).toEqual(['API_KEY']);
+    expect(d.ctx.secrets.list({ id: out.id, name: 'me' }).map((s) => s.key)).toEqual(['API_KEY']);
     expect(d.ctx.lifecycle.status('me')[0].registry_status).toBe('active');
 
     const again = await api('/api/install', {

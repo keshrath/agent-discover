@@ -73,8 +73,9 @@ describe('install consent', () => {
       plan: {
         package: '@example/weather-mcp',
         provenance: [
-          { label: 'Package @example/weather-mcp', level: 'info' },
+          { label: 'npm @example/weather-mcp', level: 'info' },
           { label: 'Unpinned version', level: 'warn' },
+          { label: 'Warning', level: 'warn' },
         ],
       },
     });

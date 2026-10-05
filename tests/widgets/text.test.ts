@@ -53,22 +53,30 @@ describe('renderers', () => {
         installed: [{ name: 'pg', description: 'Postgres | SQL', enabled: false, tool_count: 4 }],
         marketplace: [
           {
-            name: 'io.x/neon',
+            source: 'npm',
+            name: '@neon/mcp',
             description: 'Neon',
             version: '1.0.0',
+            status: 'active',
             repository: null,
             packages: [
-              { registry: 'npm', name: '@neon/mcp', runtime: 'node', version: '1.0.0', url: null },
+              {
+                registry_type: 'npm',
+                identifier: '@neon/mcp',
+                version: '1.0.0',
+                transport: 'stdio',
+              },
             ],
+            remotes: [],
           },
         ],
-        marketplace_error: 'timeout',
+        marketplace_errors: { npm: 'timeout' },
       },
       DASH,
     );
     expect(text).toContain('| `pg` | installed | 4 | Postgres \\| SQL |');
-    expect(text).toContain('| `io.x/neon` | available | npm `@neon/mcp@1.0.0` | Neon |');
-    expect(text).toContain('Registry search failed: timeout');
+    expect(text).toContain('| `@neon/mcp` | available | npm `@neon/mcp@1.0.0` | Neon |');
+    expect(text).toContain('npm search failed: timeout');
     expect(text).toContain('http://127.0.0.1:3424/#/browse?q=pg');
   });
 
