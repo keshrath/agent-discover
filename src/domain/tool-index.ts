@@ -256,18 +256,12 @@ export class ToolIndex {
   /** Top `limit` tools for a query, scores in 0..1; empty when the ranker finds no match. */
   async search(query: string, limit = 5): Promise<ToolHit[]> {
     if (!query.trim()) return [];
-    const quarantined = new Set(
-      this.db
-        .queryAll<{
-          id: number;
-        }>(
-          'SELECT t.id FROM server_tools t JOIN servers s ON s.id = t.server_id WHERE s.quarantined = 1',
-        )
-        .map((row) => row.id),
-    );
-    const hits = (await this.ranker.rank(query.trim(), limit + quarantined.size))
-      .filter((hit) => !quarantined.has(hit.id))
-      .slice(0, limit);
+    // The ranker also ranks quarantined tools; overfetch by their count so `limit` still fills.
+    const quarantined =
+      this.db.queryOne<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM server_tools t JOIN servers s ON s.id = t.server_id WHERE s.quarantined = 1',
+      )?.n ?? 0;
+    const hits = await this.ranker.rank(query.trim(), limit + quarantined);
     if (hits.length === 0) return [];
     const rows = new Map(
       this.db
@@ -277,9 +271,11 @@ export class ToolIndex {
         )
         .map((r) => [r.id, r]),
     );
-    return hits.flatMap((h) => {
-      const row = rows.get(h.id);
-      return row ? [{ ...rowToTool(row), score: Math.round(h.score * 1000) / 1000 }] : [];
-    });
+    return hits
+      .flatMap((h) => {
+        const row = rows.get(h.id);
+        return row ? [{ ...rowToTool(row), score: Math.round(h.score * 1000) / 1000 }] : [];
+      })
+      .slice(0, limit);
   }
 }
