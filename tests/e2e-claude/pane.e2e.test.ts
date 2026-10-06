@@ -146,6 +146,8 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       expect(plan).toMatch(/Connects to:/);
       expect(plan).toMatch(/! X-Weather-Key \(header, required, secret\)/);
       expect(plan).toMatch(/missing: X-Weather-Key/);
+      expect(plan).toMatch(/Install and enable . Install only/); // dimmed text, not buttons
+      expect(plan).not.toMatch(/\[ Install and enable \]/);
       t.shot('plan');
       await t.focus('X-Weather-Key: ');
       await typeMasked(t, 'X-Weather-Key', 'wk-secret-999');

@@ -79,6 +79,7 @@ function page(res: ServerResponse, status: number, title: string, text: string):
 export function createRestHandler(
   ctx: AppContext,
   token: RestToken,
+  onShutdown: () => void,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const router = createRouter();
   const startTime = Date.now();
@@ -134,6 +135,13 @@ export function createRestHandler(
   route('GET', '/api/token', (req, res) => {
     if (!mayReadToken(req)) return json(res, { error: 'Forbidden origin', code: 'FORBIDDEN' }, 403);
     json(res, { token: token.value, header: TOKEN_HEADER });
+  });
+
+  // Lets a newer shim replace this daemon on upgrade (shim.ts); exits like an idle exit.
+  route('POST', '/api/shutdown', (_req, res) => {
+    ctx.trust.record({ action: 'shutdown', detail: { pid: process.pid, version } });
+    res.once('finish', onShutdown);
+    json(res, { status: 'shutting-down' }, 202);
   });
 
   route('GET', '/api/status', (_req, res) => {

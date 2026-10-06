@@ -20,6 +20,7 @@ Every request passes the request guard:
 - `Origin`, when present, must be `http(s)://` with a loopback hostname. `null`, `file://` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
 - POST/PUT/PATCH/DELETE with a body must be `application/json` (415 otherwise).
 - CORS: allowed origins are reflected; never `*`.
+- **Shutdown.** `POST /api/shutdown` (token required) answers 202 and exits like an idle exit; a newer shim uses it to replace an older daemon on upgrade.
 - **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` is served only when `Origin` is absent (the Claude Code pane, local non-browser clients); any Origin gets 403, so a web page never learns it. `/mcp` is unaffected.
 
 See [SECURITY.md](SECURITY.md) for the whole trust model.
@@ -106,7 +107,7 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection). Values live in the OS keychain (or an encrypted file), never in SQLite; `GET` always returns `masked_value: "********"`.
 - `GET /api/servers/:id/trust` → `{name, quarantined, drift?: {changed: [{tool, description?, input_schema?, annotations?}], added, removed}, flagged_tools: [{tool, flags}], hashes, digest}`
 - `POST /api/servers/:id/approve` `{hashes}` → re-pins the current tools and lifts the quarantine. `hashes` must be the `hashes` of the reviewed `trust` report; 409 if the tool set changed since (review again).
-- `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete call_tool`.
+- `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete shutdown call_tool`.
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
 Removed in 3.0 with the web dashboard: `/ws`, static files, `POST /api/servers/:id/call` (use the `call_tool` MCP tool), the tester routes (`/api/servers/:id/info|tools|resources|resource-templates|resource/*|prompts|prompt/get|ping|logging-level|export`), `/api/transient*`, `/api/presets*`, `/api/prereqs`, `POST /api/sync`, `DELETE /api/logs`, `/api/logs/notifications|progress`, `/api/roots`. Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).

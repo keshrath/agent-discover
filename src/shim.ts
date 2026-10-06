@@ -2,7 +2,7 @@
 // agent-discover — stdio shim (default bin)
 //
 // Lets stdio-only hosts use the shared daemon: ensure the daemon is running
-// (health probe → lockfile-guarded detached spawn → readiness wait), then
+// (health probe, retiring an older daemon → lockfile-guarded detached spawn → readiness wait), then
 // relay JSON-RPC messages verbatim between stdin/stdout and /mcp. Works for
 // both protocol eras: 2026 requests carry their own envelope; 2025 sessions
 // get the session id + protocol-version headers from the HTTP transport.
@@ -20,8 +20,10 @@ import { StreamableHTTPClientTransport, isInitializeRequest } from '@modelcontex
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/server';
 import { stateDir, type Config } from './config.js';
+import { version } from './version.js';
 
 const READY_TIMEOUT_MS = 20_000;
+const SHUTDOWN_WAIT_MS = 10_000;
 const STALE_LOCK_MS = 30_000;
 const REPLAY_ID_PREFIX = '__agent_discover_shim_';
 
@@ -30,22 +32,96 @@ function baseUrl(config: Config): string {
   return `http://${host.includes(':') ? `[${host}]` : host}:${config.port}`;
 }
 
-async function isHealthy(config: Config): Promise<boolean> {
+interface Health {
+  version: string;
+  pid: number;
+}
+
+async function probe(config: Config): Promise<Health | null> {
   try {
     const res = await fetch(`${baseUrl(config)}/api/health`, {
       signal: AbortSignal.timeout(1_000),
     });
-    return res.ok && ((await res.json()) as { status?: string }).status === 'ok';
+    const h = (await res.json()) as { status?: string; version?: string; pid?: number };
+    return res.ok && h.status === 'ok' ? { version: String(h.version), pid: Number(h.pid) } : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** True when version `a` is lower than `b` (numeric major.minor.patch; pre-release tags ignored). */
+export function isOlder(a: string, b: string): boolean {
+  const parts = (v: string) =>
+    v
+      .split('-')[0]
+      .split('.')
+      .map((n) => parseInt(n, 10) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+  return false;
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+let warnedLegacy = false;
+
+/**
+ * Ask a daemon older than this shim to exit, then wait (bounded) until it is gone.
+ * Returns false when it stays: it predates /api/shutdown, or never exits.
+ */
+async function retireOlderDaemon(config: Config, old: Health): Promise<boolean> {
+  const base = baseUrl(config);
+  const warn = (why: string) =>
+    process.stderr.write(
+      `[agent-discover shim] daemon ${old.version} (pid ${old.pid}) is older than ${version} and ${why}; ` +
+        `using it anyway. Stop that process to upgrade.
+`,
+    );
+  try {
+    const t = (await (
+      await fetch(`${base}/api/token`, { signal: AbortSignal.timeout(2_000) })
+    ).json()) as { token: string; header: string };
+    const res = await fetch(`${base}/api/shutdown`, {
+      method: 'POST',
+      headers: { [t.header]: t.token },
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (res.status === 404 || res.status === 405) {
+      if (!warnedLegacy) warn('does not support /api/shutdown');
+      warnedLegacy = true;
+      return false;
+    }
+    // Any other failure means another shim already replaced it; the wait below sees that.
+  } catch {
+    /* same: the wait below decides */
+  }
+  const deadline = Date.now() + SHUTDOWN_WAIT_MS;
+  while (Date.now() < deadline) {
+    const h = await probe(config);
+    if (h && !isOlder(h.version, version)) return true; // replaced by another shim
+    if (!h && !pidAlive(old.pid)) return true;
+    await sleep(100);
+  }
+  warn('did not shut down');
+  return false;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Make sure a daemon answers on the configured port, spawning one if needed. */
 export async function ensureDaemon(config: Config): Promise<void> {
-  if (await isHealthy(config)) return;
+  const running = await probe(config);
+  if (running) {
+    if (!isOlder(running.version, version)) return;
+    if (!(await retireOlderDaemon(config, running))) return;
+  }
   const dir = stateDir();
   mkdirSync(dir, { recursive: true });
   const lock = join(dir, `daemon-${config.port}.lock`);
@@ -65,7 +141,7 @@ export async function ensureDaemon(config: Config): Promise<void> {
     }
   }
   try {
-    if (owner) {
+    if (owner && !(await probe(config))) {
       const log = openSync(logFile, 'a');
       const entry = fileURLToPath(new URL('./index.js', import.meta.url));
       spawn(process.execPath, [entry, 'daemon'], {
@@ -78,7 +154,7 @@ export async function ensureDaemon(config: Config): Promise<void> {
     }
     const deadline = Date.now() + READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      if (await isHealthy(config)) return;
+      if (await probe(config)) return;
       await sleep(150);
     }
     throw new Error(

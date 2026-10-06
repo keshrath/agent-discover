@@ -346,6 +346,9 @@ test('browse: /discover <query> lists results; the plan shows the exact command;
   await ui.press({ key: 'plan:registry:io.example/pg' });
   expect((await ui.find({ type: 'Code' }))?.text).toBe('npx -y @example/pg@1.2.0');
   expect(await ui.find({ type: 'Text', text: /missing: PG_URL/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Install and enable . Install only/ })).toBeDefined(); // shown, not pressable
+  expect(await ui.find({ key: 'install-enable' })).toBeUndefined();
+  expect(await ui.find({ key: 'install' })).toBeUndefined();
   await ui.input({ key: 'reqset:PG_URL', text: 'postgres://secret', kind: 'change' });
   await ui.input({ key: 'reqset:PG_URL', text: '•'.repeat(17) });
   expect(await ui.find({ text: /postgres:\/\/secret/ })).toBeUndefined();

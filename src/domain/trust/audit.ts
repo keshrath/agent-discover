@@ -22,6 +22,7 @@ export type AuditAction =
   | 'flag'
   | 'secret-set'
   | 'secret-delete'
+  | 'shutdown'
   | 'call_tool';
 
 export interface AuditEvent {

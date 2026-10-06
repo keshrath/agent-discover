@@ -738,13 +738,21 @@ function Plan({
       )}
       {!plan.blocked && (
         <Box flexWrap="wrap" columnGap={1}>
-          <Button
-            key="install-enable"
-            label="Install and enable"
-            variant="primary"
-            onPress={() => on.install(true)}
-          />
-          <Button key="install" label="Install only" onPress={() => on.install(false)} />
+          {missing.length > 0 ? (
+            <Text key="install-disabled" dimColor>
+              Install and enable | Install only
+            </Text>
+          ) : (
+            <>
+              <Button
+                key="install-enable"
+                label="Install and enable"
+                variant="primary"
+                onPress={() => on.install(true)}
+              />
+              <Button key="install" label="Install only" onPress={() => on.install(false)} />
+            </>
+          )}
           <Button key="plan-cancel" label="Cancel" dimColor onPress={on.cancelPlan} />
           {missing.length > 0 && (
             <Text color="yellow">missing: {missing.map((r) => r.key).join(', ')}</Text>
