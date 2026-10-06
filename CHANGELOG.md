@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-10-06
+
+The `/discover` pane, tested in the real Claude Code CLI and reworked where that showed gaps.
+
+### Added
+
+- **Server detail** opens with what matters on screen: the pane asks for 40 rows inline (it took a third of the terminal, so the tools and secrets sat below the fold), an enabled server is health-checked when its detail opens, a Usage line totals calls, failures and average latency, and each tool shows its description's first line and its calls, unfolding to the full description and input schema.
+- **Configuration and secrets**: every env var and header key with where its value comes from (keychain secret, a value in the config, or missing), with Set secret, Replace and Delete. Secrets, here and in the install plan, are typed into masked fields drawn as dots; a new secret asks for its key first.
+- **The quarantine diff shows a changed description** as the approved text and the new one.
+- **A key hint** under the tabs (Tab / shift+Tab, Enter, arrows, Esc; or ctrl+x tab while the pane does not hold the keys). Servers, logs and audit entries line up in columns.
+- `npm run e2e:claude`: an end-to-end suite that drives `claude` in a pseudo-terminal against a scratch daemon and plugin copy, asserts every view at 80, 120 and 160 columns and renders screenshots (see CONTRIBUTING.md).
+
+### Fixed
+
+- A remote server with a static `Authorization` header showed "Sign-in: unknown" and a Sign in button. Sign-in now shows only once the server asked for OAuth (`required`) or is signed in.
+- Times in the pane were the daemon's UTC drawn as if local; they are local now.
+- After an install the new server's detail opened without its data until the next poll.
+- `GET /api/servers` and `GET /api/servers/:id` returned header values (a static bearer token) in clear; they are masked like env values, and a masked value sent back to `PUT` keeps the stored one.
+
 ## [3.0.0] - 2026-10-05
 
 agent-discover's UI moves into the hosts: the full management UI is the Claude Code `/discover` pane, Claude Desktop, claude.ai and VS Code render the MCP Apps widget, and every other host (OpenCode, Cursor, Codex, ...) uses the MCP tools and their markdown results. The localhost web dashboard is gone.

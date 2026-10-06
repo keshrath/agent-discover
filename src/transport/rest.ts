@@ -79,19 +79,21 @@ function page(res: ServerResponse, status: number, title: string, text: string):
 export function createRestHandler(
   ctx: AppContext,
   token: RestToken,
+  onShutdown: () => void,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const router = createRouter();
   const startTime = Date.now();
   const { lifecycle, servers, index } = ctx;
   const pool = lifecycle.pool;
 
-  // Env values are masked on the way out; a masked value sent back unchanged keeps the original.
+  // Env and header values are masked on the way out; a masked value sent back unchanged keeps the original.
   // `missing_secrets`: declared headers left empty with no secret to fill them (toConfig drops those).
   const view = (s: ServerEntry) => {
     const stored = new Set(ctx.secrets.list(s).map((x) => x.key.toLowerCase()));
     return {
       ...s,
       env: maskEnv(s.env),
+      headers: maskEnv(s.headers),
       connected: pool.isConnected(s.name),
       tool_count: index.count(s.id),
       missing_secrets: Object.keys(s.headers).filter(
@@ -135,6 +137,13 @@ export function createRestHandler(
     json(res, { token: token.value, header: TOKEN_HEADER });
   });
 
+  // Lets a newer shim replace this daemon on upgrade (shim.ts); exits like an idle exit.
+  route('POST', '/api/shutdown', (_req, res) => {
+    ctx.trust.record({ action: 'shutdown', detail: { pid: process.pid, version } });
+    res.once('finish', onShutdown);
+    json(res, { status: 'shutting-down' }, 202);
+  });
+
   route('GET', '/api/status', (_req, res) => {
     json(res, { mode: ctx.config.mode, servers: lifecycle.status() });
   });
@@ -171,6 +180,7 @@ export function createRestHandler(
     const server = byId(p.id);
     const fields = serverFields(await body(req));
     if (fields.env) fields.env = restoreMaskedEnv(fields.env, server.env);
+    if (fields.headers) fields.headers = restoreMaskedEnv(fields.headers, server.headers);
     json(res, view(await lifecycle.update(server.name, fields)));
   });
 

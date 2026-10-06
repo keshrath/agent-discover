@@ -6,6 +6,7 @@ import type { Elements } from 'claude-code';
 import type {
   AgentDiscoverAudit,
   AgentDiscoverBrowse,
+  AgentDiscoverConfigKey,
   AgentDiscoverDetail,
   AgentDiscoverElicitation,
   AgentDiscoverEntry,
@@ -37,14 +38,22 @@ export type Actions = {
   askUninstall: (name: string) => void;
   cancel: () => void;
   uninstall: (name: string) => void;
-  setSecret: (name: string, key: string, value: string) => void;
-  addSecret: (name: string, pair: string) => void;
+  /** A masked field reported `shown` (bullets plus the person's edit). */
+  mask: (id: string, shown: string) => void;
+  /** Saves what was typed into the masked field of `key` as a secret of `name`. */
+  setSecret: (name: string, key: string) => void;
+  /** Opens (or with null closes) the masked field for one config key. */
+  editSecret: (key: string | null) => void;
+  /** Starts a secret under a new key name. */
+  addSecret: (key: string) => void;
   deleteSecret: (name: string, key: string) => void;
   toggleTool: (name: string, tool: string) => void;
   search: (query: string) => void;
   syncRegistry: () => void;
   showPlan: (entry: AgentDiscoverEntry) => void;
   fill: (key: string, value: string) => void;
+  /** Fills a secret requirement from its masked field. */
+  fillSecret: (key: string) => void;
   cancelPlan: () => void;
   install: (enable: boolean) => void;
   reloadLogs: () => void;
@@ -70,6 +79,13 @@ const state = (s: { quarantined: boolean; enabled: boolean; health_status: strin
         : 'installed';
 
 const TONE: Record<string, string> = { quarantined: 'red', unhealthy: 'red', enabled: 'green' };
+const TONE_HEALTH: Record<string, string> = { healthy: 'green', unhealthy: 'red' };
+const SOURCE: Record<AgentDiscoverConfigKey['source'], string> = {
+  secret: '•••••• secret (keychain)',
+  value: '•••••• set in the config',
+  missing: 'missing: set it below',
+};
+const SOURCE_TONE: Record<string, string> = { secret: 'green', missing: 'yellow' };
 
 /** Optional props are left out, never passed as undefined: a remote surface refuses undefined. */
 const color = (c: string | false | undefined) => (c ? { color: c } : {});
@@ -82,10 +98,44 @@ const MARK: Record<string, string> = {
 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const time = (iso: string) => iso.replace('T', ' ').slice(5, 19);
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** Daemon timestamps are UTC (ISO, or SQLite's `YYYY-MM-DD HH:MM:SS`); drawn local, MM-DD HH:MM:SS. */
+const time = (ts: string) => {
+  const d = new Date(/[zZ]|[+-]dd:?dd$/.test(ts) ? ts : `${ts.replace(' ', 'T')}Z`);
+  if (Number.isNaN(d.getTime())) return ts;
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+};
 const quote = (a: string) => (/[\s"'`$]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a);
 
 type ViewProps = { el: El; on: Actions };
+
+/** Id of a masked field: `plan` or `secret:<server>`, then the key. */
+export const maskId = (scope: string, key: string) => `${scope}:${key}`;
+
+type MaskedProps = ViewProps & {
+  id: string;
+  field: string;
+  label: string;
+  length: number;
+  submitLabel: string;
+  onSubmit: () => void;
+};
+
+/** An Input that only ever draws bullets: the typed value stays in register.tsx. */
+function Masked({ el, on, id, field, label, length, submitLabel, onSubmit }: MaskedProps) {
+  const { Input } = el;
+  return Input ? (
+    <Input
+      key={field}
+      label={label}
+      placeholder="type the value: shown as dots, kept in the keychain"
+      value={'•'.repeat(length)}
+      submitLabel={submitLabel}
+      onInput={(v) => on.mask(id, v)}
+      onSubmit={onSubmit}
+    />
+  ) : null;
+}
 
 export type PaneProps = ViewProps & {
   snap: AgentDiscoverSnapshot;
@@ -99,6 +149,10 @@ export type PaneProps = ViewProps & {
   audit: AgentDiscoverAudit | null;
   busy: string | null;
   notice: string | null;
+  /** The pane holds the keyboard (Tab walks it), as the Pane site reports. */
+  isFocused: boolean;
+  masked: Record<string, number>;
+  editing: string | null;
 };
 
 const TABS: [AgentDiscoverTab, string][] = [
@@ -116,13 +170,21 @@ export function Pane(p: PaneProps) {
   if (!snap.isUp) body = <Text color="red">The daemon does not answer at {snap.origin}.</Text>;
   else if (route.tab === 'servers' && route.server)
     body = p.detail ? (
-      <Detail el={p.el} on={on} d={p.detail} tool={p.tool} confirm={p.confirm} />
+      <Detail
+        el={p.el}
+        on={on}
+        d={p.detail}
+        tool={p.tool}
+        confirm={p.confirm}
+        masked={p.masked}
+        editing={p.editing}
+      />
     ) : (
       <Text dimColor>Loading {route.server}...</Text>
     );
   else if (route.tab === 'servers') body = <Servers el={p.el} on={on} servers={snap.servers} />;
   else if (route.tab === 'browse')
-    body = <Browse el={p.el} on={on} browse={p.browse} plan={p.plan} />;
+    body = <Browse el={p.el} on={on} browse={p.browse} plan={p.plan} masked={p.masked} />;
   else if (route.tab === 'logs') body = <Logs el={p.el} on={on} logs={p.logs} />;
   else body = <Audit el={p.el} on={on} audit={p.audit} />;
 
@@ -133,7 +195,7 @@ export function Pane(p: PaneProps) {
           <Button
             key={`tab:${tab}`}
             label={label}
-            {...primary(route.tab === tab && !(tab === 'servers' && route.server))}
+            {...primary(route.tab === tab)}
             onPress={() => on.go(tab)}
           />
         ))}
@@ -144,6 +206,11 @@ export function Pane(p: PaneProps) {
           </Text>
         )}
       </Box>
+      <Text dimColor wrap="truncate">
+        {p.isFocused
+          ? 'Tab / shift+Tab move · Enter presses · ↑↓ scroll · Esc back to the prompt'
+          : 'ctrl+x tab: use this pane from the keyboard'}
+      </Text>
       {p.busy ? (
         <Text color="yellow">{p.busy}...</Text>
       ) : (
@@ -213,6 +280,7 @@ function Servers({ el, on, servers }: ViewProps & { servers: AgentDiscoverServer
   const sorted = [...servers].sort(
     (a, b) => order.indexOf(state(a)) - order.indexOf(state(b)) || a.name.localeCompare(b.name),
   );
+  const nameWidth = Math.min(32, Math.max(...servers.map((s) => s.name.length)));
   return (
     <Box flexDirection="column">
       {sorted.map((s) => {
@@ -220,11 +288,17 @@ function Servers({ el, on, servers }: ViewProps & { servers: AgentDiscoverServer
         return (
           <Box key={`row:${s.name}`} columnGap={1}>
             <Text {...color(TONE[st])}>{MARK[st]}</Text>
-            <Button key={`open:${s.name}`} label={s.name} plain onPress={() => on.open(s.name)} />
+            <Box width={nameWidth} flexShrink={0}>
+              <Button key={`open:${s.name}`} label={s.name} plain onPress={() => on.open(s.name)} />
+            </Box>
+            <Box width={12} flexShrink={0}>
+              <Text {...color(TONE[st])}>{st}</Text>
+            </Box>
             <Text dimColor wrap="truncate">
-              {st}, {plural(s.tool_count, 'tool')}
+              {plural(s.tool_count, 'tool')}
               {s.error_count ? `, ${plural(s.error_count, 'error')}` : ''}
               {s.registry_status === 'deleted' ? ', removed from the registry' : ''}
+              {s.description ? ` · ${s.description}` : ''}
             </Text>
           </Box>
         );
@@ -237,16 +311,18 @@ type DetailProps = ViewProps & {
   d: AgentDiscoverDetail;
   tool: AgentDiscoverTool | null;
   confirm: string | null;
+  masked: Record<string, number>;
+  editing: string | null;
 };
 
-function Detail({ el, on, d, tool, confirm }: DetailProps) {
+function Detail({ el, on, d, tool, confirm, masked, editing }: DetailProps) {
   const { Box, Text, Button, Input, Link, Code } = el;
   const st = state(d);
-  const fact = (label: string, value: string | null) =>
+  const fact = (label: string, value: string | null, tone?: string) =>
     value && (
       <Text key={`fact:${label}`} wrap="truncate">
-        <Text dimColor>{label}: </Text>
-        {value}
+        <Text dimColor>{label.padEnd(9)}</Text>
+        <Text {...color(tone)}>{value}</Text>
       </Text>
     );
   const where = d.command
@@ -257,9 +333,21 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
   const pkg = d.package_name
     ? `${d.package_name}${d.package_version ? `@${d.package_version}` : ''}`
     : null;
+  const healthStatus = d.health?.status ?? d.health_status;
   const health = d.health
     ? `${d.health.status} in ${d.health.latency_ms} ms${d.health.error ? `: ${d.health.error}` : ''}`
-    : `${d.health_status}${d.last_health_check ? ` (checked ${time(d.last_health_check)})` : ''}`;
+    : d.health_status === 'unknown'
+      ? 'not checked yet'
+      : `${d.health_status}${d.last_health_check ? ` (checked ${time(d.last_health_check)})` : ''}`;
+  const calls = d.metrics.reduce((n, m) => n + m.calls, 0);
+  const failed = d.metrics.reduce((n, m) => n + m.errors, 0);
+  const avg = calls ? d.metrics.reduce((n, m) => n + m.avg_ms * m.calls, 0) / calls : 0;
+  const usage = calls
+    ? `${plural(calls, 'call')}, ${failed} failed, ${Math.round(avg)} ms average`
+    : 'no calls yet';
+  const toolWidth = Math.min(26, Math.max(...d.tools.map((t) => t.name.length + 2)));
+  const keyWidth = Math.min(28, Math.max(...d.config.map((c) => c.key.length)));
+  const missing = d.config.filter((c) => c.source === 'missing');
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -270,11 +358,7 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
           <Text {...color(TONE[st])}>{st}</Text>
           {d.connected && <Text dimColor>connected</Text>}
         </Box>
-        {d.description && (
-          <Text dimColor wrap="truncate">
-            {d.description}
-          </Text>
-        )}
+        {d.description && <Text dimColor>{d.description}</Text>}
       </Box>
 
       {d.drift && (
@@ -283,9 +367,17 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
             Tools changed since approval: review before use
           </Text>
           {d.drift.changed.map((c) => (
-            <Text key={`chg:${c.tool}`} wrap="truncate">
-              ~ {c.tool}: {c.what}
-            </Text>
+            <Box key={`chg:${c.tool}`} flexDirection="column">
+              <Text wrap="truncate">
+                ~ {c.tool}: {c.what}
+              </Text>
+              {c.description && (
+                <Box flexDirection="column" paddingLeft={4}>
+                  <Text dimColor>was: {c.description.before}</Text>
+                  <Text color="yellow">now: {c.description.after}</Text>
+                </Box>
+              )}
+            </Box>
           ))}
           {d.drift.added.map((t) => (
             <Text key={`add:${t}`} color="green">
@@ -308,19 +400,6 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
           </Box>
         </Box>
       )}
-
-      <Box flexDirection="column">
-        {fact('Runs', where)}
-        {fact('Source', d.registry_name ? `${d.source} ${d.registry_name}` : d.source)}
-        {d.registry_status === 'deleted' &&
-          fact('Registry', 'deleted (taken down by the MCP Registry)')}
-        {fact('Package', pkg)}
-        {fact('Tags', d.tags.join(', '))}
-        {fact('Env keys', d.env_keys.join(', '))}
-        {fact('Header keys', d.header_keys.join(', '))}
-        {fact('Health', health)}
-        {d.error_count > 0 && fact('Errors', String(d.error_count))}
-      </Box>
 
       <Box flexWrap="wrap" columnGap={1}>
         {!d.quarantined && (
@@ -356,11 +435,25 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
         )}
       </Box>
 
+      <Box flexDirection="column">
+        {fact('Runs', where)}
+        {fact('Source', d.registry_name ? `${d.source} ${d.registry_name}` : d.source)}
+        {d.registry_status === 'deleted' &&
+          fact('Registry', 'deleted (taken down by the MCP Registry)', 'red')}
+        {fact('Package', pkg)}
+        {fact('Tags', d.tags.join(', '))}
+        {fact('Health', health, TONE_HEALTH[healthStatus])}
+        {fact('Usage', usage)}
+        {d.error_count > 0 && fact('Errors', `${d.error_count} since the last reset`, 'red')}
+      </Box>
+
       {d.auth && (
         <Box flexDirection="column">
           <Text>
-            <Text dimColor>Sign-in: </Text>
-            {d.auth.status}
+            <Text bold>Sign-in </Text>
+            <Text color={d.auth.status === 'authorized' ? 'green' : 'yellow'}>
+              {d.auth.status === 'authorized' ? 'signed in' : 'required'}
+            </Text>
           </Text>
           {d.auth.status !== 'authorized' && (
             <Button key="signin" label="Sign in" onPress={() => on.signIn(d.name)} />
@@ -372,46 +465,6 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
       )}
 
       <Box flexDirection="column">
-        <Text bold>Secrets</Text>
-        {d.missing_secrets.map((k) => (
-          <Text key={`miss:${k}`} color="yellow">
-            missing: {k}
-          </Text>
-        ))}
-        {d.secrets.map((k) => (
-          <Box key={`sec:${k}`} columnGap={1}>
-            <Text>{k}</Text>
-            <Text dimColor>set</Text>
-            <Button
-              key={`secdel:${k}`}
-              label="Delete"
-              dimColor
-              onPress={() => on.deleteSecret(d.name, k)}
-            />
-          </Box>
-        ))}
-        {Input &&
-          d.missing_secrets.map((k) => (
-            <Input
-              key={`secset:${k}`}
-              label={k}
-              placeholder="value (stored in the keychain, never shown)"
-              submitLabel="save"
-              onSubmit={(v) => on.setSecret(d.name, k, v)}
-            />
-          ))}
-        {Input && (
-          <Input
-            key="secadd"
-            label="Add"
-            placeholder="KEY=value"
-            submitLabel="save"
-            onSubmit={(v) => on.addSecret(d.name, v)}
-          />
-        )}
-      </Box>
-
-      <Box flexDirection="column">
         <Text bold>Tools ({d.tools.length})</Text>
         {d.tools.length === 0 && <Text dimColor>Not indexed yet: Re-index.</Text>}
         {d.tools.map((t) => {
@@ -420,23 +473,98 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
           return (
             <Box key={`tool:${t.name}`} flexDirection="column">
               <Box columnGap={1}>
-                <Button
-                  key={`toolbtn:${t.name}`}
-                  label={`${isOpen ? 'v' : '>'} ${t.name}`}
-                  plain
-                  onPress={() => on.toggleTool(d.name, t.name)}
-                />
+                <Box width={toolWidth} flexShrink={0}>
+                  <Button
+                    key={`toolbtn:${t.name}`}
+                    label={`${isOpen ? 'v' : '>'} ${t.name}`}
+                    plain
+                    onPress={() => on.toggleTool(d.name, t.name)}
+                  />
+                </Box>
                 <Text dimColor wrap="truncate">
+                  {t.description.split('\n')[0]}
                   {m
-                    ? `${plural(m.calls, 'call')}, ${m.errors} err, ${Math.round(m.avg_ms)} ms · `
+                    ? ` · ${plural(m.calls, 'call')}${m.errors ? `, ${m.errors} failed` : ''}`
                     : ''}
-                  {t.description}
                 </Text>
               </Box>
-              {isOpen && <Code source={tool.schema} language="json" />}
+              {isOpen && (
+                <Box flexDirection="column" paddingLeft={2}>
+                  {t.description.includes('\n') && <Text dimColor>{t.description}</Text>}
+                  <Code source={tool.schema} language="json" />
+                </Box>
+              )}
             </Box>
           );
         })}
+      </Box>
+
+      <Box flexDirection="column">
+        <Text bold>Configuration and secrets</Text>
+        {d.config.length === 0 && <Text dimColor>No env vars, headers or secrets.</Text>}
+        {d.config.map((c) => (
+          <Box key={`cfg:${c.kind}:${c.key}`} columnGap={1}>
+            <Box width={keyWidth} flexShrink={0}>
+              <Text wrap="truncate">{c.key}</Text>
+            </Box>
+            <Box width={6} flexShrink={0}>
+              <Text dimColor>{c.kind}</Text>
+            </Box>
+            <Text {...color(SOURCE_TONE[c.source])}>{SOURCE[c.source]}</Text>
+            {c.source !== 'missing' && (
+              <Button
+                key={`secedit:${c.key}`}
+                label={c.source === 'secret' ? 'Replace' : 'Set secret'}
+                dimColor
+                onPress={() => on.editSecret(c.key)}
+              />
+            )}
+            {c.source === 'secret' && (
+              <Button
+                key={`secdel:${c.key}`}
+                label="Delete"
+                dimColor
+                onPress={() => on.deleteSecret(d.name, c.key)}
+              />
+            )}
+          </Box>
+        ))}
+        {[
+          ...missing.map((c) => c.key),
+          ...(editing && !missing.some((c) => c.key === editing) ? [editing] : []),
+        ].map((key) => {
+          const id = maskId(`secret:${d.name}`, key);
+          return (
+            <Masked
+              key={`secset:${key}`}
+              el={el}
+              on={on}
+              id={id}
+              field={`secset:${key}`}
+              label={key}
+              length={masked[id] ?? 0}
+              submitLabel="save"
+              onSubmit={() => on.setSecret(d.name, key)}
+            />
+          );
+        })}
+        {editing && (
+          <Button
+            key="secedit-cancel"
+            label="Cancel"
+            dimColor
+            onPress={() => on.editSecret(null)}
+          />
+        )}
+        {Input && !editing && (
+          <Input
+            key="secadd"
+            label="New secret"
+            placeholder="its key, e.g. API_TOKEN (the value comes next, masked)"
+            submitLabel="next"
+            onSubmit={on.addSecret}
+          />
+        )}
       </Box>
     </Box>
   );
@@ -445,11 +573,12 @@ function Detail({ el, on, d, tool, confirm }: DetailProps) {
 type BrowseProps = ViewProps & {
   browse: AgentDiscoverBrowse | null;
   plan: AgentDiscoverPlan | null;
+  masked: Record<string, number>;
 };
 
-function Browse({ el, on, browse, plan }: BrowseProps) {
+function Browse({ el, on, browse, plan, masked }: BrowseProps) {
   const { Box, Text, Button, Input } = el;
-  if (plan) return <Plan el={el} on={on} plan={plan} />;
+  if (plan) return <Plan el={el} on={on} plan={plan} masked={masked} />;
   return (
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="column">
@@ -508,7 +637,12 @@ function Browse({ el, on, browse, plan }: BrowseProps) {
   );
 }
 
-function Plan({ el, on, plan }: ViewProps & { plan: AgentDiscoverPlan }) {
+function Plan({
+  el,
+  on,
+  plan,
+  masked,
+}: ViewProps & { plan: AgentDiscoverPlan; masked: Record<string, number> }) {
   const { Box, Text, Button, Input, Code } = el;
   const runs = plan.command
     ? [plan.command, ...plan.args].map(quote).join(' ')
@@ -573,29 +707,52 @@ function Plan({ el, on, plan }: ViewProps & { plan: AgentDiscoverPlan }) {
               </Text>
             </Text>
           ))}
-          {Input &&
-            plan.requirements
-              .filter((r) => !r.present)
-              .map((r) => (
-                <Input
+          {plan.requirements
+            .filter((r) => !r.present)
+            .map((r) =>
+              r.secret ? (
+                <Masked
                   key={`reqset:${r.key}`}
+                  el={el}
+                  on={on}
+                  id={maskId('plan', r.key)}
+                  field={`reqset:${r.key}`}
                   label={r.key}
-                  placeholder={r.secret ? 'value (goes to the keychain, never shown)' : 'value'}
+                  length={masked[maskId('plan', r.key)] ?? 0}
                   submitLabel="set"
-                  onSubmit={(v) => on.fill(r.key, v)}
+                  onSubmit={() => on.fillSecret(r.key)}
                 />
-              ))}
+              ) : (
+                Input && (
+                  <Input
+                    key={`reqset:${r.key}`}
+                    label={r.key}
+                    placeholder="value"
+                    submitLabel="set"
+                    onSubmit={(v) => on.fill(r.key, v)}
+                  />
+                )
+              ),
+            )}
         </Box>
       )}
       {!plan.blocked && (
         <Box flexWrap="wrap" columnGap={1}>
-          <Button
-            key="install-enable"
-            label="Install and enable"
-            variant="primary"
-            onPress={() => on.install(true)}
-          />
-          <Button key="install" label="Install only" onPress={() => on.install(false)} />
+          {missing.length > 0 ? (
+            <Text key="install-disabled" dimColor>
+              Install and enable | Install only
+            </Text>
+          ) : (
+            <>
+              <Button
+                key="install-enable"
+                label="Install and enable"
+                variant="primary"
+                onPress={() => on.install(true)}
+              />
+              <Button key="install" label="Install only" onPress={() => on.install(false)} />
+            </>
+          )}
           <Button key="plan-cancel" label="Cancel" dimColor onPress={on.cancelPlan} />
           {missing.length > 0 && (
             <Text color="yellow">missing: {missing.map((r) => r.key).join(', ')}</Text>
@@ -608,6 +765,10 @@ function Plan({ el, on, plan }: ViewProps & { plan: AgentDiscoverPlan }) {
 
 function Logs({ el, on, logs }: ViewProps & { logs: AgentDiscoverLogs | null }) {
   const { Box, Text, Button } = el;
+  const callWidth = Math.max(
+    0,
+    ...(logs?.entries ?? []).map((e) => e.server.length + e.tool.length + 1),
+  );
   return (
     <Box flexDirection="column">
       <Box columnGap={1}>
@@ -619,7 +780,8 @@ function Logs({ el, on, logs }: ViewProps & { logs: AgentDiscoverLogs | null }) 
       {logs?.entries.length === 0 && <Text dimColor>No calls yet.</Text>}
       {logs?.entries.map((e) => (
         <Text key={`log:${e.id}`} {...color(Boolean(e.error) && 'red')} wrap="truncate">
-          {time(e.time)} {e.server}/{e.tool} {e.ms} ms{e.error ? ` ${e.error}` : ''}
+          {time(e.time)} {`${e.server}/${e.tool}`.padEnd(callWidth)} {`${e.ms} ms`.padStart(8)}
+          {e.error ? `  ${e.error}` : ''}
         </Text>
       ))}
     </Box>
@@ -628,6 +790,7 @@ function Logs({ el, on, logs }: ViewProps & { logs: AgentDiscoverLogs | null }) 
 
 function Audit({ el, on, audit }: ViewProps & { audit: AgentDiscoverAudit | null }) {
   const { Box, Text, Button, Input } = el;
+  const actionWidth = Math.max(0, ...(audit?.entries ?? []).map((e) => e.action.length));
   return (
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="column">
@@ -645,7 +808,7 @@ function Audit({ el, on, audit }: ViewProps & { audit: AgentDiscoverAudit | null
           <Input
             key="audit-action"
             label="Action"
-            placeholder="all (install, enable, call, approve, ...)"
+            placeholder="all (install, enable, call_tool, approve, quarantine, ...)"
             value={audit?.action ?? ''}
             submitLabel="filter"
             onSubmit={(v) => on.filterAudit('action', v.trim())}
@@ -657,7 +820,7 @@ function Audit({ el, on, audit }: ViewProps & { audit: AgentDiscoverAudit | null
         {audit?.entries.length === 0 && <Text dimColor>No entries.</Text>}
         {audit?.entries.map((e) => (
           <Text key={`audit:${e.id}`} {...color(e.isError && 'red')} wrap="truncate">
-            {time(e.ts)} {e.action} {e.server ?? ''}
+            {time(e.ts)} {e.action.padEnd(actionWidth)} {e.server ?? ''}
             {e.tool ? `/${e.tool}` : ''}
           </Text>
         ))}

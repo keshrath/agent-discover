@@ -21,6 +21,7 @@ npm run test:watch
 npm run check            # typecheck + lint + format check + test
 npm run bench:retrieval  # offline ranker bench (see bench/retrieval/README.md)
 npm run plugin:check     # claude plugin validate + test (needs the claude CLI)
+npm run e2e:claude       # the /discover pane in the real Claude Code CLI, with screenshots
 npm run widgets:shots    # screenshots of the widget against real tool results
 ```
 
@@ -67,11 +68,19 @@ Architecture in depth: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Tests use vitest with in-memory SQLite and a fake upstream MCP server (`tests/fixtures/upstream.mjs`); there is also a mock OAuth authorization server and a fake registry. Add or update tests with every behavior change. The `/discover` pane has its own suite under `plugin/tests/`: `npm run plugin:check` (`claude plugin validate` + `claude plugin test`).
 
+### The pane in the real Claude Code CLI
+
+`npm run e2e:claude` (`tests/e2e-claude/`, gated by `AGENT_DISCOVER_E2E_CLAUDE=1`) builds, then drives `claude` in a pseudo-terminal (node-pty, rendered by @xterm/headless) and asserts on the screen text of every view: the servers list, a server's detail (health on open, usage, tools and a schema, config keys), a secret typed into the masked field (never drawn), a remote server with a static header (no sign-in), the quarantine diff and Approve, Browse search to install plan to install with a masked requirement, Logs, Audit, the daemon-down state, and the list, detail and Browse at 80 and 160 columns. It needs a logged-in `claude` on PATH; slash commands make no model calls, so a run costs no tokens and takes about two minutes.
+
+Isolation: a scratch daemon (`node dist/index.js daemon`) on a free port with its own `AGENT_DISCOVER_DATA_DIR`, file secrets and a fake MCP Registry; it is seeded through REST and `/mcp` (an enabled stdio fixture with calls, a disabled one, one quarantined by tool drift, a remote one with a static `Authorization` header that uses the daemon's own `/mcp` as upstream). Claude Code runs with `--plugin-dir` on a scratch copy of `plugin/` whose `.mcp.json` runs this checkout's `dist/index.js` with the scratch env, `--setting-sources project,local` (the user settings file, and with it the installed plugin, its hooks and `env`, stay out; login still works) and `--strict-mcp-config` (the user's own MCP servers stay out). The workspace is a fixed temp folder so the folder-trust answer is remembered. The daemon on 3424 and the real data dir are never touched. Browse also queries npm and PyPI live, so it needs the network; the assertions only look at the fake registry's entries.
+
+Each view is captured to `~/.claude/tmp/pane-shots/<view>.png` (`AGENT_DISCOVER_E2E_SHOTS` overrides): the xterm buffer serialized with @xterm/addon-serialize and drawn by xterm.js in Playwright's Chromium. Look at them after a change to the pane.
+
 ## Database migrations
 
 Schema changes go in `src/storage/database.ts`:
 
-1. Append a new entry with the next version to `migrations` (the current version is **10**).
+1. Append a new entry with the next version to `migrations` (the current version is **11**).
 2. Never edit an existing migration. Migrations are applied only above the stored version, so changing an old one does nothing for existing databases.
 3. Keep them idempotent (`CREATE ... IF NOT EXISTS`, guarded `ALTER TABLE ADD COLUMN`) and SQL-only. A data move that needs a service belongs in that service's constructor.
 4. Cascade deletes from `servers` via foreign keys.

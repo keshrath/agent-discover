@@ -20,7 +20,10 @@ export function readPackageMeta(): PackageMeta {
     const pkg = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as Partial<PackageMeta>;
-    cached = { name: pkg.name ?? 'agent-discover', version: pkg.version ?? '0.0.0' };
+    cached = {
+      name: pkg.name ?? 'agent-discover',
+      version: process.env.AGENT_DISCOVER_FAKE_VERSION ?? pkg.version ?? '0.0.0',
+    };
   }
   return cached;
 }

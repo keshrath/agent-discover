@@ -8,6 +8,7 @@ import type { EngineInterface, Register } from 'claude-code';
 import type {
   AgentDiscoverAudit,
   AgentDiscoverBrowse,
+  AgentDiscoverConfigKey,
   AgentDiscoverDetail,
   AgentDiscoverElicitation,
   AgentDiscoverField,
@@ -16,7 +17,7 @@ import type {
   AgentDiscoverSnapshot,
   AgentDiscoverTab,
 } from '../types';
-import { Band, Pane, needsAttention, type Actions } from './view';
+import { Band, Pane, maskId, needsAttention, type Actions } from './view';
 
 const PANE = 'agent-discover';
 const TICK_MS = 5_000;
@@ -25,6 +26,7 @@ const VIEW_TICKS = 2; // the open view's data every 10 s
 const AUDIT_PAGE = 20;
 const LOG_LIMIT = 30;
 const SCHEMA_MAX = 9_000;
+const PANE_ROWS = 40; // inline height wanted: detail views run long
 
 const snapshot = atom({ plugin: 'agent-discover', key: 'snapshot' } as const, null);
 const route = atom({ plugin: 'agent-discover', key: 'route' } as const, {
@@ -41,6 +43,8 @@ const audit = atom({ plugin: 'agent-discover', key: 'audit' } as const, null);
 const busy = atom({ plugin: 'agent-discover', key: 'busy' } as const, null);
 const notice = atom({ plugin: 'agent-discover', key: 'notice' } as const, null);
 const dismissed = atom({ plugin: 'agent-discover', key: 'dismissed' } as const, null);
+const masked = atom({ plugin: 'agent-discover', key: 'masked' } as const, {});
+const editing = atom({ plugin: 'agent-discover', key: 'editing' } as const, null);
 
 // REST bodies are daemon JSON; read defensively, never trusted for shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,6 +198,29 @@ function describeChange(c: Json): string {
   return parts.join(' ') || 'definition';
 }
 
+/** Env vars and headers with where their value comes from; OAuth state is not a config key. */
+function configKeys(row: Json, secrets: Json[]): AgentDiscoverConfigKey[] {
+  const stored = new Map(
+    secrets
+      .map((s) => String(s.key))
+      .filter((k) => !k.startsWith('oauth:'))
+      .map((k) => [k.toLowerCase(), k]),
+  );
+  const missing = new Set(list(row.missing_secrets).map(String));
+  const declared = [
+    ...keys(row.env).map((key) => ({ key, kind: 'env' as const })),
+    ...keys(row.headers).map((key) => ({ key, kind: 'header' as const })),
+  ];
+  const out: AgentDiscoverConfigKey[] = declared.map(({ key, kind }) => ({
+    key,
+    kind,
+    source: stored.delete(key.toLowerCase()) ? 'secret' : missing.has(key) ? 'missing' : 'value',
+  }));
+  for (const key of stored.values()) out.push({ key, kind: 'secret', source: 'secret' });
+
+  return out;
+}
+
 async function loadDetail($: EngineInterface, name: string) {
   const id = await serverId($, name);
   const [row, secrets, trust, metrics] = await Promise.all([
@@ -204,6 +231,8 @@ async function loadDetail($: EngineInterface, name: string) {
   ]);
   const isRemote = row.transport !== 'stdio' && Boolean(row.url);
   const auth = isRemote ? await api($, at(id, '/auth')).catch(() => null) : null;
+  // `unknown` means no sign-in was ever asked for (a static header, or no auth at all).
+  const signIn = auth && auth.status !== 'unknown' ? auth : null;
   const prev = await read($, detail);
   const drift = trust.drift as Json | undefined;
   const next: AgentDiscoverDetail = {
@@ -227,10 +256,7 @@ async function loadDetail($: EngineInterface, name: string) {
     health_status: String(row.health_status ?? 'unknown'),
     last_health_check: text(row.last_health_check),
     error_count: Number(row.error_count ?? 0),
-    env_keys: keys(row.env),
-    header_keys: keys(row.headers),
-    missing_secrets: list(row.missing_secrets).map(String),
-    secrets: list(secrets).map((s) => String(s.key)),
+    config: configKeys(row, list(secrets)),
     tools: list(row.tools).map((t) => ({
       name: String(t.name),
       description: String(t.description ?? '').slice(0, 300),
@@ -246,18 +272,21 @@ async function loadDetail($: EngineInterface, name: string) {
           changed: list(drift.changed).map((c) => ({
             tool: String(c.tool),
             what: describeChange(c),
+            description: c.description
+              ? { before: String(c.description.before), after: String(c.description.after) }
+              : null,
           })),
           added: list(drift.added).map(String),
           removed: list(drift.removed).map(String),
         }
       : null,
     hashes: list(trust.hashes).map(String),
-    auth: auth
+    auth: signIn
       ? {
-          status: String(auth.status ?? 'unknown'),
+          status: String(signIn.status),
           // Shown as a link for the person to open; never opened by the plugin.
-          authorize_url: /^https?:\/\//i.test(String(auth.authorize_url ?? ''))
-            ? String(auth.authorize_url)
+          authorize_url: /^https?:\/\//i.test(String(signIn.authorize_url ?? ''))
+            ? String(signIn.authorize_url)
             : null,
         }
       : null,
@@ -283,6 +312,18 @@ async function loadLogs($: EngineInterface) {
             .slice(0, 200),
     })),
   }));
+}
+
+async function checkHealth($: EngineInterface, name: string) {
+  const r = await api($, at(await serverId($, name), '/health'), 'POST');
+  const health = {
+    status: String(r.status),
+    latency_ms: Number(r.latency_ms ?? 0),
+    error: text(r.error),
+  };
+  await update($, detail, (d) => (d && d.name === name ? { ...d, health } : d));
+
+  return health;
 }
 
 type AuditQuery = Pick<AgentDiscoverAudit, 'server' | 'action' | 'cursors' | 'before'>;
@@ -349,6 +390,42 @@ async function find($: EngineInterface, query: string): Promise<AgentDiscoverBro
 const planValues = new Map<string, string>();
 /** Answers typed for upstream questions, by question id: sent on Accept, never drawn. */
 const answers = new Map<string, Record<string, string>>();
+/** What was typed into each masked field, by field id; the field draws only its length. */
+const typed = new Map<string, string>();
+
+/**
+ * A masked field draws its value as bullets, so the text it reports is those bullets with
+ * the person's edit applied: the kept bullets stand for the kept characters, the rest is new.
+ */
+async function typeMasked($: EngineInterface, id: string, shown: string) {
+  const prev = typed.get(id) ?? '';
+  let kept = 0;
+  while (kept < shown.length && kept < prev.length && shown[kept] === '•') kept += 1;
+  const next = prev.slice(0, kept) + shown.slice(kept).replace(/•/g, '');
+  typed.set(id, next);
+  await update($, masked, (m) => ({ ...m, [id]: next.length }));
+}
+
+/** Takes a masked field's value out (it is sent once, then forgotten). */
+async function takeMasked($: EngineInterface, id: string): Promise<string> {
+  const value = typed.get(id) ?? '';
+  typed.delete(id);
+  await update($, masked, (m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== id)));
+
+  return value;
+}
+
+async function forgetTyped($: EngineInterface) {
+  typed.clear();
+  await update($, masked, () => ({}));
+  await update($, editing, () => null);
+}
+
+async function fillPlan($: EngineInterface, key: string, value: string) {
+  if (value) planValues.set(key, value);
+  else planValues.delete(key);
+  await update($, plan, (p) => p && { ...p, filled: [...planValues.keys()] });
+}
 
 async function act($: EngineInterface, label: string, fn: () => Promise<string>) {
   await update($, busy, () => label);
@@ -369,12 +446,17 @@ async function go($: EngineInterface, tab: AgentDiscoverTab, server: string | nu
   await update($, confirm, () => null);
   if (server !== (await read($, detail))?.name) await update($, tool, () => null);
   await update($, notice, () => null);
+  await forgetTyped($);
   await loadView($).catch(async (err: Error) => update($, notice, () => err.message));
+  // An enabled server is connected anyway: check it so the detail opens with a real answer.
+  const d = server ? await read($, detail) : null;
+  if (d?.name === server && d.enabled && !d.quarantined && !d.health)
+    await checkHealth($, d.name).catch(() => {});
 }
 
 /** A plain sidebar, not a dialog: Escape returns the keys and leaves it open. */
 function openPane($: EngineInterface) {
-  return $.ui.open({ id: PANE, title: 'agent-discover', focus: true });
+  return $.ui.open({ id: PANE, title: 'agent-discover', focus: true, rows: PANE_ROWS });
 }
 
 function actions($: EngineInterface): Actions {
@@ -408,13 +490,7 @@ function actions($: EngineInterface): Actions {
       }),
     health: (name) =>
       run(`health check ${name}`, async () => {
-        const r = await call(name, '/health');
-        const health = {
-          status: String(r.status),
-          latency_ms: Number(r.latency_ms ?? 0),
-          error: text(r.error),
-        };
-        await update($, detail, (d) => (d && d.name === name ? { ...d, health } : d));
+        const health = await checkHealth($, name);
         return `${name}: ${health.status} in ${health.latency_ms} ms`;
       }),
     resetErrors: (name) =>
@@ -450,17 +526,18 @@ function actions($: EngineInterface): Actions {
         await update($, detail, () => null);
         return `uninstalled ${name}`;
       }),
-    setSecret: (name, key, value) => {
-      if (value) saveSecret(name, key, value);
-    },
-    addSecret: (name, pair) => {
-      const eq = pair.indexOf('=');
-      const key = pair.slice(0, eq).trim();
-      if (eq < 1 || !key || eq === pair.length - 1) {
-        void update($, notice, () => 'type the secret as KEY=value');
-        return;
-      }
-      saveSecret(name, key, pair.slice(eq + 1));
+    mask: (id, shown) => void typeMasked($, id, shown),
+    setSecret: (name, key) =>
+      void (async () => {
+        const value = await takeMasked($, maskId(`secret:${name}`, key));
+        if (!value) return;
+        await update($, editing, () => null);
+        saveSecret(name, key, value);
+      })(),
+    editSecret: (key) => void update($, editing, () => key),
+    addSecret: (key) => {
+      const k = key.trim();
+      if (k) void update($, editing, () => k);
     },
     deleteSecret: (name, key) =>
       run(`delete secret ${key}`, async () => {
@@ -535,13 +612,12 @@ function actions($: EngineInterface): Actions {
         await update($, plan, () => next);
         return `review the plan for ${entry.name}`;
       }),
-    fill: (key, value) => {
-      if (value) planValues.set(key, value);
-      else planValues.delete(key);
-      void update($, plan, (p) => p && { ...p, filled: [...planValues.keys()] });
-    },
+    fill: (key, value) => void fillPlan($, key, value),
+    fillSecret: (key) =>
+      void (async () => fillPlan($, key, await takeMasked($, maskId('plan', key))))(),
     cancelPlan: () => {
       planValues.clear();
+      void forgetTyped($);
       void update($, plan, () => null);
     },
     install: (enable) =>
@@ -557,7 +633,8 @@ function actions($: EngineInterface): Actions {
         });
         planValues.clear();
         await update($, plan, () => null);
-        await update($, route, () => ({ tab: 'servers' as const, server: String(r.name) }));
+        await refresh($); // the detail looks the new server up in the snapshot
+        await go($, 'servers', String(r.name));
         const indexed = r.index_error ? `, indexing failed: ${r.index_error}` : '';
         return `installed ${r.name} (${r.tool_count ?? 0} tools${enable ? ', enabled' : ''})${indexed}`;
       }),
@@ -691,6 +768,9 @@ export const register: Register = (on) => {
         audit={await read($, audit)}
         busy={await read($, busy)}
         notice={await read($, notice)}
+        isFocused={e.props.isFocused}
+        masked={await read($, masked)}
+        editing={await read($, editing)}
         on={actions($)}
       />
     );

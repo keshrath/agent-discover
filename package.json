@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "3.0.0",
+  "version": "3.1.1",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "Find, install and enable MCP servers mid-session on any MCP host, with install consent, tool pinning and quarantine, keychain secrets and an audit log",
   "type": "module",
@@ -28,6 +28,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e:claude": "npm run build && node tests/e2e-claude/run.mjs",
     "plugin:check": "claude plugin validate plugin && claude plugin test plugin",
     "widgets:shots": "tsx tests/widgets/shoot.ts",
     "test:coverage": "vitest run --coverage",
@@ -68,10 +69,14 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.1.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "node-pty": "^1.1.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
@@ -79,7 +84,7 @@
     "vitest": "^3.0.0"
   },
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22"
   },
   "keywords": [
     "mcp",

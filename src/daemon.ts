@@ -59,7 +59,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   const mcpHost = localhostHostValidation();
   const mcpOrigin = localhostOriginValidation();
   const token = createRestToken();
-  const rest = createRestHandler(ctx, token);
+  const rest = createRestHandler(ctx, token, () => stop());
 
   let open = 0;
   let lastActivity = Date.now();
@@ -104,12 +104,17 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     },
   };
 
+  /** Idle and /api/shutdown exits share this path. */
+  const stop = () => {
+    if (options.onIdle) options.onIdle(daemon);
+    else void daemon.close().then(() => process.exit(0));
+  };
+
   const idleTimer = setInterval(
     () => {
       if (!idleMs || open > 0) return;
       if (Date.now() - lastActivity < idleMs) return;
-      if (options.onIdle) options.onIdle(daemon);
-      else void daemon.close().then(() => process.exit(0));
+      stop();
     },
     Math.max(1_000, Math.min(60_000, Math.floor(idleMs / 4) || 60_000)),
   );

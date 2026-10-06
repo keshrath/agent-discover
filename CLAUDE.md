@@ -45,7 +45,7 @@ Tool pinning with quarantine and re-approval (`pins.ts`), description hygiene (`
 
 There is no web dashboard (removed in 3.0, with the WebSocket and agent-desk support). Three surfaces:
 
-- **Claude Code pane** (`plugin/hooks/register.tsx` + `view.tsx`, Claude Code 2.1.289+ function hooks): `/discover` opens it; tabs Servers (detail per server: config keys, secrets editor, tools + schemas, health, metrics, quarantine diff + Approve, OAuth sign-in link, enable/disable/re-index/uninstall), Browse (search, install plan, POST /api/install), Logs, Audit; pending upstream questions on top. REST only, mutations with `X-Agent-Discover-Token` (`GET /api/token`, no Origin). View state in `$.state` (contract `plugin/types/index.d.ts`); typed secret values never enter state. Opened as a plain sidebar (no `closeOnEscape`), and `/discover` reports `isPlaced: false` with the reason. Every function that takes `$` must be a top-level declaration (`claude plugin validate` enforces it). Tests: `plugin/tests/*.test.ts` under `claude plugin test plugin`. Type-check with a tsconfig outside the folder (never `tsc -p plugin`, it emits .js into plugin/).
+- **Claude Code pane** (`plugin/hooks/register.tsx` + `view.tsx`, Claude Code 2.1.289+ function hooks): `/discover` opens it; tabs Servers (detail per server: quarantine diff + Approve, actions, health checked on open, usage, OAuth sign-in only once a server asked for it, tools + schemas, config keys with their value source and a masked secrets editor), Browse (search, install plan, POST /api/install), Logs, Audit; pending upstream questions on top. REST only, mutations with `X-Agent-Discover-Token` (`GET /api/token`, no Origin). View state in `$.state` (contract `plugin/types/index.d.ts`); typed secret values never enter state (masked fields draw bullets; `masked` holds lengths only). Opened as a plain sidebar (no `closeOnEscape`), and `/discover` reports `isPlaced: false` with the reason. Every function that takes `$` must be a top-level declaration (`claude plugin validate` enforces it). Tests: `plugin/tests/*.test.ts` under `claude plugin test plugin`; the real CLI: `npm run e2e:claude` (`tests/e2e-claude/`, node-pty + xterm, scratch daemon and plugin copy, screenshots in `~/.claude/tmp/pane-shots/`, see CONTRIBUTING.md). Type-check with a tsconfig outside the folder (never `tsc -p plugin`, it emits .js into plugin/).
 - **MCP Apps widget** (`src/widgets/`): Claude Desktop, claude.ai, VS Code.
 - **Markdown text** of every meta tool result (`src/widgets/text.ts`) for every other host (OpenCode, Cursor, Codex). Fallbacks that need a person point at `/discover` or `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`, never at a URL.
 
@@ -64,10 +64,11 @@ There is no web dashboard (removed in 3.0, with the WebSocket and agent-desk sup
 
 ```
 npm run build              # tsc + build the widget
-npm test                   # vitest (24 files, 192 tests; +9 e2e skipped unless AGENT_DISCOVER_E2E=1)
+npm test                   # vitest (24 files, 192 tests; +9 e2e skipped unless AGENT_DISCOVER_E2E=1, +14 unless AGENT_DISCOVER_E2E_CLAUDE=1)
 npm run check              # typecheck + lint + format + test
 npm run bench:retrieval    # offline ranker bench; CI runs it with --check
 npm run plugin:check       # claude plugin validate + test (needs the claude CLI; 9 pane tests)
+npm run e2e:claude         # the pane in the real Claude Code CLI (14 tests, ~2 min, screenshots)
 npm run widgets:shots      # widget screenshots against real tool results
 ```
 
