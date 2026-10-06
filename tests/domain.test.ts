@@ -138,6 +138,22 @@ describe('ToolIndex', () => {
     expect(await index.search('   ')).toEqual([]);
   });
 
+  it('returns a usable fallback when the highest-ranked server is quarantined', async () => {
+    const index = new ToolIndex(db, { embeddings: async () => new NoopEmbeddingProvider() });
+    const first = servers.create({ name: 'first', command: 'x' });
+    const second = servers.create({ name: 'second', command: 'x' });
+    const tool = [{ name: 'lookup_record', description: 'Look up a record' }];
+    await index.save(first.id, tool);
+    await index.save(second.id, tool);
+    expect((await index.search('lookup record', 2)).map((hit) => hit.server)).toEqual([
+      'first',
+      'second',
+    ]);
+
+    servers.setQuarantined(first.id, true);
+    expect((await index.search('lookup record', 1)).map((hit) => hit.server)).toEqual(['second']);
+  });
+
   it('computes embeddings in the single save path and reuses them by hash', async () => {
     let calls = 0;
     const provider: EmbeddingProvider = {
