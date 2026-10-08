@@ -444,7 +444,10 @@ function Servers({ el, on, snap }: ViewProps & { snap: AgentDiscoverSnapshot }) 
   return (
     <Box flexDirection="column" gap={1}>
       <Text wrap="truncate">
-        <Text bold>{plural(servers.length, 'server')}</Text>
+        <Text bold color={ACCENT}>
+          agent-discover
+        </Text>
+        <Text bold> · {plural(servers.length, 'MCP server')}</Text>
         <Text dimColor> · {enabled} enabled</Text>
         {snap.attention.length > 0 && (
           <Text color={WARN}> · {snap.attention.length} to review</Text>

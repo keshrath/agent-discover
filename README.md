@@ -43,6 +43,8 @@ claude plugin install agent-discover@agent-discover
 
 ![The /discover pane docked beside the transcript](docs/images/pane-servers.png)
 
+New to the pane? [The tutorial](docs/TUTORIAL.md) walks through it with screenshots.
+
 - `/discover` opens the agent-discover pane (docked beside the transcript in the fullscreen layout, above the prompt otherwise; also in the desktop Code tab and VS Code). Keys 1-4 switch tabs, and the focus lands on the next step (Approve, Enable, the search field, a missing secret, Install). **Servers**: every installed server with its state; open one for its config (command or URL, tags, source and registry status, package; env and header key names only), a secrets editor (set or delete, values never shown), its tools with input schemas and per-tool metrics, health check and error reset, the quarantine diff with Approve / Keep disabled, OAuth sign-in (the authorize URL as a link), and Enable / Disable / Re-index / Uninstall. **Browse**: search the registries, review the install plan (exact command or URL, provenance, warnings, required keys with secret inputs) and install. **Logs** (recent proxied calls) and **Audit** (filter by server and action, paged). Questions upstream servers ask (elicitation) appear on top.
 - `/discover <what you need>` opens Browse with the results.
 - A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look), a toast when a server is quarantined, goes unhealthy or asks a question, and a band above the prompt that shows only while something needs you and the pane is closed.
@@ -209,6 +211,7 @@ npm run e2e:claude    # the /discover pane in the real Claude Code CLI (inline a
 
 ## Documentation
 
+- [Tutorial](docs/TUTORIAL.md): the `/discover` pane step by step, with screenshots
 - [User Manual](docs/USER-MANUAL.md): day-to-day use
 - [Setup Guide](docs/SETUP.md): installation and per-client configuration
 - [API Reference](docs/API.md): MCP tools, REST, environment

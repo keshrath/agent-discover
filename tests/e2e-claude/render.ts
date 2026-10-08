@@ -4,7 +4,7 @@
 // with a dark theme, through Playwright's Chromium.
 // =============================================================================
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
@@ -89,4 +89,91 @@ export async function renderShots(dir: string, labels?: string[]): Promise<strin
     await browser.close();
   }
   return written;
+}
+
+/** One screen of a recording: when it appeared (ms from the start) and its escape sequences. */
+export type Frame = { at: number; data: string };
+/** A caption shown from `at` (ms) until the next one. */
+export type Caption = { at: number; text: string };
+
+/**
+ * Films a recording as a WebM: a page replays the frames in a real xterm.js at their
+ * own pace under a caption bar, and Playwright records the page. Returns the file.
+ */
+export async function renderVideo(
+  file: string,
+  size: { cols: number; rows: number },
+  frames: Frame[],
+  captions: Caption[],
+): Promise<string> {
+  const width = Math.ceil(size.cols * 8.43) + 24;
+  const height = Math.ceil(size.rows * 17) + 24 + 64;
+  const dir = join(file, '..', `.video-${Date.now()}`);
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({
+      viewport: { width, height },
+      recordVideo: { dir, size: { width, height } },
+    });
+    const page = await context.newPage();
+    await page.setContent(
+      `<!doctype html><html><head><style>${XTERM_CSS}
+      body{margin:0;background:${THEME.background};font-family:'Segoe UI',system-ui,sans-serif}
+      #t{padding:12px}
+      #c{height:64px;box-sizing:border-box;padding:0 20px;display:flex;align-items:center;
+         background:#313244;color:#f5e0dc;font-size:20px;font-weight:600;letter-spacing:.2px}</style></head>
+      <body><div id="c"></div><div id="t"></div>
+      <script>window.__name = (f) => f; /* tsx's keepNames helper, used inside evaluate */</script>
+      </body></html>`,
+    );
+    await page.addScriptTag({ content: XTERM_JS });
+    const total = (frames.at(-1)?.at ?? 0) + 3_000;
+    await page.evaluate(
+      ([fs, cs, theme, s]) =>
+        new Promise<void>((done) => {
+          const w = window as unknown as {
+            Terminal: new (o: object) => {
+              open(el: HTMLElement): void;
+              reset(): void;
+              write(d: string): void;
+            };
+          };
+          const term = new w.Terminal({
+            cols: s.cols,
+            rows: s.rows,
+            theme,
+            fontFamily: 'Cascadia Mono, Consolas, monospace',
+            fontSize: 14,
+            cursorBlink: false,
+            allowProposedApi: true,
+          });
+          term.open(document.getElementById('t')!);
+          const caption = document.getElementById('c')!;
+          const start = performance.now();
+          let f = 0;
+          let c = 0;
+          const tick = () => {
+            const now = performance.now() - start;
+            while (f < fs.length && fs[f].at <= now) {
+              term.reset();
+              term.write(fs[f].data);
+              f += 1;
+            }
+            while (c < cs.length && cs[c].at <= now) caption.textContent = cs[c++].text;
+            if (now < s.total) requestAnimationFrame(tick);
+            else done();
+          };
+          tick();
+        }),
+      [frames, captions, THEME, { ...size, total }] as const,
+    );
+    await context.close();
+    const video = page.video();
+    if (!video) throw new Error('no video recorded');
+    await video.saveAs(file);
+  } finally {
+    await browser.close();
+  }
+  rmSync(dir, { recursive: true, force: true });
+  return file;
 }

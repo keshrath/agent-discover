@@ -1,6 +1,6 @@
 {
   "name": "agent-discover",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "mcpName": "io.github.keshrath/agent-discover",
   "description": "Find, install and enable MCP servers mid-session on any MCP host, with install consent, tool pinning and quarantine, keychain secrets and an audit log",
   "type": "module",

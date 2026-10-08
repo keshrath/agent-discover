@@ -199,6 +199,8 @@ A remote (`sse` or `streamable-http`) server that needs OAuth and has no `Author
 
 ## 7. The /discover pane in Claude Code
 
+A step-by-step walk through with screenshots: [TUTORIAL.md](TUTORIAL.md).
+
 ![The /discover pane docked beside the transcript](images/pane-servers.png)
 
 ![A server's detail: actions, facts, tools with call counts, configuration](images/pane-detail.png)

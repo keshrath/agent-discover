@@ -68,7 +68,7 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       const s = await t.waitFor(/remote-api\s+installed/);
       expect(s).toMatch(/1: Servers\s+2: Browse\s+3: Logs\s+4: Audit\s+r: Refresh/);
       expect(s).toMatch(/Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt/);
-      expect(s).toMatch(/4 servers · 2 enabled · 1 to review/);
+      expect(s).toMatch(/agent-discover · 4 MCP servers · 2 enabled · 1 to review/);
       expect(s).toMatch(/! drifty\s+quarantined/);
       expect(s).toMatch(/9 tools · its tools changed: review them/);
       expect(s).toMatch(/● fixture\s+enabled/);

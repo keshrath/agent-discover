@@ -400,11 +400,16 @@ export class ClaudeTerm {
   }
 
   /** Writes <label>.ansi (for the PNG renderer) and returns the screen text. */
+  /** The whole screen as escape sequences: what a renderer replays. */
+  serialize(): string {
+    return this.serializer.serialize();
+  }
+
   shot(label: string): string {
     mkdirSync(SHOTS_DIR, { recursive: true });
     writeFileSync(
       join(SHOTS_DIR, `${label}.ansi`),
-      JSON.stringify({ cols: this.cols, rows: this.rows, data: this.serializer.serialize() }),
+      JSON.stringify({ cols: this.cols, rows: this.rows, data: this.serialize() }),
     );
     return this.screen();
   }
