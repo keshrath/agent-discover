@@ -1,5 +1,9 @@
 // =============================================================================
 // agent-discover — Call log service
+//
+// What GET /api/logs serves. It keeps no call arguments and no successful
+// output (tool payloads can carry anything); `response` is the error text of
+// a failed call, the message of an elicitation, or a notification's payload.
 // =============================================================================
 
 const DEFAULT_MAX = 500;
@@ -20,7 +24,6 @@ export interface LogEntry {
   timestamp: string;
   server: string;
   tool: string;
-  args: Record<string, unknown>;
   response: string;
   latency_ms: number;
   success: boolean;
@@ -44,7 +47,6 @@ export class LogService {
   push(
     server: string,
     tool: string,
-    args: Record<string, unknown>,
     response: string,
     latencyMs: number,
     success: boolean,
@@ -56,7 +58,6 @@ export class LogService {
       timestamp: new Date().toISOString(),
       server,
       tool,
-      args,
       response,
       latency_ms: latencyMs,
       success,
@@ -68,7 +69,7 @@ export class LogService {
   }
 
   pushNotification(server: string, method: string, payload: Record<string, unknown>): LogEntry {
-    return this.push(server, method, payload, JSON.stringify(payload), 0, true, 'notification');
+    return this.push(server, method, JSON.stringify(payload), 0, true, 'notification');
   }
 
   pushProgress(
@@ -81,8 +82,7 @@ export class LogService {
     return this.push(
       server,
       'progress',
-      { token, progress, total, message },
-      message ?? '',
+      JSON.stringify({ token, progress, total, message }),
       0,
       true,
       'progress',

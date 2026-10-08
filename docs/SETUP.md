@@ -65,7 +65,7 @@ Pick one entry per client. Configuring both duplicates every tool.
 
 ### Claude Code
 
-Install the plugin. It bundles the stdio shim, three skills, a session hook and a native UI (panel, status line, toasts):
+Install the plugin. It bundles the stdio shim, two skills and a Claude Code mod (pane, status line entry, toasts, attention band, context block):
 
 ```bash
 claude plugin marketplace add keshrath/agent-discover
@@ -165,28 +165,20 @@ The plugin lives in `plugin/` and is what `claude plugin install` fetches. It ha
 **The management UI (function hooks, Claude Code 2.1.289+).** `hooks/register.tsx` and `hooks/view.tsx` draw inside the terminal, the desktop Code tab and VS Code. This is agent-discover's only full UI; there is no web dashboard since 3.0.
 
 - `/discover` opens the agent-discover pane, docked beside the transcript in the fullscreen layout and above the prompt otherwise (also the desktop Code tab and VS Code). Tabs:
-  - **Servers**: every installed server with its state (enabled, installed, quarantined, unhealthy) and tool count. Open one for its detail: transport and the exact command or URL, tags, source and MCP Registry name and status, package and version, env and header key names (values are never shown); a secrets editor (set a missing key, add `KEY=value`, delete; typed values are sent and never kept or drawn); its tools, each expandable to its input schema, with per-tool calls, errors and latency; health check, last error and error count with Reset errors; for a quarantined server the drift (changed, added, removed tools) with Approve and Keep disabled; for a remote server the OAuth state with Sign in, showing the authorization URL as a link (agent-discover never opens it); Enable or Disable, Re-index and Uninstall (asks once more).
+  - **Servers**: every installed server on two lines (name and state, then tool count and description), what needs a look first. Open one for its detail: transport and the exact command or URL, tags, source and MCP Registry name and status, package and version, env and header key names (values are never shown); a secrets editor (set a missing key, add `KEY=value`, delete; typed values are sent and never kept or drawn); its tools, each expandable to its input schema, with per-tool calls, errors and latency; health check, last error and error count with Reset errors; for a quarantined server the drift (changed, added, removed tools) with Approve and Keep disabled; for a remote server the OAuth state with Sign in, showing the authorization URL as a link (agent-discover never opens it); Enable or Disable, Re-index and Uninstall (asks once more).
   - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one. Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
   - **Logs**: the recent proxied calls with latency and errors. **Audit**: the audit log, filtered by server and action, paged.
   - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
 - `/discover <what you need>` opens Browse with the results for that query.
-- A status line entry `MCP 2/6 !1` (enabled/installed, `!n` servers needing a look).
+- Keys: 1-4 switch tabs and r refreshes while the pane holds the keyboard (a text field takes them while it has the focus); Tab moves, Enter presses, Esc hands the keys back, ctrl+x tab takes them again. After each move the focus lands on the next step.
+- A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look).
 - A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
-- A band above the prompt, shown only while something needs you, with Review (opens the server in the pane) and Dismiss.
+- A band above the prompt, shown only while something needs you and the pane is closed, with Review (opens the server in the pane) and Dismiss.
+- A context block (`# agent-discover`) in each conversation's first message: which servers are enabled, and to call `search_tools` (or `search_servers`) before saying a capability is unavailable. Nothing is added while the daemon is down.
 
 The module talks to the daemon's REST API only (state-changing calls with the per-launch token). It refreshes the status every 30 seconds, every 5 seconds while the pane is open, and after every action. If the engine does not place the pane (a terminal too narrow for an unasked pane, a surface that places none), `/discover` prints why. Set `AGENT_DISCOVER_PORT` in the environment if the daemon is not on 3424.
 
 **Skills** (`/agent-discover:find|install`). `find` is model-invocable: it runs `search_tools`, enables a hit or installs a server before the model tells you something is impossible.
-
-**SessionStart hook.** Adds one line of context (what is enabled, to call `search_tools` first) and, on hosts without the native UI, a notice when servers need attention. It also copies `statusline.mjs` to `${CLAUDE_PLUGIN_DATA}`.
-
-**Status line script for older Claude Code.** Builds before function hooks cannot add a status line entry from a plugin. Compose the script into your own status line command:
-
-```bash
-node ~/.claude/plugins/data/agent-discover-agent-discover/statusline.mjs   # --plain drops the colors
-```
-
-It prints nothing when the daemon is down. Do not use it together with the native entry; the duplicate shows twice.
 
 ---
 

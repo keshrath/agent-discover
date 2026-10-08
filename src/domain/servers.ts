@@ -144,7 +144,10 @@ export function toConfig(server: ServerEntry, secrets: Record<string, string>): 
       transport: 'stdio',
       command: server.command ?? undefined,
       args: server.args,
-      env: { ...server.env, ...secrets },
+      // Declared-but-unfilled env vars (registry secrets not set yet) are not passed empty.
+      env: Object.fromEntries(
+        Object.entries({ ...server.env, ...secrets }).filter(([, v]) => v !== ''),
+      ),
       headers: {},
     };
   }

@@ -108,6 +108,21 @@ describe('servers via REST', () => {
     expect(await missing()).toEqual([]);
   });
 
+  it('lists declared env vars that are empty and have no secret as missing_secrets', async () => {
+    const s = d.ctx.servers.create({
+      name: 'gated-env',
+      command: 'x',
+      env: { GITHUB_TOKEN: '', REGION: 'eu' },
+    });
+    const missing = async () => (await (await api(`/api/servers/${s.id}`)).json()).missing_secrets;
+    expect(await missing()).toEqual(['GITHUB_TOKEN']);
+    await api(`/api/servers/${s.id}/secrets/GITHUB_TOKEN`, {
+      method: 'PUT',
+      body: JSON.stringify({ value: 'k' }),
+    });
+    expect(await missing()).toEqual([]);
+  });
+
   it('masks env values and keeps the original when a masked value comes back', async () => {
     const s = d.ctx.servers.create({ name: 'm', command: 'x', env: { API_KEY: 'sk-123456' } });
     const got = await (await api(`/api/servers/${s.id}`)).json();
@@ -126,6 +141,7 @@ describe('servers via REST', () => {
     expect((await api('/api/servers/999')).status).toBe(404);
     expect((await api('/api/nope')).status).toBe(404);
     expect((await api('/api/health')).status).toBe(200);
+    expect((await api('/api/servers/1/secrets/%E0', { method: 'DELETE' })).status).toBe(400);
   });
 });
 
@@ -139,21 +155,25 @@ describe('request guard', () => {
     expect((await raw('/api/health', { Host: `localhost:${d.port}` })).status).toBe(200);
   });
 
-  it('rejects foreign, null and look-alike Origins; reflects loopback ones', async () => {
+  it('rejects every request that carries an Origin (browser pages), loopback ones included', async () => {
     for (const origin of [
       'https://evil.com',
       'null',
+      'file://',
       'http://localhost.evil.com',
-      'http://127.0.0.1.evil.com',
+      'http://localhost:5173',
+      `http://${host()}`,
     ]) {
-      expect((await raw('/api/health', { Host: host(), Origin: origin })).status).toBe(403);
+      const res = await raw('/api/servers', { Host: host(), Origin: origin });
+      expect(res.status).toBe(403);
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
       expect((await raw('/mcp', { Host: host(), Origin: origin }, 'POST', '{}')).status).toBe(403);
+      expect((await raw('/api/logs', { Host: host(), Origin: origin }, 'OPTIONS')).status).toBe(
+        403,
+      );
     }
-    const ok = await raw('/api/health', { Host: host(), Origin: 'http://localhost:5173' });
-    expect(ok.status).toBe(200);
-    expect(ok.headers['access-control-allow-origin']).toBe('http://localhost:5173');
-    expect((await raw('/api/health', { Host: host(), Origin: 'file://' })).status).toBe(403);
     const plain = await raw('/api/health', { Host: host() });
+    expect(plain.status).toBe(200);
     expect(plain.headers['access-control-allow-origin']).toBeUndefined();
   });
 

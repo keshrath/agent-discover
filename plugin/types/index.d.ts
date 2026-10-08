@@ -12,6 +12,8 @@ export type AgentDiscoverServer = {
   /** `deleted` when its MCP Registry entry was taken down; null when not from the registry. */
   registry_status: string | null;
   registry_name: string | null;
+  /** The npm or PyPI package it was installed from; Browse matches results by it. */
+  package_name: string | null;
 };
 
 /** One field of an upstream elicitation form (requestedSchema property). */
@@ -168,6 +170,8 @@ export type AgentDiscoverAudit = {
     server: string | null;
     tool: string | null;
     isError: boolean;
+    /** How long a call_tool took; null for other actions. */
+    ms: number | null;
   }[];
   total: number;
   server: string;
@@ -200,6 +204,8 @@ declare module 'claude-code' {
       masked: Record<string, number>;
       /** The config key whose secret is being set in the server detail. */
       editing: string | null;
+      /** The pane is open and drawn: the attention band stays out of its way. */
+      paneOpen: boolean;
     };
   }
 }

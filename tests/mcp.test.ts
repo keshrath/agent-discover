@@ -135,7 +135,7 @@ describe.each(['modern', 'legacy'] as const)('%s client', (era) => {
       name: 'viaMcp',
       command: process.execPath,
       args: [FIXTURE],
-      env: { SOME_KEY: 'x' },
+      env: { SOME_KEY: 'x-secret', NODE_OPTIONS: '--no-warnings' },
     };
     const declined = (await c.callTool({
       name: 'install_server',
@@ -144,7 +144,8 @@ describe.each(['modern', 'legacy'] as const)('%s client', (era) => {
     expect(declined.structuredContent).toMatchObject({ status: 'declined' });
     expect(d.ctx.servers.get('viaMcp')).toBeNull();
     expect(prompts[0]).toContain(FIXTURE);
-    expect(prompts[0]).toContain('SOME_KEY');
+    expect(prompts[0]).toContain('Env vars: SOME_KEY, NODE_OPTIONS=--no-warnings');
+    expect(prompts[0]).not.toContain('x-secret');
 
     answer = 'accept';
     const ok = (await c.callTool({ name: 'install_server', arguments: args })) as CallToolResult;

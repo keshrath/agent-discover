@@ -8,7 +8,8 @@ import { startTestDaemon, waitFor, type TestDaemon } from './helpers.js';
 
 let d: TestDaemon;
 beforeEach(async () => {
-  d = await startTestDaemon({ sessionIdleMs: 400 });
+  // Long enough that a loaded machine cannot expire it between initialize and the first ping.
+  d = await startTestDaemon({ sessionIdleMs: 1_500 });
 });
 afterEach(async () => d.stop());
 
@@ -52,7 +53,7 @@ describe('legacy session TTL', () => {
     const sid = await initialize();
     expect(d.mcp.sessionCount()).toBe(1);
     expect((await ping(sid)).status).toBe(200);
-    await waitFor(() => d.mcp.sessionCount() === 0, 5_000);
+    await waitFor(() => d.mcp.sessionCount() === 0, 10_000);
     const gone = await ping(sid);
     expect(gone.status).toBe(404);
   });
@@ -69,9 +70,9 @@ describe('legacy session TTL', () => {
       signal: ac.signal,
     });
     expect(stream.status).toBe(200);
-    await new Promise((r) => setTimeout(r, 1_200));
+    await new Promise((r) => setTimeout(r, 3_000)); // twice the TTL
     expect(d.mcp.sessionCount()).toBe(1);
     ac.abort();
-    await waitFor(() => d.mcp.sessionCount() === 0, 5_000);
+    await waitFor(() => d.mcp.sessionCount() === 0, 10_000);
   });
 });

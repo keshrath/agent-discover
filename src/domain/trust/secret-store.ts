@@ -4,7 +4,8 @@
 // Secret VALUES never live in SQLite. The DB keeps key names plus the backend
 // that holds them; values go to one of:
 //   - keyring: the OS credential store via @napi-rs/keyring (optional dep),
-//     service "agent-discover", account "<server>/<KEY>";
+//     service "agent-discover", account "<server>/<KEY>" (values over 1280
+//     chars continue in "<server>/<KEY>#0..n");
 //   - file:    AES-256-GCM encrypted JSON next to the DB, key in a 0600 key
 //     file (headless Linux without a secret service, or forced);
 //   - memory:  process-lifetime map, for ':memory:' databases (tests, embeds).
@@ -52,20 +53,61 @@ interface KeyringEntry {
 }
 type KeyringModule = { Entry: new (service: string, account: string) => KeyringEntry };
 
+/** Windows caps a credential at 2560 bytes of UTF-16; longer values span numbered entries. */
+const KEYRING_CHUNK = 1280;
+/** Head entry of a split value; env values and JSON never start with NUL. */
+const CHUNKED = '\u0000chunks:';
+
+function splitValue(value: string): string[] {
+  const parts: string[] = [];
+  for (let i = 0; i < value.length; ) {
+    let end = Math.min(i + KEYRING_CHUNK, value.length);
+    const last = value.charCodeAt(end - 1);
+    if (end < value.length && last >= 0xd800 && last <= 0xdbff) end--; // keep surrogate pairs whole
+    parts.push(value.slice(i, end));
+    i = end;
+  }
+  return parts;
+}
+
 export class KeyringSecretBackend implements SecretBackend {
   readonly name = 'keyring' as const;
   constructor(private readonly mod: KeyringModule) {}
-  private entry(account: string): KeyringEntry {
-    return new this.mod.Entry(KEYRING_SERVICE, account);
+  private entry(account: string, chunk?: number): KeyringEntry {
+    return new this.mod.Entry(
+      KEYRING_SERVICE,
+      chunk === undefined ? account : `${account}#${chunk}`,
+    );
+  }
+  private chunkCount(head: string | null): number {
+    return head?.startsWith(CHUNKED) ? Number(head.slice(CHUNKED.length)) : 0;
+  }
+  private dropChunks(account: string, from: number, to: number): void {
+    for (let i = from; i < to; i++) this.entry(account, i).deletePassword();
   }
   get(account: string): string | null {
-    return this.entry(account).getPassword() ?? null;
+    const head = this.entry(account).getPassword() ?? null;
+    const count = this.chunkCount(head);
+    if (count === 0) return head;
+    let value = '';
+    for (let i = 0; i < count; i++) {
+      const part = this.entry(account, i).getPassword();
+      if (part === null) return null;
+      value += part;
+    }
+    return value;
   }
   set(account: string, value: string): void {
-    this.entry(account).setPassword(value);
+    const before = this.chunkCount(this.entry(account).getPassword());
+    const parts = value.length > KEYRING_CHUNK ? splitValue(value) : [];
+    parts.forEach((part, i) => this.entry(account, i).setPassword(part));
+    this.entry(account).setPassword(parts.length ? `${CHUNKED}${parts.length}` : value);
+    this.dropChunks(account, parts.length, before);
   }
   delete(account: string): void {
+    const count = this.chunkCount(this.entry(account).getPassword());
     this.entry(account).deletePassword();
+    this.dropChunks(account, 0, count);
   }
 }
 

@@ -1,7 +1,8 @@
-// Native Claude Code UI for agent-discover: the /discover pane (servers, server detail,
-// browse and install, logs, audit, upstream questions), a status line entry, toasts and
-// an attention band. Everything goes through the daemon's REST API; mutations carry its
-// per-launch token. Secret values typed into the pane are sent and never kept in state.
+// agent-discover inside Claude Code: the /discover pane (servers, server detail, browse
+// and install, logs, audit, upstream questions), a status line entry, toasts, an
+// attention band and one context block telling the model what is enabled. Everything
+// goes through the daemon's REST API; mutations carry its per-launch token. Secret
+// values typed into the pane are sent and never kept in state.
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
 
@@ -17,13 +18,12 @@ import type {
   AgentDiscoverSnapshot,
   AgentDiscoverTab,
 } from '../types';
-import { Band, Pane, maskId, needsAttention, type Actions } from './view';
+import { AUDIT_PAGE, Band, Pane, maskId, needsAttention, sortServers, type Actions } from './view';
 
 const PANE = 'agent-discover';
 const TICK_MS = 5_000;
 const IDLE_TICKS = 6; // 30 s between polls while the pane is closed
 const VIEW_TICKS = 2; // the open view's data every 10 s
-const AUDIT_PAGE = 20;
 const LOG_LIMIT = 30;
 const SCHEMA_MAX = 9_000;
 const PANE_ROWS = 40; // inline height wanted: detail views run long
@@ -45,6 +45,7 @@ const notice = atom({ plugin: 'agent-discover', key: 'notice' } as const, null);
 const dismissed = atom({ plugin: 'agent-discover', key: 'dismissed' } as const, null);
 const masked = atom({ plugin: 'agent-discover', key: 'masked' } as const, {});
 const editing = atom({ plugin: 'agent-discover', key: 'editing' } as const, null);
+const paneOpen = atom({ plugin: 'agent-discover', key: 'paneOpen' } as const, false);
 
 // REST bodies are daemon JSON; read defensively, never trusted for shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,6 +126,7 @@ async function poll($: EngineInterface): Promise<AgentDiscoverSnapshot> {
         error_count: Number(s.error_count ?? 0),
         registry_status: text(s.registry_status),
         registry_name: text(row.registry_name),
+        package_name: text(row.package_name),
       };
     });
     const elicitations = list(pending.entries).map(
@@ -149,7 +151,17 @@ async function poll($: EngineInterface): Promise<AgentDiscoverSnapshot> {
 }
 
 const summary = (s: AgentDiscoverSnapshot) =>
-  `MCP ${s.servers.filter((x) => x.enabled).length}/${s.servers.length}${s.attention.length ? ` !${s.attention.length}` : ''}`;
+  `MCP ${s.servers.filter((x) => x.enabled).length}/${s.servers.length}${s.attention.length ? ` · ${s.attention.length} to review` : ''}`;
+
+/** The context block the model starts with: what is enabled and to search before giving up. */
+function contextText(s: AgentDiscoverSnapshot) {
+  const on = s.servers.filter((x) => x.enabled).map((x) => x.name);
+  const shown = on.slice(0, 8).join(', ') + (on.length > 8 ? `, +${on.length - 8}` : '');
+  return (
+    `${on.length} of ${s.servers.length} installed MCP servers are enabled${on.length ? ` (${shown})` : ''}. ` +
+    'When a task needs a capability you do not have, call search_tools (or search_servers for uninstalled ones) before saying it is unavailable.'
+  );
+}
 
 const signature = (s: AgentDiscoverSnapshot) =>
   `${s.attention.join(',')}|${s.elicitations.map((q) => q.id).join(',')}`;
@@ -348,6 +360,7 @@ async function loadAudit($: EngineInterface, q: AuditQuery) {
       server: text(e.server),
       tool: text(e.tool),
       isError: e.is_error === true,
+      ms: typeof e.duration_ms === 'number' ? e.duration_ms : null,
     })),
   }));
 }
@@ -362,7 +375,9 @@ async function loadView($: EngineInterface) {
 
 async function find($: EngineInterface, query: string): Promise<AgentDiscoverBrowse> {
   const snap = await read($, snapshot);
-  const installed = new Set(snap?.servers.flatMap((s) => [s.name, s.registry_name ?? '']));
+  const installed = new Set(
+    snap?.servers.flatMap((s) => [s.name, s.registry_name, s.package_name]).filter(Boolean),
+  );
   const market = await api($, `/api/browse?query=${encodeURIComponent(query)}&limit=15`).catch(
     (err: Error): Json => ({ error: err.message }),
   );
@@ -432,22 +447,60 @@ async function act($: EngineInterface, label: string, fn: () => Promise<string>)
   await update($, notice, () => null);
   try {
     const outcome = await fn();
-    await update($, notice, () => outcome || null);
+    await update($, notice, () => (outcome ? `✓ ${outcome}` : null));
   } catch (err) {
-    await update($, notice, () => `${label} failed: ${err instanceof Error ? err.message : err}`);
+    await update(
+      $,
+      notice,
+      () => `✗ ${label} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   await update($, busy, () => null);
   await refresh($);
   await loadView($).catch(() => {});
 }
 
+/** Where the focus ring lands after a move: the control the person most likely wants next. */
+async function landing($: EngineInterface, from: string | null): Promise<string | null> {
+  const r = await read($, route);
+  if (r.tab === 'servers' && r.server) {
+    const d = await read($, detail);
+    return d?.quarantined ? 'approve' : 'toggle';
+  }
+  if (r.tab === 'servers') {
+    const first = sortServers((await read($, snapshot))?.servers ?? [])[0];
+    const to = from ?? first?.name;
+    return to ? `open:${to}` : 'empty-browse';
+  }
+  if (r.tab === 'browse') {
+    const p = await read($, plan);
+    if (!p) {
+      // A field takes the digits: results already shown keep the tab keys working.
+      const hit = (await read($, browse))?.results.find((x) => !x.isInstalled);
+      return hit ? `plan:${hit.source}:${hit.name}` : 'search';
+    }
+    const todo = p.requirements.find((q) => !q.present && !p.filled.includes(q.key));
+    return todo ? `reqset:${todo.key}` : p.blocked ? 'plan-cancel' : 'install-enable';
+  }
+  // Never the audit's Select: holding the ring drops its list open and it takes the digits.
+  return r.tab === 'logs' ? 'logs-reload' : 'audit-reload';
+}
+
+/** Moves the ring when the pane holds the keys; otherwise the engine refuses and nothing moves. */
+async function land($: EngineInterface, from: string | null = null) {
+  const key = await landing($, from);
+  if (key) await $.ui.focus({ requestId: PANE, key }).catch(() => undefined);
+}
+
 async function go($: EngineInterface, tab: AgentDiscoverTab, server: string | null = null) {
+  const from = (await read($, route)).server;
   await update($, route, () => ({ tab, server }));
   await update($, confirm, () => null);
   if (server !== (await read($, detail))?.name) await update($, tool, () => null);
   await update($, notice, () => null);
   await forgetTyped($);
-  await loadView($).catch(async (err: Error) => update($, notice, () => err.message));
+  await loadView($).catch(async (err: Error) => update($, notice, () => `✗ ${err.message}`));
+  void land($, from);
   // An enabled server is connected anyway: check it so the detail opens with a real answer.
   const d = server ? await read($, detail) : null;
   if (d?.name === server && d.enabled && !d.quarantined && !d.health)
@@ -455,8 +508,16 @@ async function go($: EngineInterface, tab: AgentDiscoverTab, server: string | nu
 }
 
 /** A plain sidebar, not a dialog: Escape returns the keys and leaves it open. */
-function openPane($: EngineInterface) {
-  return $.ui.open({ id: PANE, title: 'agent-discover', focus: true, rows: PANE_ROWS });
+async function openPane($: EngineInterface) {
+  const opened = await $.ui.open({
+    id: PANE,
+    title: 'agent-discover',
+    focus: true,
+    rows: PANE_ROWS,
+  });
+  await update($, paneOpen, () => opened.isPlaced);
+
+  return opened;
 }
 
 function actions($: EngineInterface): Actions {
@@ -564,8 +625,9 @@ function actions($: EngineInterface): Actions {
       if (!query.trim()) return;
       run(`search "${query}"`, async () => {
         await update($, plan, () => null);
-        const r = await find($, query.trim());
-        return `${r.results.length} result(s) for "${r.query}"`;
+        await find($, query.trim());
+        void land($);
+        return ''; // the results say how many
       });
     },
     syncRegistry: () =>
@@ -610,11 +672,14 @@ function actions($: EngineInterface): Actions {
           filled: [],
         };
         await update($, plan, () => next);
-        return `review the plan for ${entry.name}`;
+        return '';
       }),
-    fill: (key, value) => void fillPlan($, key, value),
+    fill: (key, value) => void fillPlan($, key, value).then(() => land($)),
     fillSecret: (key) =>
-      void (async () => fillPlan($, key, await takeMasked($, maskId('plan', key))))(),
+      void (async () => {
+        await fillPlan($, key, await takeMasked($, maskId('plan', key)));
+        await land($);
+      })(),
     cancelPlan: () => {
       planValues.clear();
       void forgetTyped($);
@@ -639,6 +704,7 @@ function actions($: EngineInterface): Actions {
         return `installed ${r.name} (${r.tool_count ?? 0} tools${enable ? ', enabled' : ''})${indexed}`;
       }),
     reloadLogs: () => run('reload logs', async () => ''),
+    reloadAudit: () => run('reload audit', async () => ''),
     filterAudit: (field, value) =>
       run('filter audit', async () => {
         const prev = (await read($, audit)) ?? firstAudit;
@@ -718,7 +784,8 @@ export const register: Register = (on) => {
     void refresh($);
     $.clock.every(TICK_MS, async () => {
       ticks += 1;
-      const isOpen = (await $.ui.panes()).some((p) => p.id === PANE);
+      const isOpen = (await $.ui.panes()).some((p) => p.id === PANE && p.isPlaced);
+      if ((await read($, paneOpen)) !== isOpen) await update($, paneOpen, () => isOpen);
       if (isPolling || !(isOpen || ticks % IDLE_TICKS === 0)) return;
       isPolling = true;
       try {
@@ -742,7 +809,9 @@ export const register: Register = (on) => {
       await update($, plan, () => null);
       await update($, route, () => ({ tab: 'browse' as const, server: null }));
       const r = await find($, query);
-      lines.push(`${r.results.length} result(s) for "${query}" in the pane`);
+      lines.push(
+        `${r.results.length} ${r.results.length === 1 ? 'result' : 'results'} for "${query}" in the pane`,
+      );
       if (r.error) lines.push(`search error: ${r.error}`);
     } else if (snap.isUp) await go($, 'servers');
 
@@ -769,6 +838,7 @@ export const register: Register = (on) => {
         busy={await read($, busy)}
         notice={await read($, notice)}
         isFocused={e.props.isFocused}
+        columns={e.props.bodyColumns}
         masked={await read($, masked)}
         editing={await read($, editing)}
         on={actions($)}
@@ -776,10 +846,20 @@ export const register: Register = (on) => {
     );
   });
 
+  on('prompt.context', async ($, e, next) => {
+    const r = await next(e);
+    const snap = (await read($, snapshot)) ?? (await refresh($));
+    if (!snap.isUp) return r;
+
+    return { ...r, blocks: [...r.blocks, { name: 'agent-discover', text: contextText(snap) }] };
+  });
+
+  // The pane shows the same and more: the band is for when it is closed.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const snap = await read($, snapshot);
     if (
       e.props.hasSurvey ||
+      (await read($, paneOpen)) ||
       !snap?.isUp ||
       (snap.attention.length === 0 && snap.elicitations.length === 0) ||
       (await read($, dismissed)) === signature(snap)

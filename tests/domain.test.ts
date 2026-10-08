@@ -58,6 +58,12 @@ describe('toConfig', () => {
     });
   });
 
+  it('drops empty env placeholders until a secret fills them', () => {
+    const s = servers.create({ name: 'p', command: 'node', env: { A: '1', TOKEN: '' } });
+    expect(toConfig(s, {}).env).toEqual({ A: '1' });
+    expect(toConfig(s, { TOKEN: 't' }).env).toEqual({ A: '1', TOKEN: 't' });
+  });
+
   it('sends only declared headers plus Authorization for remote servers', () => {
     const s = servers.create({
       name: 'r',

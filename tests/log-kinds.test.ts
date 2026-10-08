@@ -8,7 +8,7 @@ import { LogService } from '../src/domain/log.js';
 describe('LogService kind', () => {
   it('defaults to call kind', () => {
     const svc = new LogService();
-    svc.push('srv', 'tool', {}, 'ok', 1, true);
+    svc.push('srv', 'tool', 'ok', 1, true);
     expect(svc.list()[0].kind).toBe('call');
   });
 
@@ -25,13 +25,12 @@ describe('LogService kind', () => {
     svc.pushProgress('srv', 'tok-1', 50, 100, 'halfway');
     const entry = svc.list()[0];
     expect(entry.kind).toBe('progress');
-    expect(entry.args.token).toBe('tok-1');
-    expect(entry.args.progress).toBe(50);
+    expect(JSON.parse(entry.response)).toMatchObject({ token: 'tok-1', progress: 50 });
   });
 
   it('filters list by kind', () => {
     const svc = new LogService();
-    svc.push('s', 't', {}, 'r', 1, true);
+    svc.push('s', 't', 'r', 1, true);
     svc.pushNotification('s', 'n/m', {});
     svc.pushProgress('s', 1, 10, undefined, undefined);
     expect(svc.list(100, 0, 'call')).toHaveLength(1);

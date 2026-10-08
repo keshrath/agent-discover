@@ -16,7 +16,7 @@ import { OAuthManager } from './domain/oauth.js';
 import { SecretsService } from './domain/secrets.js';
 import { MetricsService } from './domain/metrics.js';
 import { LogService } from './domain/log.js';
-import { maybeCreateDefaultSamplingProvider } from './domain/sampling.js';
+import { samplingFromEnv } from './domain/sampling.js';
 import { syncSetupFile, type SyncResult } from './domain/setup.js';
 import { TrustService } from './domain/trust/index.js';
 import {
@@ -94,7 +94,9 @@ export function createContext(options: ContextOptions = {}): AppContext {
     registry,
     oauth,
     roots: configuredRoots,
-    sampling: maybeCreateDefaultSamplingProvider(),
+    sampling: samplingFromEnv(process.env, ({ server, model, duration_ms, is_error }) =>
+      trust.record({ action: 'sampling', server, duration_ms, is_error, detail: { model } }),
+    ),
     connIdleMs: config.connIdleMs,
     hooks: options.hooks ?? trust,
   });

@@ -46,10 +46,9 @@ src/
   transport/     rest.ts, http.ts, guard.ts, token.ts
   storage/       database.ts (SQLite, migrations)
   widgets/       MCP Apps widget sources and build
-plugin/          Claude Code plugin (skills, hooks, the /discover pane, status line script)
+plugin/          Claude Code plugin (shim .mcp.json, skills, the mod: /discover pane, status, band, context)
 bench/           retrieval/ (offline ranker bench) and the agent-loop bench
 tests/           vitest suites, fixtures (fake upstream, mock OAuth server, registry), widget harness
-scripts/         setup.js
 docs/            ARCHITECTURE, API, SECURITY, SETUP, USER-MANUAL
 ```
 
@@ -70,7 +69,9 @@ Tests use vitest with in-memory SQLite and a fake upstream MCP server (`tests/fi
 
 ### The pane in the real Claude Code CLI
 
-`npm run e2e:claude` (`tests/e2e-claude/`, gated by `AGENT_DISCOVER_E2E_CLAUDE=1`) builds, then drives `claude` in a pseudo-terminal (node-pty, rendered by @xterm/headless) and asserts on the screen text of every view: the servers list, a server's detail (health on open, usage, tools and a schema, config keys), a secret typed into the masked field (never drawn), a remote server with a static header (no sign-in), the quarantine diff and Approve, Browse search to install plan to install with a masked requirement, Logs, Audit, the daemon-down state, and the list, detail and Browse at 80 and 160 columns. It needs a logged-in `claude` on PATH; slash commands make no model calls, so a run costs no tokens and takes about two minutes.
+`npm run e2e:claude` (`tests/e2e-claude/`, gated by `AGENT_DISCOVER_E2E_CLAUDE=1`) builds, then drives `claude` in a pseudo-terminal (node-pty, rendered by @xterm/headless) and asserts on the screen text of every view: the servers list, a server's detail (health on open, usage, tools and a schema, config keys), a secret typed into the masked field (never drawn), a remote server with a static header (no sign-in), the quarantine diff and Approve, Browse search to install plan to install with a masked requirement, Logs, Audit, the tab hotkeys and where the focus ring lands, every view docked as a sidebar (fullscreen layout, `CLAUDE_CODE_NO_FLICKER=1`), the daemon-down state, and the list, detail and Browse at 80 and 160 columns. It needs a logged-in `claude` on PATH; slash commands make no model calls, so a run costs no tokens and takes about three minutes.
+
+For visual work, drive one session by hand and look at each step: `npx tsx tests/e2e-claude/drive.ts [cols] [rows]` (`FULLSCREEN=1` for the sidebar) starts a scratch world and serves `curl -s localhost:47321 -d '{"op":"shot","label":"x"}'` (ops: `discover`, `key`, `type`, `press`, `focus`, `wait`, `screen`, `shot`, `sync`, `quit`). `sync` copies `plugin/hooks` and `plugin/types` into the session's plugin and runs `/reload-plugins`; shots land in `~/.claude/tmp/pane-shots/drive-<label>.png`. Keys sent while the pane does not hold the keyboard go to the prompt and start a model turn.
 
 Isolation: a scratch daemon (`node dist/index.js daemon`) on a free port with its own `AGENT_DISCOVER_DATA_DIR`, file secrets and a fake MCP Registry; it is seeded through REST and `/mcp` (an enabled stdio fixture with calls, a disabled one, one quarantined by tool drift, a remote one with a static `Authorization` header that uses the daemon's own `/mcp` as upstream). Claude Code runs with `--plugin-dir` on a scratch copy of `plugin/` whose `.mcp.json` runs this checkout's `dist/index.js` with the scratch env, `--setting-sources project,local` (the user settings file, and with it the installed plugin, its hooks and `env`, stay out; login still works) and `--strict-mcp-config` (the user's own MCP servers stay out). The workspace is a fixed temp folder so the folder-trust answer is remembered. The daemon on 3424 and the real data dir are never touched. Browse also queries npm and PyPI live, so it needs the network; the assertions only look at the fake registry's entries.
 

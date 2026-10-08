@@ -18,6 +18,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'scripts/', '*.config.*', 'bench/', 'tests/fixtures/'],
+    ignores: ['dist/', 'node_modules/', '*.config.*', 'bench/', 'tests/fixtures/'],
   },
 );

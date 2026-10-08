@@ -23,7 +23,8 @@ export type AuditAction =
   | 'secret-set'
   | 'secret-delete'
   | 'shutdown'
-  | 'call_tool';
+  | 'call_tool'
+  | 'sampling';
 
 export interface AuditEvent {
   action: AuditAction;

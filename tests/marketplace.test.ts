@@ -201,4 +201,19 @@ describe('resolve / plan', () => {
       'npm_mcp_name:pass',
     ]);
   });
+
+  it('plan survives a failed release lookup: unpinned, with a warning', async () => {
+    routes.push([
+      /registry\.npmjs\.org\/@acme%2Ftime-mcp/,
+      () => {
+        throw new TypeError('fetch failed');
+      },
+    ]);
+    const plan = await client.plan({ name: 'io.github.acme/time' });
+    expect(plan.args).toEqual(['-y', '@acme/time-mcp']);
+    expect(plan.provenance.pinned).toBe(false);
+    expect(plan.warnings).toContain(
+      'could not look up the current npm release of @acme/time-mcp: fetch failed',
+    );
+  });
 });

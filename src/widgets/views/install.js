@@ -1,5 +1,5 @@
 // install_server result: outcome plus the install plan (exact command or endpoint,
-// env/header keys without values, provenance badges). Consent itself is the host's
+// env/header keys without values except loader vars like NODE_OPTIONS, provenance badges). Consent itself is the host's
 // elicitation prompt; when the host cannot show one (consent_required) the plan is
 // shown with where the user can install it instead.
 import { h } from '../lib/dom.js';
@@ -89,12 +89,12 @@ export function planCard(p) {
           h('pre', { class: 'code cmd' }, p.url),
         )
       : null,
-    keys('Environment variables', p.env_keys),
+    keys('Environment variables', p.env_keys, p.loader_env),
     keys('Headers', p.header_keys),
   );
 }
 
-function keys(label, list) {
+function keys(label, list, shown = {}) {
   if (!list?.length) return null;
   return h(
     'div',
@@ -103,7 +103,11 @@ function keys(label, list) {
     h(
       'div',
       { class: 'badges' },
-      list.map((k) => badge(k, 'warning', 'value is never shown')),
+      list.map((k) =>
+        k in shown
+          ? badge(`${k}=${quote(shown[k])}`, 'danger', 'changes what code the command runs')
+          : badge(k, 'warning', 'value is never shown'),
+      ),
     ),
   );
 }

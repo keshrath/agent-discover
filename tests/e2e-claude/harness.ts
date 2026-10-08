@@ -249,10 +249,12 @@ export class ClaudeTerm {
   private readonly serializer = new SerializeAddon();
   private proc: pty.IPty | null = null;
 
+  /** `env` adds to the world's, e.g. CLAUDE_CODE_NO_FLICKER=1 for the fullscreen layout. */
   constructor(
     private readonly world: World,
     readonly cols = 120,
     readonly rows = 50,
+    private readonly env: Record<string, string> = {},
   ) {
     this.term = new xterm.Terminal({ cols, rows, allowProposedApi: true });
     this.term.loadAddon(this.serializer as never);
@@ -276,7 +278,7 @@ export class ClaudeTerm {
         cols: this.cols,
         rows: this.rows,
         cwd: WORKSPACE,
-        env: this.world.env,
+        env: { ...this.world.env, ...this.env },
       },
     );
     this.proc.onData((d) => this.term.write(d));
@@ -364,13 +366,23 @@ export class ClaudeTerm {
     return input ? input.replace(/^[\s│]+|[\s│]+$/g, '') : null;
   }
 
-  /** Tab until the focus ring holds `label`. */
+  /**
+   * Tab until the focus ring holds `label`. Each Tab waits for the ring to move, and a hit
+   * must hold for a moment: a redraw (the plugin landing the ring itself) can move it.
+   */
   async focus(label: string | RegExp, max = 60): Promise<void> {
     const hit = (f: string | null) =>
       f !== null && (typeof label === 'string' ? f.includes(label) : label.test(f));
     for (let i = 0; i < max; i++) {
-      if (hit(this.focused())) return;
-      await this.key('TAB');
+      if (hit(this.focused())) {
+        await sleep(300);
+        if (hit(this.focused())) return;
+        continue;
+      }
+      const before = this.focused();
+      this.proc!.write(KEYS.TAB);
+      const deadline = Date.now() + 1_500;
+      while (Date.now() < deadline && this.focused() === before) await sleep(50);
     }
     throw new Error(`focus never reached ${label}:\n${this.screen()}`);
   }

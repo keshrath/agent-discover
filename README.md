@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-8-purple)]()
 
 **Find, install and enable MCP servers in the middle of a session, on any MCP host.** agent-discover is one local daemon that searches the official MCP Registry, npm and PyPI, installs a server after you approve the exact command and its provenance, and then exposes its tools to your host without a config edit or a restart. It also guards what it installs: tool definitions are pinned and a server whose tools change is quarantined, secrets live in the OS keychain, and every action is audited.
@@ -34,17 +34,20 @@ Current hosts (Claude Code, Codex, the Anthropic and OpenAI APIs) have their own
 
 ### Claude Code
 
-Install the plugin. It runs the stdio shim as the MCP server, adds the `find` and `install` skills, a SessionStart hook and the management UI inside Claude Code:
+Install the plugin. It runs the stdio shim as the MCP server, adds the `find` and `install` skills and a Claude Code mod (function hooks) with the management UI:
 
 ```bash
 claude plugin marketplace add keshrath/agent-discover
 claude plugin install agent-discover@agent-discover
 ```
 
-- `/discover` opens the agent-discover pane (docked beside the transcript in the fullscreen layout, above the prompt otherwise; also in the desktop Code tab and VS Code). **Servers**: every installed server with its state; open one for its config (command or URL, tags, source and registry status, package; env and header key names only), a secrets editor (set or delete, values never shown), its tools with input schemas and per-tool metrics, health check and error reset, the quarantine diff with Approve / Keep disabled, OAuth sign-in (the authorize URL as a link), and Enable / Disable / Re-index / Uninstall. **Browse**: search the registries, review the install plan (exact command or URL, provenance, warnings, required keys with secret inputs) and install. **Logs** (recent proxied calls) and **Audit** (filter by server and action, paged). Questions upstream servers ask (elicitation) appear on top.
+![The /discover pane docked beside the transcript](docs/images/pane-servers.png)
+
+- `/discover` opens the agent-discover pane (docked beside the transcript in the fullscreen layout, above the prompt otherwise; also in the desktop Code tab and VS Code). Keys 1-4 switch tabs, and the focus lands on the next step (Approve, Enable, the search field, a missing secret, Install). **Servers**: every installed server with its state; open one for its config (command or URL, tags, source and registry status, package; env and header key names only), a secrets editor (set or delete, values never shown), its tools with input schemas and per-tool metrics, health check and error reset, the quarantine diff with Approve / Keep disabled, OAuth sign-in (the authorize URL as a link), and Enable / Disable / Re-index / Uninstall. **Browse**: search the registries, review the install plan (exact command or URL, provenance, warnings, required keys with secret inputs) and install. **Logs** (recent proxied calls) and **Audit** (filter by server and action, paged). Questions upstream servers ask (elicitation) appear on top.
 - `/discover <what you need>` opens Browse with the results.
-- A status line entry `MCP 2/6 !1`, a toast when a server is quarantined, goes unhealthy or asks a question, and a band above the prompt that shows only while something needs you.
-- The pane needs Claude Code 2.1.289 or newer. Older builds keep the skills and tools.
+- A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look), a toast when a server is quarantined, goes unhealthy or asks a question, and a band above the prompt that shows only while something needs you and the pane is closed.
+- One context block at the start of each conversation tells the model which servers are enabled and to call `search_tools` before saying a capability is missing.
+- The mod needs Claude Code 2.1.289 or newer. Older builds keep the skills and tools.
 - Remove any hand-written `agent-discover` entry from `~/.claude.json` so tools do not appear twice.
 
 ### Any other MCP host
@@ -195,11 +198,11 @@ The common ones. The complete list is in [docs/API.md](docs/API.md#environment).
 ## Testing
 
 ```bash
-npm test              # 192 tests across 24 files (+9 e2e skipped unless AGENT_DISCOVER_E2E=1, +14 pane e2e)
+npm test              # 218 tests across 27 files (+9 e2e skipped unless AGENT_DISCOVER_E2E=1, +16 pane e2e)
 npm run check         # typecheck + lint + format + test
 npm run bench:retrieval
 npm run plugin:check  # claude plugin validate + the pane's 9 plugin tests
-npm run e2e:claude    # the /discover pane in the real Claude Code CLI, screenshots to ~/.claude/tmp/pane-shots
+npm run e2e:claude    # the /discover pane in the real Claude Code CLI (inline and docked), screenshots to ~/.claude/tmp/pane-shots
 ```
 
 ---

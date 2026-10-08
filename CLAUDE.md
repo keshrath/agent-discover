@@ -24,8 +24,9 @@ src/
   transport/    rest.ts, http.ts (JSON, router), guard.ts (Host/Origin/Content-Type), token.ts
   storage/      database.ts (better-sqlite3, WAL, version-ordered migrations)
   widgets/      MCP Apps widget (ui://agent-discover/app.html), built to dist/widgets/app.html
-plugin/         Claude Code plugin (.mcp.json shim, skills, SessionStart hook, statusline script,
-                hooks/register.tsx + view.tsx = the /discover pane, status entry, toasts, attention band)
+plugin/         Claude Code plugin (.mcp.json shim, skills, and one mod with no command hooks:
+                hooks/register.tsx + view.tsx = /discover pane, status entry, toasts, attention band,
+                prompt.context block)
 bench/          retrieval/ (offline ranker bench, CI-gated) and the agent-loop bench
 ```
 
@@ -64,11 +65,11 @@ There is no web dashboard (removed in 3.0, with the WebSocket and agent-desk sup
 
 ```
 npm run build              # tsc + build the widget
-npm test                   # vitest (24 files, 192 tests; +9 e2e skipped unless AGENT_DISCOVER_E2E=1, +14 unless AGENT_DISCOVER_E2E_CLAUDE=1)
+npm test                   # vitest (27 files, 217 tests; +9 e2e skipped unless AGENT_DISCOVER_E2E=1, +16 unless AGENT_DISCOVER_E2E_CLAUDE=1)
 npm run check              # typecheck + lint + format + test
 npm run bench:retrieval    # offline ranker bench; CI runs it with --check
 npm run plugin:check       # claude plugin validate + test (needs the claude CLI; 9 pane tests)
-npm run e2e:claude         # the pane in the real Claude Code CLI (14 tests, ~2 min, screenshots)
+npm run e2e:claude         # the pane in the real Claude Code CLI (16 tests, ~3 min, screenshots; drive.ts to steer one by hand)
 npm run widgets:shots      # widget screenshots against real tool results
 ```
 
@@ -87,4 +88,4 @@ Full reference: `docs/API.md`.
 
 ## Search
 
-`ToolIndex.save` is the only writer of `server_tools` and its FTS table, keyed by `tool_hash`. `HybridRanker` (`ranker.ts`) does FTS5 BM25 with field weights, typo repair, optional dense fusion and server routing. Every constant was tuned on the dev split of `bench/retrieval`; report the test split. Change a ranker on purpose by committing new `bench/retrieval/_results` with it.
+`ToolIndex` (`save`, and `remove` on uninstall) is the only writer of `server_tools` and its FTS table, keyed by `tool_hash`. `HybridRanker` (`ranker.ts`) does FTS5 BM25 with field weights, typo repair, optional dense fusion and server routing. Every constant was tuned on the dev split of `bench/retrieval`; report the test split. Change a ranker on purpose by committing new `bench/retrieval/_results` with it.

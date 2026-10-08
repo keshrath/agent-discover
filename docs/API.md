@@ -17,11 +17,11 @@ The default bin (`agent-discover`) is a stdio shim: it starts the daemon if need
 Every request passes the request guard:
 
 - `Host` must be exactly `localhost:<port>`, `127.0.0.1:<port>` or `[::1]:<port>` (plus `AGENT_DISCOVER_HOST:<port>` if set).
-- `Origin`, when present, must be `http(s)://` with a loopback hostname. `null`, `file://` and look-alikes (`localhost.evil.com`) get 403. `/mcp` additionally runs the SDK's `localhostHostValidation` / `localhostOriginValidation`.
+- Any request with an `Origin` header gets 403, loopback origins included: only browsers send one, and no web page is a caller (the pane and the shim are non-browser clients; the OAuth callback is a top-level navigation without one). No CORS headers are sent. `/mcp` additionally runs the SDK's `localhostHostValidation`.
 - POST/PUT/PATCH/DELETE with a body must be `application/json` (415 otherwise).
 - CORS: allowed origins are reflected; never `*`.
 - **Shutdown.** `POST /api/shutdown` (token required) answers 202 and exits like an idle exit; a newer shim uses it to replace an older daemon on upgrade.
-- **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` is served only when `Origin` is absent (the Claude Code pane, local non-browser clients); any Origin gets 403, so a web page never learns it. `/mcp` is unaffected.
+- **REST token.** Every POST/PUT/PATCH/DELETE on `/api/*` must send `X-Agent-Discover-Token` (random per daemon launch); otherwise 403 `TOKEN_REQUIRED`. `GET /api/token` → `{token, header}` for local non-browser clients (the Claude Code pane); the guard refuses any Origin, so a web page never learns it. `/mcp` is unaffected.
 
 See [SECURITY.md](SECURITY.md) for the whole trust model.
 
@@ -47,7 +47,7 @@ See [SECURITY.md](SECURITY.md) for the whole trust model.
 | `AGENT_DISCOVER_EMBEDDING_MODEL`                      | see below                                  | Model id override for the chosen provider                                                                                                                           |
 | `AGENT_DISCOVER_EMBEDDING_THREADS`                    | `1`                                        | `local` only: ONNX thread count                                                                                                                                     |
 | `AGENT_DISCOVER_EMBEDDING_IDLE_TIMEOUT`               | `60`                                       | `local` only: seconds before the model is unloaded from RAM                                                                                                         |
-| `AGENT_DISCOVER_OPENAI_API_KEY`                       | unset                                      | OpenAI key for embeddings and sampling (`OPENAI_API_KEY` is the fallback)                                                                                           |
+| `AGENT_DISCOVER_OPENAI_API_KEY`                       | unset                                      | OpenAI key for embeddings (`OPENAI_API_KEY` is the fallback); only this variable enables sampling for upstream servers (each request is audited)                    |
 | `AGENT_DISCOVER_OPENAI_BASE_URL`                      | `https://api.openai.com/v1`                | Base URL of the OpenAI-compatible sampling endpoint                                                                                                                 |
 | `AGENT_DISCOVER_SAMPLING_MODEL`                       | `gpt-5-mini`                               | Model used to answer upstream `sampling/createMessage` requests                                                                                                     |
 | `AGENT_DISCOVER_SECRETS`                              | auto                                       | `keyring` / `file` forces the secret backend (default: OS keychain, else encrypted file)                                                                            |
@@ -78,7 +78,7 @@ All tools except `call_tool` declare an `outputSchema` and return `structuredCon
 
 **Native tools** (`AGENT_DISCOVER_MODE=native`): each enabled server's indexed tools are listed as `<server>__<tool>` with the upstream schema, output schema and annotations verbatim. Every enable / disable / uninstall / re-index of an enabled server emits `notifications/tools/list_changed` (on 2026 `subscriptions/listen` streams and on every 2025 session).
 
-**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names, header names and source. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result with `status: "consent_required"` and the `plan`, so the user can install from the Claude Code `/discover` pane — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. `server` is the exact name from `search_servers` (MCP Registry name, npm package or PyPI project, with `source` defaulting to `registry`); without it, `name` plus `command` or `url` describes a manual install. There is deliberately no agent-supplied `confirm` argument.
+**Install consent.** `install_server` asks the user through elicitation (2026: `input_required` round; 2025: `elicitation/create` via the SDK legacy shim), showing the exact command line or URL, env var names (plus the values of vars that change what code runs, such as `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` or `NPM_CONFIG_*`), header names and source; publisher-supplied text is shown with control characters escaped. The consent is bound to a hash of the proposed config. Clients that cannot elicit get an `isError` result with `status: "consent_required"` and the `plan`, so the user can install from the Claude Code `/discover` pane — unless the operator set `AGENT_DISCOVER_ALLOW_UNCONFIRMED_INSTALL=1`. `server` is the exact name from `search_servers` (MCP Registry name, npm package or PyPI project, with `source` defaulting to `registry`); without it, `name` plus `command` or `url` describes a manual install. `env` and `headers` apply to manual installs only (a registry, npm or PyPI server's secrets are set by the user in `/discover`). If the local name is already taken by the same server the result is `already_installed`; by a different one it is an error, and `name` picks another local name. A package version counts as pinned only when exact (full semver for npm, a PEP 440 release for PyPI); an unversioned registry package is pinned to the current release, and when that lookup fails the plan stays unpinned with a warning. There is deliberately no agent-supplied `confirm` argument.
 
 **Upstream input requests.** An upstream 2026 server's `input_required` result is relayed to the client (its `requestState` wrapped in an HMAC-sealed state bound to that server and tool). An upstream 2025 server's `elicitation/create` push is forwarded to the calling client when it is the only such call in flight on that connection (the call is parked and the retry carries the answer); otherwise, or when the client cannot elicit, it goes to the pending queue the `/discover` pane answers (`/api/elicitations`, 2-minute expiry).
 
@@ -93,7 +93,7 @@ Errors are `{ error, code? }` with 400 (validation), 401 (`AUTH_REQUIRED`: a rem
 
 ### Servers
 
-Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected`, `tool_count` and `missing_secrets` (declared headers with no value and no stored secret). Env and header values are masked (first four characters, then `****`); a masked value sent back unchanged in `PUT` keeps the stored one.
+Server objects carry the stored row (`name, description, source, transport, command, args, env, url, headers, tags, package_name, package_version, repository, homepage, enabled, quarantined, indexed_at, health_status, last_health_check, error_count`) plus live `connected`, `tool_count` and `missing_secrets` (declared env vars and headers with no value and no stored secret; empty placeholders are never passed to the server). Env and header values are masked (first four characters, then `****`); a masked value sent back unchanged in `PUT` keeps the stored one.
 
 - `GET /api/servers?query=&source=`
 - `GET /api/servers/:id` → server + `tools` (indexed definitions)
@@ -107,7 +107,7 @@ Server objects carry the stored row (`name, description, source, transport, comm
 - `GET|PUT|DELETE /api/servers/:id/secrets[/:key]` (PUT body `{value}`; changes drop the live connection). Values live in the OS keychain (or an encrypted file), never in SQLite; `GET` always returns `masked_value: "********"`.
 - `GET /api/servers/:id/trust` → `{name, quarantined, drift?: {changed: [{tool, description?, input_schema?, annotations?}], added, removed}, flagged_tools: [{tool, flags}], hashes, digest}`
 - `POST /api/servers/:id/approve` `{hashes}` → re-pins the current tools and lifts the quarantine. `hashes` must be the `hashes` of the reviewed `trust` report; 409 if the tool set changed since (review again).
-- `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete shutdown call_tool`.
+- `GET /api/audit?limit=&before=&server=&action=&tool=` → `{entries: [{id, ts, action, server?, tool?, duration_ms?, is_error?, detail?}], total}`, newest first; page backwards with `before=<last id>`. Actions: `install approve deny enable disable uninstall quarantine release flag secret-set secret-delete shutdown call_tool sampling`.
 - `GET /api/servers/:id/metrics` · `GET /api/metrics`
 
 Removed in 3.0 with the web dashboard: `/ws`, static files, `POST /api/servers/:id/call` (use the `call_tool` MCP tool), the tester routes (`/api/servers/:id/info|tools|resources|resource-templates|resource/*|prompts|prompt/get|ping|logging-level|export`), `/api/transient*`, `/api/presets*`, `/api/prereqs`, `POST /api/sync`, `DELETE /api/logs`, `/api/logs/notifications|progress`, `/api/roots`. Removed in 2.0: `/health` (use `/api/health`), `/activate`, `/deactivate` (use `/enable`, `/disable`), `/preinstall`, `/api/npm-check` (use `/api/install` with `source: "npm"`).
@@ -116,7 +116,7 @@ Removed in 3.0 with the web dashboard: `/ws`, static files, `POST /api/servers/:
 
 - `GET /api/browse?query=&limit=` → `{servers: MarketplaceEntry[], registry: "mirror"|"live", errors: {registry?, npm?, pypi?}}`. `MarketplaceEntry = {source: "registry"|"npm"|"pypi", name, title?, description, version, status: "active"|"deprecated"|"deleted", repository, packages: [{registry_type, identifier, version, transport}], remotes: [{type, url}]}`. `name` is the exact name to install.
 - `GET /api/install/plan?source=&name=&version=&local_name=&transport=` → `InstallPlan` (the exact command or endpoint, the pinned version, env/header requirements, provenance checks, warnings, and `blocked` when it cannot be installed). `source` defaults to `registry`.
-- `POST /api/install` `{source?, name, version?, local_name?, transport?, enable?, secrets?}` → 201 server + `plan` (+ `index_error`). It returns 400 when the plan is blocked and 409 when the local name exists.
+- `POST /api/install` `{source?, name, version?, local_name?, transport?, enable?, secrets?}` → 201 server + `plan` (+ `index_error`). It returns 400 when the plan is blocked and 409 when the local name exists (pass `local_name` to install under another name).
 - `GET /api/registry` → `{count, synced_at, syncing, last_error}` (local mirror of the official MCP Registry; the daemon syncs on start and on search when older than 1 h) · `POST /api/registry/sync` → `{mode: "full"|"incremental", fetched, pages, ms}`.
 - `ServerStatus.registry_status` (`GET /api/status`, `server_status`) is `deleted` when the entry an installed server came from was taken down.
 
@@ -131,7 +131,7 @@ Remote servers without their own `Authorization` header authenticate with OAuth 
 
 ### Logs and upstream questions
 
-- `GET /api/logs?limit=&offset=` → `{entries: [{id, timestamp, server, tool, args, response, latency_ms, success, kind}], total}`, newest first (in memory, `AGENT_DISCOVER_LOG_RETENTION_DAYS`, at most 500).
+- `GET /api/logs?limit=&offset=` → `{entries: [{id, timestamp, server, tool, response, latency_ms, success, kind}], total}`, newest first; no call arguments or successful output (`response` is a failed call's error text, an elicitation's message or a notification's payload) (in memory, `AGENT_DISCOVER_LOG_RETENTION_DAYS`, at most 500).
 - `GET /api/elicitations` → `{entries: [{id, serverName, message, requestedSchema, createdAt}]}`: upstream questions no client could answer.
 - `POST /api/elicitations/:id/respond` `{action: "accept"|"decline"|"cancel", content?}`.
 

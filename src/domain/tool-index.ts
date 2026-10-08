@@ -173,15 +173,26 @@ export class ToolIndex {
         );
       }
       diff.unchanged = incoming.length - diff.added.length - diff.changed.length;
-      if (dirty.length > 0 || diff.removed.length > 0) {
-        this.db.run(
-          `INSERT INTO _meta (key, value) VALUES (?, '1')
-           ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`,
-          [GENERATION_KEY],
-        );
-      }
+      if (dirty.length > 0 || diff.removed.length > 0) this.bumpGeneration();
     });
     return diff;
+  }
+
+  /** Drop a server's tools (uninstall). */
+  remove(serverId: number): void {
+    this.db.transaction(() => {
+      if (this.db.run('DELETE FROM server_tools WHERE server_id = ?', [serverId]).changes > 0) {
+        this.bumpGeneration();
+      }
+    });
+  }
+
+  private bumpGeneration(): void {
+    this.db.run(
+      `INSERT INTO _meta (key, value) VALUES (?, '1')
+       ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`,
+      [GENERATION_KEY],
+    );
   }
 
   /** Vectors for dirty tools, keyed by tool hash. Reuses stored vectors with the same hash. */

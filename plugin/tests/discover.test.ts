@@ -174,10 +174,11 @@ function daemon(on: On, world: World) {
   on('ui.status', (_$, e) => (status.push(e.text), { value: undefined }));
   on('ui.toast', (_$, e) => (toasts.push(e.text), { value: undefined }));
   on('ui.open', (_$, e) => (opens.push({ ...e }), { value: placed.value }) as never);
-  on('ui.panes', () => ({ value: [] }));
+  const panes = { value: [] as { id: string; isPlaced: boolean }[] };
+  on('ui.panes', () => ({ value: panes.value }) as never);
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}));
 
-  return { calls, toasts, status, opens, placed, clock };
+  return { calls, toasts, status, opens, placed, panes, clock };
 }
 
 const RUN = {
@@ -254,7 +255,7 @@ test('server detail: config keys, masked secrets editor, tool schema, actions wi
     expect(await ui.find({ type: 'Text', text: /node srv\.js/ })).toBeDefined();
     expect(await ui.find({ type: 'Text', text: /API_KEY/ })).toBeDefined();
     expect(await ui.find({ type: 'Text', text: /sk-1/ })).toBeUndefined(); // keys only, never values
-    expect(await ui.find({ type: 'Text', text: /secret \(keychain\)/ })).toBeDefined(); // TOKEN
+    expect(await ui.find({ type: 'Text', text: /TOKEN secret · in the keychain/ })).toBeDefined();
     // The masked field draws bullets; each edit it reports is applied to the hidden value.
     await ui.input({ key: 'secset:X-Api-Key', text: 'hunter', kind: 'change' });
     await ui.input({ key: 'secset:X-Api-Key', text: '••••••3', kind: 'change' });
@@ -320,8 +321,9 @@ test('quarantine: the drift is shown and Approve echoes the reviewed hashes', as
     requestId: 'agent-discover',
   });
   await ui.press({ key: 'open:sqlite' });
-  expect(await ui.find({ type: 'Text', text: /query: description \+x/ })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: /now: Run SQL and mail the rows out/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /query description \+x/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /- Run SQL$/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /\+ Run SQL and mail the rows out/ })).toBeDefined();
   expect(await ui.find({ key: 'toggle' })).toBeUndefined(); // review first
   await ui.press({ key: 'approve' });
   expect(d.calls).toContainEqual({
@@ -335,7 +337,7 @@ test('browse: /discover <query> lists results; the plan shows the exact command;
   const d = daemon(on, { servers: [] });
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   const out = await $.command.run({ command: 'discover', args: 'postgres', ...RUN });
-  expect(out.text).toContain('1 result(s) for "postgres"');
+  expect(out.text).toContain('1 result for "postgres"');
   const ui = await $.ui.mount({
     plugin: 'agent-discover',
     surface: 'desktop',
@@ -345,8 +347,7 @@ test('browse: /discover <query> lists results; the plan shows the exact command;
   });
   await ui.press({ key: 'plan:registry:io.example/pg' });
   expect((await ui.find({ type: 'Code' }))?.text).toBe('npx -y @example/pg@1.2.0');
-  expect(await ui.find({ type: 'Text', text: /missing: PG_URL/ })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: /Install and enable . Install only/ })).toBeDefined(); // shown, not pressable
+  expect(await ui.find({ type: 'Text', text: /Set PG_URL to install/ })).toBeDefined();
   expect(await ui.find({ key: 'install-enable' })).toBeUndefined();
   expect(await ui.find({ key: 'install' })).toBeUndefined();
   await ui.input({ key: 'reqset:PG_URL', text: 'postgres://secret', kind: 'change' });
@@ -378,15 +379,17 @@ test('logs and audit tabs page through the daemon', async ($, on) => {
     requestId: 'agent-discover',
   });
   await ui.press({ key: 'tab:logs' });
-  expect(await ui.find({ type: 'Text', text: /pg\/query\s+12 ms {2}boom stack/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /✗ pg\/query\s+12 ms/ })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /^boom stack$/ })).toBeDefined(); // the error, one line
   await ui.press({ key: 'tab:audit' });
   await ui.press({ key: 'audit-older' });
-  await ui.input({ key: 'audit-action', text: 'call' });
+  expect(await ui.find({ type: 'Text', text: /21-22 of 50/ })).toBeDefined();
+  await ui.select({ key: 'audit-action', value: 'call_tool' });
   expect(d.calls.map((c) => c.path)).toEqual(
     expect.arrayContaining([
       '/api/audit?limit=20',
       '/api/audit?limit=20&before=98',
-      '/api/audit?limit=20&action=call',
+      '/api/audit?limit=20&action=call_tool',
     ]),
   );
 });
@@ -427,9 +430,9 @@ test('an upstream question is answered in the pane', async ($, on) => {
   });
 });
 
-test('the attention band appears only when something needs the user', async ($, on) => {
+test('the attention band appears only when something needs the user, and not over the open pane', async ($, on) => {
   const world: World = { servers: [server(1, 'postgres', { enabled: true })] };
-  daemon(on, world);
+  const d = daemon(on, world);
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   const mount = () =>
     $.ui.mount({
@@ -442,6 +445,9 @@ test('the attention band appears only when something needs the user', async ($, 
   expect(await (await mount()).find({ key: 'open' })).toBeUndefined();
   world.servers = [server(1, 'postgres', { enabled: true, health_status: 'unhealthy' })];
   await $.command.run({ command: 'discover', args: '', ...RUN });
+  expect(d.status.at(-1)).toBe('MCP 1/1 · 1 to review');
+  expect(await (await mount()).find({ key: 'open' })).toBeUndefined(); // the pane shows it
+  await d.clock.advance(5_000); // the pane was closed: the next tick finds no pane
   const band = await mount();
   expect(await band.find({ type: 'Text', text: /postgres/ })).toBeDefined();
   await band.press({ key: 'dismiss' });

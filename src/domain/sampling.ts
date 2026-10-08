@@ -1,5 +1,9 @@
 // =============================================================================
 // agent-discover — Sampling provider (OpenAI Chat Completions)
+//
+// Opt-in: only AGENT_DISCOVER_OPENAI_API_KEY enables it (a plain OPENAI_API_KEY
+// in the daemon's env must not let upstream servers spend it). Every request
+// is reported through `onRequest` (the audit log).
 // =============================================================================
 
 export interface SamplingProvider {
@@ -18,6 +22,13 @@ export interface SamplingProvider {
   }>;
 }
 
+export interface SamplingEvent {
+  server: string;
+  model: string;
+  duration_ms: number;
+  is_error: boolean;
+}
+
 const DEFAULT_MODEL = 'gpt-5-mini';
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -27,16 +38,16 @@ interface OpenAIMessage {
   content: string;
 }
 
-export function createOpenAISamplingProvider(options: {
+function createOpenAISamplingProvider(options: {
   apiKey: string;
   model?: string;
   baseUrl?: string;
   timeoutMs?: number;
+  onRequest?: (event: SamplingEvent) => void;
 }): SamplingProvider {
   const apiKey = options.apiKey;
-  const model = options.model ?? process.env.AGENT_DISCOVER_SAMPLING_MODEL ?? DEFAULT_MODEL;
-  const baseUrl =
-    options.baseUrl ?? process.env.AGENT_DISCOVER_OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
+  const model = options.model ?? DEFAULT_MODEL;
+  const baseUrl = options.baseUrl ?? 'https://api.openai.com/v1';
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return {
@@ -54,9 +65,12 @@ export function createOpenAISamplingProvider(options: {
         messages.push({ role, content: text });
       }
 
+      const started = Date.now();
+      let failed = true;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
+        // Reasoning models (gpt-5*, o*) reject max_tokens and any non-default temperature.
         const res = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -66,8 +80,8 @@ export function createOpenAISamplingProvider(options: {
           body: JSON.stringify({
             model,
             messages,
-            max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
-            temperature: request.temperature ?? 0.7,
+            max_completion_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
+            ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
           }),
           signal: controller.signal,
         });
@@ -84,6 +98,7 @@ export function createOpenAISamplingProvider(options: {
         };
         const choice = body.choices?.[0];
         const text = choice?.message?.content ?? '';
+        failed = false;
         return {
           role: 'assistant',
           content: { type: 'text', text },
@@ -92,14 +107,27 @@ export function createOpenAISamplingProvider(options: {
         };
       } finally {
         clearTimeout(timer);
+        options.onRequest?.({
+          server: request.serverName,
+          model,
+          duration_ms: Date.now() - started,
+          is_error: failed,
+        });
       }
     },
   };
 }
 
-export function maybeCreateDefaultSamplingProvider(): SamplingProvider | undefined {
-  const apiKey =
-    process.env.AGENT_DISCOVER_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? undefined;
+export function samplingFromEnv(
+  env: NodeJS.ProcessEnv,
+  onRequest: (event: SamplingEvent) => void,
+): SamplingProvider | undefined {
+  const apiKey = env.AGENT_DISCOVER_OPENAI_API_KEY;
   if (!apiKey) return undefined;
-  return createOpenAISamplingProvider({ apiKey });
+  return createOpenAISamplingProvider({
+    apiKey,
+    model: env.AGENT_DISCOVER_SAMPLING_MODEL || undefined,
+    baseUrl: env.AGENT_DISCOVER_OPENAI_BASE_URL || undefined,
+    onRequest,
+  });
 }

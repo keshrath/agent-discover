@@ -3,7 +3,7 @@
 // Untrusted strings only ever become text nodes or attribute values; there is no
 // HTML-string path at all. `href`/`src` are restricted to safe schemes.
 
-const SAFE_HREF = /^(https?:|mailto:)/i;
+export const SAFE_HREF = /^(https?:|mailto:)/i;
 const SAFE_IMG = /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i;
 
 /**

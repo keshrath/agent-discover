@@ -15,7 +15,7 @@
 //   - real health probes (`ping` on 2025 connections, `server/discover` on
 //     2026 ones);
 //   - upstream elicitation/create pushes (2025 servers) go to the caller's
-//     `onElicit` (the downstream client) when it is the only such call in
+//     `onElicit` (the downstream client) when its call is the only one in
 //     flight on that connection, else to the queue the Claude Code pane
 //     answers (GET /api/elicitations); roots and
 //     sampling handlers.
@@ -141,7 +141,11 @@ export interface HealthResult {
 function isCommandOnPath(cmd: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const child = spawn(`${cmd} --version`, { shell: true, stdio: 'ignore', windowsHide: true });
+      const child = spawn(`"${cmd}" --version`, {
+        shell: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
       const timer = setTimeout(() => {
         child.kill();
         resolve(false);
@@ -170,6 +174,8 @@ const INSTALL_HINTS: Record<string, string> = {
 export class ConnectionPool {
   private readonly conns = new Map<string, Connection>();
   private readonly pending = new Map<string, Promise<Connection>>();
+  /** Bumped by disconnect, so an open that started before it is not kept. */
+  private readonly generations = new Map<string, number>();
   private readonly failures = new Map<string, { count: number; retryAt: number }>();
   private readonly elicitations = new Map<
     string,
@@ -206,18 +212,20 @@ export class ConnectionPool {
     return (await pending).client;
   }
 
-  /** Run `fn` against a connection; closes it afterwards when this call opened it. */
+  /** Run `fn` against a connection; closes it afterwards when this call opened it and no call uses it. */
   async probe<T>(name: string, fn: (client: Client) => Promise<T>): Promise<T> {
-    const wasConnected = this.conns.has(name);
+    const shared = this.conns.has(name) || this.pending.has(name);
     const client = await this.connect(name);
     try {
       return await fn(client);
     } finally {
-      if (!wasConnected) await this.disconnect(name);
+      const conn = this.conns.get(name);
+      if (!shared && conn?.client === client && conn.inflight === 0) await this.disconnect(name);
     }
   }
 
   async disconnect(name: string): Promise<void> {
+    this.generations.set(name, (this.generations.get(name) ?? 0) + 1);
     const conn = this.conns.get(name);
     if (!conn) return;
     this.conns.delete(name);
@@ -240,6 +248,7 @@ export class ConnectionPool {
         `"${name}" failed to connect ${failure.count}x; retrying in ${Math.ceil((failure.retryAt - Date.now()) / 1000)}s`,
       );
     }
+    const generation = this.generations.get(name) ?? 0;
     const config = this.deps.resolveConfig(name);
     const cached = this.priorFor(name);
     let prior = cached;
@@ -260,6 +269,11 @@ export class ConnectionPool {
       }
     }
     this.failures.delete(name);
+    if ((this.generations.get(name) ?? 0) !== generation) {
+      // Reconfigured or removed while connecting: start over with the current config.
+      await client.close().catch(() => {});
+      return this.open(name);
+    }
 
     const era = client.getProtocolEra();
     if (era === 'modern') this.deps.setEraVerdict(name, 'modern', client.getDiscoverResult());
@@ -363,7 +377,9 @@ export class ConnectionPool {
       const transport = new InPlaceStdioTransport({
         command: config.command,
         args: config.args,
-        env: { ...(process.env as Record<string, string>), ...config.env },
+        // The SDK adds its safe defaults (PATH, HOME/USERPROFILE, TEMP, ...); the daemon's
+        // other variables (tokens of whichever shell started it) never reach third-party code.
+        env: config.env,
         stderr: 'pipe',
       });
       let tail = '';
@@ -392,19 +408,11 @@ export class ConnectionPool {
       const message = params.message ?? '';
       const requestedSchema = params.requestedSchema ?? { type: 'object', properties: {} };
       // A push carries no reference to the call it belongs to: route it to the caller only
-      // when exactly one call that can answer is in flight.
-      const elicitors = this.conns.get(serverName)?.elicitors;
-      if (elicitors?.size === 1) {
-        const [onElicit] = elicitors;
-        this.deps.logs.push(
-          serverName,
-          'elicitation/create',
-          requestedSchema,
-          message,
-          0,
-          true,
-          'elicitation',
-        );
+      // when its call is the only one in flight.
+      const conn = this.conns.get(serverName);
+      if (conn?.inflight === 1 && conn.elicitors.size === 1) {
+        const [onElicit] = conn.elicitors;
+        this.deps.logs.push(serverName, 'elicitation/create', message, 0, true, 'elicitation');
         return onElicit({ message, requestedSchema });
       }
       return this.queueElicitation(serverName, message, requestedSchema);
@@ -471,13 +479,13 @@ export class ConnectionPool {
       const latency = Date.now() - start;
       const ok = !('isError' in result && result.isError);
       this.deps.recordCall(name, tool, latency, ok);
-      this.deps.logs.push(name, tool, args ?? {}, summarize(result), latency, ok);
+      this.deps.logs.push(name, tool, ok ? '' : errorText(result), latency, ok);
       return result;
     } catch (err) {
       const latency = Date.now() - start;
       const message = err instanceof Error ? err.message : String(err);
       this.deps.recordCall(name, tool, latency, false);
-      this.deps.logs.push(name, tool, args ?? {}, message, latency, false);
+      this.deps.logs.push(name, tool, message, latency, false);
       throw err instanceof RegistryError ? err : new UpstreamError(message, { cause: err });
     } finally {
       if (conn) {
@@ -550,15 +558,7 @@ export class ConnectionPool {
       requestedSchema,
       createdAt: Date.now(),
     };
-    this.deps.logs.push(
-      serverName,
-      'elicitation/create',
-      request.requestedSchema,
-      message,
-      0,
-      true,
-      'elicitation',
-    );
+    this.deps.logs.push(serverName, 'elicitation/create', message, 0, true, 'elicitation');
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.elicitations.delete(id)) resolve({ action: 'cancel' });
@@ -586,7 +586,8 @@ export class ConnectionPool {
   }
 }
 
-function summarize(result: CallToolResult | InputRequiredResult): string {
+/** The text of an isError result: all the call log keeps of a call (the pane shows it). */
+function errorText(result: CallToolResult | InputRequiredResult): string {
   if (!('content' in result) || !Array.isArray(result.content)) return JSON.stringify(result);
   return result.content.map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
 }

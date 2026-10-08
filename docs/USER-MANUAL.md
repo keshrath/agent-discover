@@ -80,7 +80,7 @@ You mostly ask the agent for what you want. The `find` skill (Claude Code plugin
 3. A hit on a disabled server: `enable_server`, then call it (or `call_tool` directly).
 4. No hit: `search_servers` for something installable, then `install_server`. You see the exact command, pinned version and provenance, and approve or decline.
 
-In Claude Code the `/discover [what you need]` command opens a panel with the same flow without involving the model: servers grouped as Quarantined, Enabled and Available with Enable / Disable / Re-index buttons, a search box over installed tools and the registries, and Install buttons. The status line shows `MCP 2/6 !1` (enabled of installed, `!n` servers needing attention). A toast appears when a server becomes quarantined or unhealthy.
+In Claude Code the `/discover [what you need]` command opens a pane with the same flow without involving the model: your servers (what needs a look first), each server's detail with Enable / Disable, Browse over the registries with the install plan, Logs and Audit ([section 7](#7-the-discover-pane-in-claude-code)). The status line shows `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need attention). A toast appears when a server becomes quarantined or unhealthy.
 
 Prompts `discover`, `install` and `status` are exposed over MCP and show up as slash commands in hosts that surface MCP prompts.
 
@@ -101,9 +101,9 @@ Every tool except `call_tool` returns `structuredContent` plus a markdown render
 - Registry, npm or PyPI: pass `server` (the exact name from `search_servers`), optionally `source` (default `registry`), `version` and `name` (the local name).
 - Manual: pass `name` and `command` + `args` (stdio) or `url` + `transport` (`streamable-http` or `sse`).
 
-agent-discover builds an install plan and asks you to confirm it through elicitation. You see the command line or URL, env and header names, the version (pinned or not) and the provenance checks. The confirmation is bound to a hash of that exact config. Then it installs, probes the server and stores its tools. `enable: true` also enables it.
+agent-discover builds an install plan and asks you to confirm it through elicitation. You see the command line or URL, env and header names (and the value of any env var that changes what code runs, such as `NODE_OPTIONS` or `PATH`), the version (pinned or not) and the provenance checks. The confirmation is bound to a hash of that exact config. Then it installs, probes the server and stores its tools. `enable: true` also enables it.
 
-Result `status`: `installed`, `already_installed`, `declined` or `consent_required` (the host cannot show an elicitation prompt; install from the `/discover` pane in Claude Code instead). `missing` lists required env vars or headers you still have to set as secrets. A probe failure is reported as `index_error`; the server stays installed.
+`env` and `headers` are for manual installs only. If the local name already belongs to a different server, the call fails and asks for another `name`. Result `status`: `installed`, `already_installed`, `declined` or `consent_required` (the host cannot show an elicitation prompt; install from the `/discover` pane in Claude Code instead). `missing` lists required env vars or headers you still have to set as secrets. A probe failure is reported as `index_error`; the server stays installed.
 
 ### `enable_server` / `disable_server`
 
@@ -133,7 +133,7 @@ Result `status`: `installed`, `already_installed`, `declined` or `consent_requir
 
 - **MCP Registry**: a local mirror of the official registry, synced incrementally in the background on daemon start and when older than an hour, so search is fast and works offline. Entries with `deprecated` or `deleted` status are labelled; deleted entries are hidden from search.
 - **npm** and **PyPI**: for servers that are not in the registry. npm search runs two queries so packages without the `mcp` keyword still show up. PyPI uses a curated list of well-known Python MCP servers plus a best-effort search.
-- Package installs run via `npx -y <pkg>@<version>` (npm), `uvx` (PyPI) or `docker run` (OCI images); remote entries connect to their URL. Versions are pinned where the registry names one.
+- Package installs run via `npx -y <pkg>@<version>` (npm), `uvx` (PyPI) or `docker run` (OCI images); remote entries connect to their URL. Versions are pinned where the registry names an exact one (full semver for npm, a PEP 440 release for PyPI; ranges and dist-tags such as `next` are unpinned).
 
 ### Provenance checks
 
@@ -199,18 +199,23 @@ A remote (`sse` or `streamable-http`) server that needs OAuth and has no `Author
 
 ## 7. The /discover pane in Claude Code
 
+![The /discover pane docked beside the transcript](images/pane-servers.png)
+
+![A server's detail: actions, facts, tools with call counts, configuration](images/pane-detail.png)
+
 agent-discover has no web dashboard since 3.0. Its management UI lives inside Claude Code (plugin, 2.1.289+); other hosts use the MCP tools, and Claude Desktop, claude.ai and VS Code also render the MCP Apps widget on results.
 
 - `/discover` opens the agent-discover pane, docked beside the transcript in the fullscreen layout and above the prompt otherwise (also the desktop Code tab and VS Code). Tabs:
-  - **Servers**: every installed server in aligned columns: state (enabled, installed, quarantined, unhealthy), tool count and description. Open one for its detail, top down: for a quarantined server the drift (changed, added, removed tools; a changed description shows the approved text and the new one) with Approve and Keep disabled; Enable or Disable, Re-index, Check health, Reset errors and Uninstall (asks once more); the exact command or URL, source and MCP Registry name and status, package and version, tags; health (an enabled server is checked when its detail opens, otherwise the last check and when it ran, or "not checked yet"); usage (calls, failures, average latency); for a remote server that asked for OAuth the sign-in state with Sign in and the authorization URL as a link (agent-discover never opens it; a server with a static `Authorization` header shows none); its tools, one line each with the description's first line and per-tool calls, each unfolding to its full description and input schema; and **Configuration and secrets**: every env var and header key with where its value comes from (a keychain secret, a value in the config, or missing), never the value itself, with Set secret, Replace and Delete. A secret is typed into a masked field drawn as dots (a new one asks for its key first); the value is sent once and never kept in the pane's state.
+  - **Servers**: every installed server on two lines, what needs a look first: its name and state (enabled, installed, quarantined, unhealthy), then its tool count and description (or why it is quarantined or unhealthy). Open one for its detail, top down: for a quarantined server the drift (changed, added, removed tools; a changed description shows the approved text and the new one) with Approve and Keep disabled; Enable or Disable, Re-index, Check health, Reset errors and Uninstall (asks once more); the exact command or URL, source and MCP Registry name and status, package and version, tags; health (an enabled server is checked when its detail opens, otherwise the last check and when it ran, or "not checked yet"); usage (calls, failures, average latency); for a remote server that asked for OAuth the sign-in state with Sign in and the authorization URL as a link (agent-discover never opens it; a server with a static `Authorization` header shows none); its tools, one line each with the description's first line and per-tool calls, each unfolding to its full description and input schema; and **Configuration and secrets**: every env var and header key with where its value comes from (a keychain secret, a value in the config, or missing), never the value itself, with Set secret, Replace and Delete. A secret is typed into a masked field drawn as dots (a new one asks for its key first); the value is sent once and never kept in the pane's state.
   - **Browse**: search the registry mirror, npm and PyPI, sync the mirror; open a result for its install plan: the exact command or URL, pinned version, publisher and provenance checks, warnings or the reason it is blocked, and its env and header requirements with an input for each missing one (masked for secrets). Install or Install and enable sends `POST /api/install`; you pressing it is the consent.
   - **Logs**: the recent proxied calls with latency and errors. **Audit**: the audit log, filtered by server and action, paged.
   - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
 - `/discover <what you need>` opens Browse with the results for that query.
-- The pane opens with the keyboard (Tab and shift+Tab walk its buttons and fields, Enter presses, the arrows scroll, Esc hands the keys back and leaves it open; ctrl+x tab takes them again); a hint line under the tabs says which applies. Inline above the prompt it asks for 40 rows; a size you set wins. Times are local.
-- A status line entry `MCP 2/6 !1` (enabled/installed, `!n` servers needing a look).
+- The pane opens with the keyboard: 1-4 switch tabs and r refreshes (not while the ring is in a text field, which takes the keys), Tab and shift+Tab walk its buttons and fields, Enter presses, the arrows scroll, and Esc hands the keys back and leaves it open; ctrl+x tab takes them again. A hint line under the tabs says which applies. After every move the ring lands on the likely next step: the first server, Approve or Enable in a detail, the search field (or the first result once there are results), a missing install secret and then Install and enable, and the row a detail was opened from. Inline above the prompt it asks for 40 rows; a size you set wins. Times are local.
+- A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look).
 - A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
-- A band above the prompt, shown only while something needs you, with Review (opens the server in the pane) and Dismiss.
+- A band above the prompt, shown only while something needs you and the pane is closed, with Review (opens the server in the pane) and Dismiss.
+- A context block in each conversation's first message telling the model what is enabled and to search before giving up.
 
 The pane talks to the daemon's REST API only (state-changing calls with the per-launch token). It refreshes the status every 30 seconds, every 5 seconds while the pane is open, and after every action. If the engine does not place the pane (a terminal too narrow for an unasked pane, a surface that places none), `/discover` prints why. Set `AGENT_DISCOVER_PORT` in the environment if the daemon is not on 3424.
 
@@ -233,7 +238,7 @@ curl -s -X POST $BASE/api/install \
 curl -s -X POST $BASE/api/servers/3/disable -H "X-Agent-Discover-Token: $TOKEN" -H 'Content-Type: application/json'
 ```
 
-`POST /api/install` is the pane's install and, unlike the MCP tool, has no elicitation step: the person pressing Install in the pane is the consent. Only loopback `Host` and `Origin` headers are accepted.
+`POST /api/install` is the pane's install and, unlike the MCP tool, has no elicitation step: the person pressing Install in the pane is the consent. Only loopback `Host` headers are accepted, and requests from web pages (any `Origin`) are refused.
 
 ---
 

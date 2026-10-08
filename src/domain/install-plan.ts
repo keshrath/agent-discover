@@ -286,11 +286,16 @@ export function localNameFor(name: string): string {
   return clean || 'server';
 }
 
-const EXACT_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/;
+// Anything else (ranges like 1.2.x, dist-tags like next) resolves at start time.
+const NPM_EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+const PEP440_EXACT = /^(\d+!)?\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?(\+[a-z0-9.]+)?$/i;
 
-function isExactVersion(v: string | undefined): v is string {
-  return !!v && v !== 'latest' && EXACT_VERSION.test(v) && !/^[0-9]+(\.[0-9x*]+)?$/.test(v);
-}
+/**
+ * Env vars that change what code the command loads or where it fetches it from. Their
+ * values are shown in the consent (other values may be secrets and never are).
+ */
+export const LOADER_ENV =
+  /^(NODE_OPTIONS|NODE_PATH|PYTHON(PATH|STARTUP|HOME)|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_\w+|PATH|PATHEXT|COMSPEC|PERL5(OPT|LIB)|RUBY(OPT|LIB)|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|BASH_ENV|ENV|NPM_CONFIG_\w+|(UV|PIP)_(EXTRA_)?INDEX_URL|DOCKER_HOST)$/i;
 
 /** Resolve `{var}` placeholders from an input's variables (value, else default). */
 function substitute(template: string, variables: Record<string, InputSpec>): string {
@@ -367,8 +372,9 @@ function requirementsOf(
 ): Requirement[] {
   return list.map((kv) => {
     const value = kv.isSecret ? undefined : resolvedValue(kv);
+    // An empty placeholder lists the key as missing until a secret fills it (toConfig drops it).
     if (value !== undefined && !UNRESOLVED.test(value)) values[kv.name] = value;
-    else if (kind === 'header') values[kv.name] = '';
+    else if (kind === 'header' || kv.isSecret || kv.isRequired) values[kv.name] = '';
     return {
       key: kv.name,
       kind,
@@ -418,7 +424,7 @@ function buildPackage(pkg: PackageSpec, present: (key: string) => boolean): Buil
   }
   switch (pkg.registryType) {
     case 'npm': {
-      const pinned = isExactVersion(pkg.version);
+      const pinned = NPM_EXACT.test(pkg.version ?? '');
       return {
         ...base,
         command: 'npx',
@@ -432,7 +438,7 @@ function buildPackage(pkg: PackageSpec, present: (key: string) => boolean): Buil
       };
     }
     case 'pypi': {
-      const pinned = isExactVersion(pkg.version);
+      const pinned = PEP440_EXACT.test(pkg.version ?? '');
       return {
         ...base,
         command: 'uvx',
@@ -489,17 +495,12 @@ function buildRemote(remote: RemoteSpec, present: (key: string) => boolean): Bui
   if (UNRESOLVED.test(url)) {
     return { ...base, blocked: `remote URL ${remote.url} needs values for its {variables}` };
   }
-  let parsed: URL | undefined;
-  try {
-    parsed = new URL(url);
-  } catch {
-    /* handled below */
-  }
+  const parsed = URL.canParse(url) ? new URL(url) : undefined;
   if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
     return { ...base, blocked: `remote URL ${url} is not an http(s) URL` };
   }
   if (parsed.protocol === 'http:') base.warnings.push('remote endpoint is not served over https');
-  return base;
+  return { ...base, url: parsed.href };
 }
 
 export interface PlanOptions {

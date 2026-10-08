@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { createServer, type Server } from 'node:http';
-import { localhostHostValidation, localhostOriginValidation } from '@modelcontextprotocol/node';
+import { localhostHostValidation } from '@modelcontextprotocol/node';
 import { createContext, type AppContext, type ContextOptions } from './context.js';
 import { loadConfig } from './config.js';
 import { createMcpFactory } from './mcp/server.js';
@@ -57,7 +57,6 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     telemetry: options.telemetry ?? (await loadTelemetry(version)),
   });
   const mcpHost = localhostHostValidation();
-  const mcpOrigin = localhostOriginValidation();
   const token = createRestToken();
   const rest = createRestHandler(ctx, token, () => stop());
 
@@ -74,7 +73,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     });
     if (guard(req, res)) return;
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
-    if (pathname === '/mcp' && (!mcpHost(req, res) || !mcpOrigin(req, res))) return;
+    if (pathname === '/mcp' && !mcpHost(req, res)) return;
     const handler = pathname === '/mcp' ? mcp.handle(req, res) : rest(req, res);
     handler.catch((err: unknown) => {
       process.stderr.write(`[agent-discover] request failed: ${String(err)}\n`);

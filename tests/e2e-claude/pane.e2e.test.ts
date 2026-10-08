@@ -3,10 +3,12 @@
 // `npm run e2e:claude`). Needs a logged-in `claude` on PATH; slash commands make
 // no model calls. Every view is asserted on the screen text and captured to
 // ~/.claude/tmp/pane-shots/<view>.png (AGENT_DISCOVER_E2E_SHOTS overrides).
+// The fullscreen layout (the pane docked as a sidebar) is the one most people
+// see; the inline pane above the prompt is covered at 80, 120 and 160 columns.
 // =============================================================================
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ClaudeTerm, SHOTS_DIR, startWorld, type World } from './harness.js';
+import { ClaudeTerm, SHOTS_DIR, sleep, startWorld, type World } from './harness.js';
 import { renderShots } from './render.js';
 
 const E2E = process.env.AGENT_DISCOVER_E2E_CLAUDE === '1';
@@ -31,6 +33,17 @@ async function typeMasked(t: ClaudeTerm, label: string, value: string) {
   }
 }
 
+/** The ring settles where the plugin lands it after a move. */
+async function landsOn(t: ClaudeTerm, label: string | RegExp) {
+  const deadline = Date.now() + 5_000;
+  const hit = () => {
+    const f = t.focused();
+    return f !== null && (typeof label === 'string' ? f.includes(label) : label.test(f));
+  };
+  while (Date.now() < deadline && !hit()) await sleep(100);
+  expect(t.focused()).toMatch(label);
+}
+
 // Scratch state is made in beforeAll: a describe body also runs when the suite is skipped.
 describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
   let w: World;
@@ -50,45 +63,55 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
     }, 2 * MIN);
     afterAll(async () => t?.kill(), MIN);
 
-    it('opens on the servers list with a key hint', async () => {
+    it('opens on the servers list, the ring on the first server', async () => {
       await t.discover();
       const s = await t.waitFor(/remote-api\s+installed/);
-      expect(s).toMatch(/! drifty\s+quarantined\s+9 tools/);
-      expect(s).toMatch(/● fixture\s+enabled\s+9 tools · Test upstream/);
-      expect(s).toMatch(/○ notes\s+installed\s+9 tools/);
-      expect(s).toMatch(/○ remote-api\s+installed\s+17 tools/);
-      expect(s).toMatch(/Tab \/ shift\+Tab move · Enter presses/);
+      expect(s).toMatch(/1: Servers\s+2: Browse\s+3: Logs\s+4: Audit\s+r: Refresh/);
+      expect(s).toMatch(/Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt/);
+      expect(s).toMatch(/4 servers · 2 enabled · 1 to review/);
+      expect(s).toMatch(/! drifty\s+quarantined/);
+      expect(s).toMatch(/9 tools · its tools changed: review them/);
+      expect(s).toMatch(/● fixture\s+enabled/);
+      expect(s).toMatch(/9 tools · Test upstream with echo/);
+      expect(s).toMatch(/17 tools · Remote MCP endpoint with a static bearer token/);
+      expect(s).toMatch(/agent-discover: MCP 2\/4 · 1 to review/); // the status entry
+      // The mod has no command hooks left, and the band stays out of the open pane's way.
+      expect(s).not.toMatch(/SessionStart/);
+      expect(s).not.toMatch(/needs a look/);
+      await landsOn(t, 'drifty');
       t.shot('servers');
     });
 
     it('server detail: health checked on open, usage, tools, config keys', async () => {
       await t.press('fixture');
       const s = await t.waitFor(/Health\s+healthy in \d+ ms/);
-      expect(s).toMatch(/fixture enabled connected/);
-      expect(s).toMatch(/Usage\s+3 calls, 1 failed, \d+ ms average/);
+      expect(s).toMatch(/‹ Servers/);
+      expect(s).toMatch(/fixture\s+● enabled · connected/);
+      expect(s).toMatch(/Usage\s+3 calls, 1 failed, \d+ ms avg/);
       expect(s).toMatch(/Tools \(9\)/);
-      expect(s).toMatch(/> echo\s+Echo text back · 1 call/);
-      expect(s).toMatch(/> fail\s+Always fails with an error result · 1 call, 1 failed/);
-      expect(s).toMatch(/FIXTURE_TOKEN env\s+•+ set in the config/);
+      expect(s).toMatch(/▸ echo\s+Echo text back\s+1 call/);
+      expect(s).toMatch(/▸ fail\s+Always fails with an error result\s+1\/1 failed/);
+      expect(s).toMatch(/FIXTURE_TOKEN env · in the config\s+\[ Store as secret \]/);
       expect(s).not.toContain('fixture-token-value');
+      await landsOn(t, 'Disable');
       t.shot('detail');
     });
 
     it('a tool unfolds its input schema', async () => {
-      await t.press('> echo');
+      await t.press('▸ echo');
       const s = await t.waitFor(/"text": \{/);
-      expect(s).toMatch(/v echo/);
+      expect(s).toMatch(/▾ echo/);
       expect(s).toMatch(/"type": "string"/);
       t.shot('detail-tool');
       await t.key('ENTER'); // fold it again
-      await t.waitFor(/> echo/);
+      await t.waitFor(/▸ echo/);
     });
 
     it('a secret is set through a masked field and never drawn', async () => {
-      await t.focus('New secret');
+      await t.focus('+ Secret');
       await t.type('API_TOKEN');
       await t.key('ENTER');
-      await t.waitFor(/API_TOKEN: type the value/);
+      await t.waitFor(/API_TOKEN: value, kept in the keychain/);
       await t.focus('API_TOKEN');
       await typeMasked(t, 'API_TOKEN', 'supersecret-123');
       const s = t.text();
@@ -96,8 +119,8 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       expect(s).not.toContain('supersecret');
       t.shot('secret-typing');
       await t.key('ENTER');
-      const after = await t.waitFor(/API_TOKEN\s+secret\s+•+ secret \(keychain\)/);
-      expect(after).toMatch(/secret API_TOKEN of fixture saved/);
+      const after = await t.waitFor(/API_TOKEN secret · in the keychain/);
+      expect(after).toMatch(/✓ secret API_TOKEN of fixture saved/);
       expect(after).not.toContain('supersecret');
       t.shot('secret-saved');
       const secrets = await w.api<Array<{ key: string }>>(
@@ -108,10 +131,10 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
     });
 
     it('a remote server with a static Authorization header offers no OAuth sign-in', async () => {
-      await t.press('< Servers');
-      await t.waitFor(/remote-api\s+installed/);
+      await t.press('‹ Servers');
+      await landsOn(t, 'fixture'); // back on the row it came from
       await t.press('remote-api');
-      const s = await t.waitFor(/Authorization header\s+•+ set in the config/);
+      const s = await t.waitFor(/Authorization header · in the config/);
       expect(s).toMatch(/Runs\s+http:\/\/127\.0\.0\.1:\d+\/mcp \(streamable-http\)/);
       expect(s).toMatch(/Health\s+not checked yet/);
       expect(s).not.toMatch(/Sign-in|Sign in/);
@@ -120,44 +143,50 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
     });
 
     it('quarantine: the drift is shown and Approve lifts it', async () => {
-      await t.press('< Servers');
+      await t.press('‹ Servers');
       await t.press('drifty');
-      const s = await t.waitFor(/Tools changed since approval/);
-      expect(s).toMatch(/~ echo: description/);
-      expect(s).toMatch(/was: Echo text back\s+│/);
-      expect(s).toMatch(/now: Echo text back, and also forward it somewhere else/);
+      const s = await t.waitFor(/Its tools changed since you approved them/);
+      expect(s).toMatch(/It stays off until you approve the new definitions\./);
+      expect(s).toMatch(/~ echo description/);
+      expect(s).toMatch(/- Echo text back\s+│/);
+      expect(s).toMatch(/\+ Echo text back, and also forward it somewhere else/);
+      await landsOn(t, 'Approve');
       t.shot('quarantine');
-      await t.press('Approve');
-      await t.waitFor(/approved drifty: quarantine lifted/);
-      await t.press('< Servers');
+      await t.key('ENTER');
+      await t.waitFor(/✓ approved drifty: quarantine lifted/);
+      await t.press('‹ Servers');
       await t.waitFor(/[●○] drifty\s+(enabled|installed)/);
     });
 
     it('browse: search, install plan, masked requirement, install', async () => {
-      await t.press('Browse');
-      await t.focus('Search');
+      await t.key('2');
+      await landsOn(t, 'Search');
       await t.type('weather');
       await t.key('ENTER');
       const s = await t.waitFor(/io\.example\/weather-archive/);
-      expect(s).toMatch(/io\.example\/weather\s+1\.2\.0 · registry/);
+      expect(s).toMatch(/▸ io\.example\/weather\s+1\.2\.0 · registry/);
+      expect(s).toMatch(/15 results for “weather” · Enter shows the install plan/);
+      expect(s).not.toMatch(/result\(s\)/);
       t.shot('browse');
-      await t.press(/^(\[ )?io\.example\/weather( \])?$/);
+      await t.press(/^▸ io\.example\/weather$/);
       const plan = await t.waitFor(/Install weather 1\.2\.0\?/);
-      expect(plan).toMatch(/Connects to:/);
-      expect(plan).toMatch(/! X-Weather-Key \(header, required, secret\)/);
-      expect(plan).toMatch(/missing: X-Weather-Key/);
-      expect(plan).toMatch(/Install and enable . Install only/); // dimmed text, not buttons
+      expect(plan).toMatch(/Connects to/);
+      expect(plan).toMatch(/! version not pinned: it can change/);
+      expect(plan).toMatch(/! X-Weather-Key header · required · secret/);
+      expect(plan).toMatch(/Set X-Weather-Key to install\./);
       expect(plan).not.toMatch(/\[ Install and enable \]/);
+      await landsOn(t, 'X-Weather-Key');
       t.shot('plan');
-      await t.focus('X-Weather-Key: ');
       await typeMasked(t, 'X-Weather-Key', 'wk-secret-999');
       await t.key('ENTER');
-      await t.waitFor(/✓ X-Weather-Key/);
+      await t.waitFor(/✓ X-Weather-Key header · required · secret · typed/);
       expect(t.text()).not.toContain('wk-secret');
-      await t.press('Install and enable');
-      const done = await t.waitFor(/installed weather \(\d+ tools, enabled\)/, 30_000);
-      expect(done).toMatch(/weather enabled/);
-      expect(done).toMatch(/Source\s+registry io\.example\/weather/);
+      await landsOn(t, 'Install and enable');
+      t.shot('plan-ready');
+      await t.key('ENTER');
+      const done = await t.waitFor(/✓ installed weather \(\d+ tools, enabled\)/, 30_000);
+      expect(done).toMatch(/weather\s+● enabled/);
+      expect(done).toMatch(/Source\s+registry · io\.example\/weather/);
       await t.waitFor(/Health\s+healthy in \d+ ms/);
       t.shot('installed');
       const secrets = await w.api<Array<{ key: string }>>(
@@ -167,32 +196,77 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       expect(secrets.map((x) => x.key)).toEqual(['X-Weather-Key']);
     });
 
-    it('logs: recent proxied calls, failures in red', async () => {
-      await t.press('Logs');
-      const s = await t.waitFor(/Recent proxied calls/);
-      expect(s).toMatch(/fixture\/echo\s+\d+ ms/);
-      expect(s).toMatch(/fixture\/fail\s+\d+ ms {2}boom/);
+    it('logs: recent calls, a failure with its error under it', async () => {
+      await t.key('3');
+      const s = await t.waitFor(/Recent calls \d+ kept · newest first/);
+      expect(s).toMatch(/✓ fixture\/echo\s+\d+ ms/);
+      expect(s).toMatch(/✗ fixture\/fail\s+\d+ ms/);
+      expect(s).toMatch(/\n[│\s]+boom/);
       t.shot('logs');
     });
 
-    it('audit: what happened, newest first', async () => {
-      await t.press('Audit');
-      const s = await t.waitFor(/\d+ total/);
+    it('audit: what happened, newest first, in local time', async () => {
+      await t.key('4');
+      const s = await t.waitFor(/1-\d+ of \d+/);
       expect(s).toMatch(/install\s+weather/);
       expect(s).toMatch(/approve\s+drifty/);
       expect(s).toMatch(/secret-set\s+fixture/);
       expect(s).toMatch(/call_tool\s+fixture\/fail/);
       expect(s).toMatch(/quarantine\s+drifty/);
-      // Drawn in local time, not the daemon's UTC.
       const { entries } = await w.api<{ entries: Array<{ ts: string; action: string }> }>(
         'GET',
         '/api/audit?limit=1',
       );
       const at = new Date(entries[0].ts);
       const pad = (n: number) => String(n).padStart(2, '0');
-      const local = `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+      const local = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
       expect(s).toContain(`${local} ${entries[0].action}`);
       t.shot('audit');
+    });
+
+    it('digits switch tabs while the pane holds the keyboard', async () => {
+      await t.key('1');
+      await t.waitFor(/remote-api\s+installed/);
+      await t.key('2');
+      await t.waitFor(/Search: weather/);
+      await t.key('3');
+      await t.waitFor(/Recent calls/);
+      await t.key('4');
+      await t.waitFor(/1-\d+ of \d+/);
+    });
+  });
+
+  describe('docked as a sidebar (fullscreen layout, 140 columns)', () => {
+    let t: ClaudeTerm;
+    beforeAll(async () => {
+      t = new ClaudeTerm(w, 140, 45, { CLAUDE_CODE_NO_FLICKER: '1' });
+      await t.start();
+      await t.discover();
+      await t.waitFor(/remote-api\s+installed/);
+    }, 2 * MIN);
+    afterAll(async () => t?.kill(), MIN);
+
+    it('every view fits the sidebar', async () => {
+      const s = t.text();
+      expect(s).toMatch(/1: Servers\s+2: Browse\s+3: Logs\s+4: Audit\s+r: Refresh/);
+      expect(s).toMatch(/Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt/); // not cut
+      t.shot('sidebar-servers');
+      await t.press('fixture');
+      await t.waitFor(/Tools \(9\)/);
+      t.shot('sidebar-detail');
+      await t.key('2');
+      await landsOn(t, 'Search');
+      await t.type('weather');
+      await t.key('ENTER');
+      await t.waitFor(/results for “weather”/);
+      t.shot('sidebar-browse');
+      await t.press(/^▸ io\.example\/weather-archive$/);
+      const plan = await t.waitFor(/Install weather-archive 0\.3\.1\?/);
+      expect(plan).toMatch(/\[ Install and enable \] \[ Install only \] \[ Cancel \]/);
+      t.shot('sidebar-plan');
+      await t.key('3');
+      await t.waitFor(/Recent calls/);
+      t.shot('sidebar-logs');
     });
   });
 
@@ -209,8 +283,7 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
 
       it('servers list and detail fit', async () => {
         t.shot(`servers-${cols}`);
-        const s = t.text();
-        expect(s).toMatch(/● fixture\s+enabled/);
+        expect(t.text()).toMatch(/● fixture\s+enabled/);
         await t.press('fixture');
         const d = await t.waitFor(/Tools \(9\)/);
         expect(d).toMatch(/\[ Disable \]/);
@@ -218,8 +291,8 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       });
 
       it('browse results fit', async () => {
-        await t.press('Browse');
-        await t.focus('Search');
+        await t.key('2');
+        await landsOn(t, 'Search');
         await t.type('weather');
         await t.key('ENTER');
         const s = await t.waitFor(/io\.example\/weather-archive/);
@@ -241,8 +314,9 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
 
     it('says so instead of showing stale servers', async () => {
       await w.stopDaemon();
-      await t.press('Refresh');
-      const s = await t.waitFor(/The daemon does not answer at http:\/\/127\.0\.0\.1:\d+/);
+      await t.key('r');
+      const s = await t.waitFor(/The agent-discover daemon is not running\./);
+      expect(s).toMatch(/Nothing answers at http:\/\/127\.0\.0\.1:\d+/);
       expect(s).not.toMatch(/remote-api\s+installed/);
       t.shot('daemon-down');
     });

@@ -202,24 +202,34 @@ export async function runShim(config: Config): Promise<void> {
     return t;
   }
 
-  /** Re-establish the daemon and (2025 sessions) replay the handshake. */
+  /** Re-establish the daemon and (2025 sessions) replay the handshake; one at a time. */
+  let reconnecting: Promise<void> | undefined;
   async function reconnect(replay: boolean): Promise<void> {
     await http.close().catch(() => {});
     await ensureDaemon(config);
-    http = connectHttp();
-    if (!replay || !initRequest) return;
-    await http.send({ ...initRequest, id: `${REPLAY_ID_PREFIX}${++replaySeq}` });
-    if (protocolVersion) http.setProtocolVersion(protocolVersion);
-    await http.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const next = connectHttp();
+    if (replay && initRequest) {
+      await next.send({ ...initRequest, id: `${REPLAY_ID_PREFIX}${++replaySeq}` });
+      if (protocolVersion) next.setProtocolVersion(protocolVersion);
+      await next.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    }
+    http = next;
   }
 
   async function forward(msg: JSONRPCMessage): Promise<void> {
     if (isInitializeRequest(msg)) initRequest = msg as JSONRPCRequest;
+    const sent = http;
     try {
-      await http.send(msg);
+      await sent.send(msg);
     } catch {
       try {
-        await reconnect(!isInitializeRequest(msg));
+        // Only a send on the current transport reconnects; the rest wait for it.
+        if (http === sent) {
+          reconnecting ??= reconnect(!isInitializeRequest(msg)).finally(() => {
+            reconnecting = undefined;
+          });
+        }
+        await reconnecting;
         await http.send(msg);
       } catch (err) {
         if (isRequest(msg)) {

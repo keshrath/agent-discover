@@ -272,19 +272,31 @@ export class MarketplaceClient {
   async plan(req: PlanRequest): Promise<InstallPlan> {
     const candidate = await this.resolve(req.source ?? 'registry', req.name, req.version);
     // Registry packages without a version (allowed since schema 2025-12-11) are pinned to the
-    // package registry's current release so the consent shows exactly what runs.
+    // package registry's current release so the consent shows exactly what runs. A failed lookup
+    // leaves it unpinned (the plan warns) rather than failing the plan.
+    const warnings: string[] = [];
     for (const pkg of candidate.server.packages) {
-      if (pkg.version) continue;
-      if (pkg.registryType === 'npm')
-        pkg.version = (await npmLatestVersion(pkg.identifier)) ?? undefined;
-      if (pkg.registryType === 'pypi')
-        pkg.version = (await pypiLatestVersion(pkg.identifier)) ?? undefined;
+      const latest =
+        pkg.registryType === 'npm'
+          ? npmLatestVersion
+          : pkg.registryType === 'pypi'
+            ? pypiLatestVersion
+            : null;
+      if (pkg.version || !latest) continue;
+      try {
+        pkg.version = (await latest(pkg.identifier)) ?? undefined;
+      } catch (err) {
+        warnings.push(
+          `could not look up the current ${pkg.registryType} release of ${pkg.identifier}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
     const plan = buildInstallPlan(candidate, {
       name: req.local_name,
       transport: req.transport,
       storedSecrets: req.storedSecrets,
     });
+    plan.warnings.push(...warnings);
     return checkProvenance(plan);
   }
 

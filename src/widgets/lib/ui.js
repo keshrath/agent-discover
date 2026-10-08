@@ -1,5 +1,5 @@
 // Shared presentational pieces (chips, badges, links). Pure DOM via h().
-import { h } from './dom.js';
+import { SAFE_HREF, h } from './dom.js';
 
 const TONE = {
   QUARANTINED: 'danger',
@@ -54,8 +54,9 @@ export function annotationBadges(a = {}) {
   return out;
 }
 
-/** An external link the host opens (repositories, resource links). */
+/** An external link the host opens (repositories, resource links); other schemes stay plain text. */
 export function link(ctx, label, url) {
+  if (!SAFE_HREF.test(String(url))) return h('span', null, label);
   return h(
     'a',
     {

@@ -94,6 +94,8 @@ export const installPlan = z.object({
   package: z.string().optional(),
   repository: z.string().optional(),
   env_keys: z.array(z.string()),
+  /** Values of env vars that change what code runs (NODE_OPTIONS, PATH, ...); no other value is shown. */
+  loader_env: z.record(z.string(), z.string()).optional(),
   header_keys: z.array(z.string()),
   provenance: z.array(provenanceFact),
 });

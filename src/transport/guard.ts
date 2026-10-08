@@ -4,21 +4,20 @@
 //   - Host must exactly equal one of the loopback names with the daemon's
 //     port (localhost:P, 127.0.0.1:P, [::1]:P), plus the bound host when the
 //     operator binds elsewhere. Defeats DNS rebinding.
-//   - Origin, when present, must parse to http(s) with a loopback hostname
-//     (`new URL().hostname`, so localhost.evil.com fails). `null` and
-//     `file://` are rejected.
+//   - Any Origin is rejected, loopback ones included: only browsers send it
+//     and no browser page is a caller (the pane and the shim are non-browser
+//     clients; the OAuth callback is a top-level GET navigation, which
+//     carries none). No CORS headers, so no page can read a response.
 //   - Requests with a body on POST/PUT/PATCH/DELETE must be application/json,
 //     so CORS-safelisted form posts never reach a handler.
-//   - Allowed cross-origin callers get their Origin reflected; never `*`.
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
-const LOOPBACK_SET: ReadonlySet<string> = new Set(LOOPBACK);
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-/** Apply the policy; true when the request was answered (rejected / preflight). */
+/** Apply the policy; true when the request was answered (rejected). */
 export type RequestGuard = (req: IncomingMessage, res: ServerResponse) => boolean;
 
 function reject(res: ServerResponse, status: number, error: string): void {
@@ -38,39 +37,13 @@ export function createRequestGuard(port: number, bindHost = '127.0.0.1'): Reques
 
   const checkHost = (host: string | undefined) => !!host && hosts.has(host.toLowerCase());
 
-  function checkOrigin(origin: string | undefined): boolean {
-    if (origin === undefined) return true;
-    let url: URL;
-    try {
-      url = new URL(origin);
-    } catch {
-      return false;
-    }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    if (url.origin !== origin.toLowerCase()) return false; // no paths, credentials, trailing junk
-    return LOOPBACK_SET.has(url.hostname);
-  }
-
   return (req, res) => {
     if (!checkHost(req.headers.host)) {
       reject(res, 403, 'Forbidden host');
       return true;
     }
-    const origin = req.headers.origin;
-    if (!checkOrigin(origin)) {
+    if (req.headers.origin !== undefined) {
       reject(res, 403, 'Forbidden origin');
-      return true;
-    }
-    if (origin !== undefined) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Agent-Discover-Token',
-      });
-      res.end();
       return true;
     }
     const length = req.headers['content-length'];

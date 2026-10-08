@@ -1,13 +1,14 @@
 // =============================================================================
-// REST install from the registry: GET /api/install/plan, POST /api/install,
-// GET /api/registry, POST /api/registry/sync.
+// Registry installs: GET /api/install/plan, POST /api/install,
+// GET /api/registry, POST /api/registry/sync, and install_server over /mcp.
 // The fake registry's remote entry points at the daemon's own /mcp, so the
 // install really connects and indexes.
 // =============================================================================
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'node:http';
-import { startTestDaemon, type TestDaemon } from './helpers.js';
+import type { CallToolResult } from '@modelcontextprotocol/client';
+import { connectClient, startTestDaemon, type TestDaemon } from './helpers.js';
 import { entry, fakeRegistry, serveRegistry, type FakeRegistry } from './fixtures/registry.js';
 
 let d: TestDaemon;
@@ -22,6 +23,9 @@ beforeAll(async () => {
   reg.entries.push(
     entry('io.github.acme/self', '1.0.0', {
       description: 'agent-discover itself, over http',
+      remotes: [{ type: 'streamable-http', url: `${d.base}/mcp` }],
+    }),
+    entry('io.github.other/self', '1.0.0', {
       remotes: [{ type: 'streamable-http', url: `${d.base}/mcp` }],
     }),
     entry('io.github.acme/bundle', '1.0.0', {
@@ -46,8 +50,8 @@ function api(path: string, init: RequestInit = {}): Promise<Response> {
 describe('registry routes', () => {
   it('sync and status', async () => {
     const sync = await (await api('/api/registry/sync', { method: 'POST' })).json();
-    expect(sync).toMatchObject({ mode: 'full', fetched: 2 });
-    expect(await (await api('/api/registry')).json()).toMatchObject({ count: 2, syncing: false });
+    expect(sync).toMatchObject({ mode: 'full', fetched: 3 });
+    expect(await (await api('/api/registry')).json()).toMatchObject({ count: 3, syncing: false });
   });
 });
 
@@ -104,5 +108,50 @@ describe('install routes', () => {
       body: JSON.stringify({ name: 'io.github.acme/self', local_name: 'me' }),
     });
     expect(again.status).toBe(409);
+  });
+});
+
+describe('install_server over MCP', () => {
+  it('reports already_installed only for the same server, not for a name clash', async () => {
+    const c = await connectClient(d, { era: 'modern' });
+    const install = async (args: Record<string, unknown>) =>
+      (await c.callTool({ name: 'install_server', arguments: args })) as CallToolResult;
+    try {
+      expect((await install({ server: 'io.github.acme/self' })).structuredContent).toMatchObject({
+        name: 'self',
+        status: 'installed',
+      });
+      expect((await install({ server: 'io.github.acme/self' })).structuredContent).toMatchObject({
+        status: 'already_installed',
+      });
+      const clash = await install({ server: 'io.github.other/self' });
+      expect(clash.isError).toBe(true);
+      expect(JSON.stringify(clash.content)).toMatch(/io\.github\.acme\/self.*pass `name`/);
+      expect(d.ctx.servers.get('self')?.registry_name).toBe('io.github.acme/self');
+
+      const rest = await api('/api/install', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'io.github.other/self' }),
+      });
+      expect(rest.status).toBe(409);
+      expect((await rest.json()).error).toMatch(/local_name/);
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('refuses env/headers for a registry install instead of dropping them', async () => {
+    const c = await connectClient(d, { era: 'modern' });
+    try {
+      const res = (await c.callTool({
+        name: 'install_server',
+        arguments: { server: 'io.github.other/self', name: 'other', env: { TOKEN: 'x' } },
+      })) as CallToolResult;
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toMatch(/env and headers/);
+      expect(d.ctx.servers.get('other')).toBeNull();
+    } finally {
+      await c.close();
+    }
   });
 });

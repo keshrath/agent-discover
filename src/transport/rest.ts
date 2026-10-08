@@ -14,12 +14,18 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { createRouter, json, readJson } from './http.js';
 import type { AppContext } from '../context.js';
 import type { ServerEntry, ServerInput, ServerTransport, ServerUpdate } from '../types.js';
-import { NotFoundError, RegistryError, UpstreamError, ValidationError } from '../types.js';
+import {
+  ConflictError,
+  NotFoundError,
+  RegistryError,
+  UpstreamError,
+  ValidationError,
+} from '../types.js';
 import type { ElicitationContent } from '../domain/pool.js';
 import { maskEnv, restoreMaskedEnv } from '../domain/secrets.js';
 import type { PlanRequest } from '../domain/marketplace.js';
 import { version } from '../version.js';
-import { TOKEN_HEADER, mayReadToken, type RestToken } from './token.js';
+import { TOKEN_HEADER, type RestToken } from './token.js';
 
 const BODY_LIMIT = 131_072;
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -87,18 +93,21 @@ export function createRestHandler(
   const pool = lifecycle.pool;
 
   // Env and header values are masked on the way out; a masked value sent back unchanged keeps the original.
-  // `missing_secrets`: declared headers left empty with no secret to fill them (toConfig drops those).
+  // `missing_secrets`: declared env vars and headers left empty with no secret to fill them
+  // (toConfig drops those; header names match secrets case-insensitively, env names exactly).
   const view = (s: ServerEntry) => {
-    const stored = new Set(ctx.secrets.list(s).map((x) => x.key.toLowerCase()));
+    const stored = ctx.secrets.list(s).map((x) => x.key);
+    const lower = new Set(stored.map((k) => k.toLowerCase()));
     return {
       ...s,
       env: maskEnv(s.env),
       headers: maskEnv(s.headers),
       connected: pool.isConnected(s.name),
       tool_count: index.count(s.id),
-      missing_secrets: Object.keys(s.headers).filter(
-        (h) => s.headers[h] === '' && !stored.has(h.toLowerCase()),
-      ),
+      missing_secrets: [
+        ...Object.keys(s.env).filter((k) => s.env[k] === '' && !stored.includes(k)),
+        ...Object.keys(s.headers).filter((h) => s.headers[h] === '' && !lower.has(h.toLowerCase())),
+      ],
     };
   };
   const byId = (id: string): ServerEntry => {
@@ -132,8 +141,7 @@ export function createRestHandler(
     });
   });
 
-  route('GET', '/api/token', (req, res) => {
-    if (!mayReadToken(req)) return json(res, { error: 'Forbidden origin', code: 'FORBIDDEN' }, 403);
+  route('GET', '/api/token', (_req, res) => {
     json(res, { token: token.value, header: TOKEN_HEADER });
   });
 
@@ -345,6 +353,11 @@ export function createRestHandler(
     const b = await body(req);
     const plan = await upstream(() => ctx.marketplace.plan(planRequest({ get: (k) => str(b[k]) })));
     if (plan.blocked) throw new ValidationError(`Cannot install: ${plan.blocked}`);
+    if (servers.get(plan.server)) {
+      throw new ConflictError(
+        `Server "${plan.server}" already exists; pass local_name to install ${str(b.name)} under another name`,
+      );
+    }
     const { server, index_error } = await lifecycle.install(plan.input, {
       enable: b.enable === true,
       secrets: strMap(b.secrets),

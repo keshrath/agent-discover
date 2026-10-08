@@ -100,6 +100,21 @@ describe.skipIf(!existsSync(BIN))('stdio shim → shared daemon', () => {
     );
     expect(await daemonPid()).not.toBe(pid);
   }, 60_000);
+
+  it('reconnects once when several requests hit a dead daemon at the same time', async () => {
+    const b = clients[1];
+    const pid = (await daemonPid())!;
+    killTree(pid);
+    await waitFor(() => !isAlive(pid), 10_000);
+    const results = await Promise.all(
+      ['one', 'two', 'three'].map(
+        (text) => b.callTool({ name: 'up__echo', arguments: { text } }) as Promise<CallToolResult>,
+      ),
+    );
+    expect(results.map((r) => r.content)).toEqual(
+      ['one', 'two', 'three'].map((text) => [{ type: 'text', text }]),
+    );
+  }, 60_000);
 });
 
 describe('idle exit', () => {

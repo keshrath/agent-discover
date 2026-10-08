@@ -158,7 +158,7 @@ describe('buildInstallPlan', () => {
       '--units=metric',
       '--verbose',
     ]);
-    expect(plan.input.env).toEqual({ WEATHER_REGION: 'eu' });
+    expect(plan.input.env).toEqual({ WEATHER_API_KEY: '', WEATHER_REGION: 'eu' });
     expect(plan.requirements).toEqual([
       {
         key: 'WEATHER_API_KEY',
@@ -221,13 +221,28 @@ describe('buildInstallPlan', () => {
   });
 
   it('ranges and "latest" never count as pinned', () => {
-    for (const version of ['latest', '1', '1.x', '2.*']) {
+    for (const version of ['latest', '1', '1.x', '2.*', '1.2', '1.2.x', '1.x.x', 'next', 'beta']) {
       const raw = structuredClone(SCHEMA_2025_09_29);
       raw.packages[0].version = version;
       const plan = buildInstallPlan(candidate(raw));
       expect(plan.provenance.pinned).toBe(false);
       expect(plan.args).toContain('@acme/weather-mcp');
     }
+  });
+
+  it('exact versions pin: full semver for npm, PEP 440 releases for PyPI', () => {
+    for (const version of ['1.2.3', '1.2.3-rc.1', '0.0.1+build.5']) {
+      const raw = structuredClone(SCHEMA_2025_09_29);
+      raw.packages[0].version = version;
+      expect(buildInstallPlan(candidate(raw)).provenance.pinned).toBe(true);
+    }
+    const pypi = (version: string) => {
+      const raw = structuredClone(SCHEMA_2025_12_11);
+      raw.packages = [{ ...raw.packages[0], version } as (typeof raw.packages)[0]];
+      return buildInstallPlan(candidate(raw)).provenance.pinned;
+    };
+    for (const v of ['3.0', '3.0.0rc1', '1!2.0.post1', '2.0.dev3']) expect(pypi(v)).toBe(true);
+    for (const v of ['latest', '3.x', '3.*', 'beta', '~=3.0']) expect(pypi(v)).toBe(false);
   });
 
   it('oci: tag pins with a mutability warning, digest pins exactly, env forwarded with -e', () => {
@@ -302,6 +317,20 @@ describe('buildInstallPlan', () => {
     expect(remote('http://example.com/sse').warnings).toContain(
       'remote endpoint is not served over https',
     );
+  });
+
+  it('stores the parsed remote URL, so no control character reaches the plan', () => {
+    const plan = buildInstallPlan(
+      candidate({
+        name: 'a/b',
+        description: '',
+        version: '1',
+        remotes: [{ type: 'sse', url: 'https://x.example/a\n✓ Version pinned' }],
+      }),
+    );
+    expect(plan.url).toBe('https://x.example/a%E2%9C%93%20Version%20pinned');
+    expect(plan.input.url).toBe(plan.url);
+    expect(plan.provenance.remote?.url).toBe(plan.url);
   });
 
   it('warns about non-default package registries', () => {

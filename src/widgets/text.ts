@@ -178,26 +178,32 @@ const visible = (s: string) =>
   // eslint-disable-next-line no-control-regex -- matching control characters is the point
   s.replace(/[\x00-\x1f\x7f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
 
+const quoted = (a: string) => (/[\s"'`$]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a);
+
 /** Shell-like rendering that keeps every argument boundary visible. */
 export function commandLine(command: string, args: string[] = []): string {
-  return [command, ...args]
-    .map((a) => (/[\s"'`$]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a))
-    .map(visible)
-    .join(' ');
+  return [command, ...args].map(quoted).map(visible).join(' ');
 }
 
 /**
  * The consent text: plain lines that read the same in an elicitation dialog
- * and in a markdown result. Values of env vars and headers are never shown.
+ * and in a markdown result. Every value is made visible, so publisher text
+ * cannot forge a line. Env values are shown only for vars that change what
+ * code runs (loader_env); every other env var and header shows its name only.
  */
 export function installPlanText(p: InstallPlan): string {
-  const lines = [`Install MCP server "${p.name}"?`];
+  const lines = [`Install MCP server "${visible(p.name)}"?`];
   if (p.command) lines.push(`Runs on this machine: ${commandLine(p.command, p.args)}`);
-  if (p.url) lines.push(`Connects to: ${p.url} (${p.transport})`);
-  if (p.env_keys?.length) lines.push(`Env vars: ${p.env_keys.join(', ')}`);
-  if (p.header_keys?.length) lines.push(`Headers: ${p.header_keys.join(', ')}`);
+  if (p.url) lines.push(`Connects to: ${visible(p.url)} (${p.transport})`);
+  const env = (p.env_keys ?? []).map((k) =>
+    p.loader_env?.[k] !== undefined ? `${k}=${quoted(p.loader_env[k])}` : k,
+  );
+  if (env.length) lines.push(`Env vars: ${visible(env.join(', '))}`);
+  if (p.header_keys?.length) lines.push(`Headers: ${visible(p.header_keys.join(', '))}`);
   for (const f of p.provenance ?? [])
-    lines.push(`${MARK[f.level] ?? '·'} ${f.label}${f.detail ? ` (${f.detail})` : ''}`);
+    lines.push(
+      `${MARK[f.level] ?? '·'} ${visible(f.label)}${f.detail ? ` (${visible(f.detail)})` : ''}`,
+    );
   lines.push('The server is started now to index its tools.');
   return lines.join('\n');
 }

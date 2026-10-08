@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterAll, beforeAll, beforeEach, afterEach } from 'vitest';
-import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpRequest } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,11 +23,12 @@ import { ServerStore } from '../src/domain/servers.js';
 import { SecretsService } from '../src/domain/secrets.js';
 import {
   EncryptedFileSecretBackend,
+  KeyringSecretBackend,
   MemorySecretBackend,
 } from '../src/domain/trust/secret-store.js';
 import { cleanText, scanText, scanTool } from '../src/domain/trust/hygiene.js';
 import { AuditLog, maskArgs } from '../src/domain/trust/audit.js';
-import { createRestToken, mayReadToken } from '../src/transport/token.js';
+import { createRestToken } from '../src/transport/token.js';
 import { loadTelemetry, type Telemetry } from '../src/domain/trust/telemetry.js';
 
 let d: TestDaemon | undefined;
@@ -274,6 +275,41 @@ describe('secret backends', () => {
     expect(() => backend.get('b/K')).toThrow();
   });
 
+  it('keyring backend splits values longer than the Windows credential limit', () => {
+    const store = new Map<string, string>();
+    class Entry {
+      private readonly key: string;
+      constructor(service: string, account: string) {
+        this.key = `${service}|${account}`;
+      }
+      getPassword(): string | null {
+        return store.get(this.key) ?? null;
+      }
+      setPassword(password: string): void {
+        // what Windows Credential Manager enforces (2560 bytes of UTF-16)
+        if (password.length > 1280) throw new Error('longer than the platform limit');
+        store.set(this.key, password);
+      }
+      deletePassword(): boolean {
+        return store.delete(this.key);
+      }
+    }
+    const backend = new KeyringSecretBackend({ Entry });
+    const long = `${'x'.repeat(1279)}😀${'y'.repeat(3000)}`;
+    backend.set('srv/oauth:tokens', long);
+    expect(backend.get('srv/oauth:tokens')).toBe(long);
+    backend.set('srv/oauth:tokens', 'z'.repeat(1500));
+    expect(backend.get('srv/oauth:tokens')).toBe('z'.repeat(1500));
+    expect(store.size).toBe(3); // head + 2 chunks; the longer value's extra chunks are gone
+    backend.set('srv/oauth:tokens', 'short');
+    expect(backend.get('srv/oauth:tokens')).toBe('short');
+    expect(store.size).toBe(1);
+    backend.set('srv/oauth:tokens', long);
+    backend.delete('srv/oauth:tokens');
+    expect(backend.get('srv/oauth:tokens')).toBeNull();
+    expect(store.size).toBe(0);
+  });
+
   it('SecretsService keeps values out of the DB and lists them masked', () => {
     const db = createDb({ path: ':memory:' });
     const srv = new ServerStore(db).create({ name: 'a', command: 'node' });
@@ -382,7 +418,7 @@ describe('REST token', () => {
     const ok = await raw('/api/token', { host });
     expect(ok.status).toBe(200);
     expect(JSON.parse(ok.body)).toEqual({ token: d!.restToken, header: 'x-agent-discover-token' });
-    // any origin (even loopback ones the guard admits, the daemon's own included) never learns it
+    // no origin, the daemon's own included, ever learns it
     for (const origin of [
       `http://${host}`,
       'http://localhost:5173',
@@ -393,16 +429,6 @@ describe('REST token', () => {
       expect(res.status).toBe(403);
       expect(res.body).not.toContain(d!.restToken);
     }
-  });
-
-  it('mayReadToken is a pure Origin/Host check', () => {
-    const req = (origin: string | undefined) =>
-      ({ headers: { origin, host: 'localhost:3424' } }) as unknown as IncomingMessage;
-    expect(mayReadToken(req(undefined))).toBe(true);
-    expect(mayReadToken(req('file://'))).toBe(false);
-    expect(mayReadToken(req('HTTP://LOCALHOST:3424'))).toBe(false);
-    expect(mayReadToken(req('http://localhost:3000'))).toBe(false);
-    expect(mayReadToken(req('null'))).toBe(false);
   });
 
   it('createRestToken verifies exact strings only', () => {

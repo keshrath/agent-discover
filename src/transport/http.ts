@@ -53,6 +53,14 @@ export interface Router {
   handle(req: IncomingMessage, res: ServerResponse): Promise<boolean>;
 }
 
+function decodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    throw new ValidationError(`Malformed URL escape in "${raw}"`);
+  }
+}
+
 export function createRouter(): Router {
   const routes: Array<{ method: string; pattern: RegExp; names: string[]; handler: RouteHandler }> =
     [];
@@ -73,8 +81,8 @@ export function createRouter(): Router {
         if (r.method !== req.method) continue;
         const m = r.pattern.exec(pathname);
         if (!m) continue;
-        const params = Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1])]));
         try {
+          const params = Object.fromEntries(r.names.map((n, i) => [n, decodeParam(m[i + 1])]));
           await r.handler(req, res, params);
         } catch (err) {
           if (err instanceof RegistryError) {

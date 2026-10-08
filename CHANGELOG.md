@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-10-08
+
+The Claude Code plugin is now skills plus one mod: no command hooks or scripts are left. This release also fixes a set of security and correctness findings from a full review.
+
+### Added
+
+- **Context block** (`prompt.context`): each conversation starts knowing which servers are enabled and that it should call `search_tools` before saying a capability is missing. This replaces the SessionStart command hook.
+- **The pane, redesigned for the docked sidebar** (the fullscreen layout, about 45-70 columns), checked view by view in the real CLI:
+  - a one-line tab bar with its keys (`1: Servers  2: Browse  3: Logs  4: Audit  r: Refresh`);
+  - two-line rows (name and state, then tool count and description) instead of columns cut off at the edge;
+  - labels beside values that wrap;
+  - the theme's colors;
+  - a quarantine card with the old and new definitions as `-`/`+` lines;
+  - Browse with the count under the search and `▸` on what opens a plan;
+  - the plan's checks with hanging indents and its buttons in one row;
+  - failed calls in Logs with the error under them;
+  - outcomes marked ✓ or ✗;
+  - lines capped at 100 columns on wide panes.
+- **The focus ring lands where the next step is**: on the first server, on Approve or Enable in a detail, in the search field (or on the first result after a search), on a missing install secret and then on Install and enable, and back on the row a detail was opened from.
+- **The status entry and the context block**: the status entry reads `MCP 2/4 · 1 to review`. The audit action filter is a picker over every action, call rows show their duration, and the page reads `21-40 of 312`. npm and PyPI installs show as installed in Browse.
+- **The attention band stays hidden while the pane is open.**
+- **Sampling is audited** (`sampling` audit action).
+- **The install consent shows the values of env vars that change what code runs** (`NODE_OPTIONS`, `PATH`, `PYTHONPATH`, `LD_PRELOAD`, ...). Other env values stay hidden.
+
+### Changed
+
+- **Removed** `plugin/scripts` (`session-start.mjs`, `statusline.mjs` for builds before function hooks) and `scripts/setup.js`, which wrote a duplicate 1.x entry into `~/.claude.json`.
+- **Stdio servers no longer inherit the daemon's environment.** They start with their own env and secrets plus the MCP SDK's safe defaults (`PATH`, `HOME`/`USERPROFILE`, `TEMP`, ...), so tokens in the shell that started the daemon stay out of third-party servers. A server that relied on an inherited variable needs it in its env.
+- **Sampling** is enabled only by `AGENT_DISCOVER_OPENAI_API_KEY`. A plain `OPENAI_API_KEY` in the daemon's environment no longer lets upstream servers spend it. Requests send `max_completion_tokens` and no default temperature, which reasoning models reject.
+- **Browser pages are refused**: the daemon refuses every request that carries an `Origin` (loopback included) and sends no CORS headers, so no web page can read `/api/*`.
+- **The call log keeps no tool arguments and no successful output**; `GET /api/logs` shows a failed call's error text only.
+- **Only full semver (npm) or a PEP 440 release (PyPI) counts as a pinned version**. `1.2.x` and dist-tags no longer do.
+- **`install_server` refuses `env`/`headers` for registry, npm and PyPI installs** instead of dropping them; the person sets those secrets in `/discover`.
+
+### Fixed
+
+- **Windows keychain**: values over 1280 characters (OAuth tokens and metadata) failed to store, which broke sign-in. Moving such a secret into the keychain on startup could keep the daemon from starting. Long values now span numbered entries.
+- **`call_tool` reached tools of an indexed server that were never indexed or approved.**
+- **A re-index no longer closes a connection** that another in-flight call is using.
+- **Disconnecting during a pending connect** no longer keeps a client with the old config.
+- **An upstream question went to the wrong host** while several calls were in flight; it now goes to the pane's queue.
+- **The shim reconnects once** when several requests fail against a restarted daemon, instead of failing some with -32603.
+- **Uninstall now invalidates the search index**, so removed servers' tools no longer skew rankings.
+- **`install_server` reported a different package as already installed** when two packages derive the same local name (`@a/mcp`, `@b/mcp`).
+- **Publisher text with newlines could forge lines in the install consent**; widget links with a non-http(s) scheme could still be opened.
+- **Required secret env vars from a registry now show as missing** and are not passed empty.
+- **A failed npm or PyPI version lookup no longer fails the whole install plan.**
+- **A malformed URL escape returned 500 instead of 400.**
+- **Older audit pages**: Older showed under a filter when nothing older matched.
+- **Times with a UTC offset were not drawn in local time.**
+- **A server command under a path with spaces was reported as missing from PATH.**
+
 ## [3.1.0] - 2026-10-06
 
 The `/discover` pane, tested in the real Claude Code CLI and reworked where that showed gaps.

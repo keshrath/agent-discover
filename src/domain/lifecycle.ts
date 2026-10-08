@@ -253,6 +253,7 @@ export class ServerLifecycle {
     const server = this.servers.require(name);
     await this.pool.disconnect(name);
     this.deps.secrets.deleteAll(server);
+    this.index.remove(server.id);
     this.servers.remove(name);
     this.record({ action: 'uninstall', server: name });
     this.changed(server.enabled);
@@ -351,6 +352,11 @@ export class ServerLifecycle {
     const server = this.servers.get(serverName);
     if (!server) throw new NotFoundError('Server', serverName);
     if (server.quarantined) throw this.quarantineError(server);
+    // Once indexed, only indexed tools were pinned and approved. A server not indexed yet
+    // (sign-in pending) is first pinned by the index that follows this call.
+    if (server.indexed_at && !this.index.get(serverName, tool)) {
+      throw new NotFoundError('Tool', `${serverName}/${tool}`);
+    }
     const call = (meta: Record<string, string>) =>
       this.pool.callTool(serverName, tool, args, {
         ...opts,

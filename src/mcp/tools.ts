@@ -24,7 +24,7 @@ import {
 } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
 import { validateServerInput } from '../domain/servers.js';
-import { manualPlan, type InstallPlan } from '../domain/install-plan.js';
+import { LOADER_ENV, manualPlan, type InstallPlan } from '../domain/install-plan.js';
 import { ValidationError } from '../types.js';
 import type { ServerStatus } from '../domain/lifecycle.js';
 import type { HealthResult } from '../domain/pool.js';
@@ -154,9 +154,9 @@ const installArgs = z.object({
     .describe('Pick a remote (streamable-http/sse) over a package, or the manual transport'),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  env: stringMap.optional(),
+  env: stringMap.optional().describe('Manual install only (registry secrets are set by the user)'),
   url: z.string().optional().describe('Endpoint for manual sse / streamable-http servers'),
-  headers: stringMap.optional(),
+  headers: stringMap.optional().describe('Manual install only'),
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
   enable: z.boolean().optional().describe('Enable (expose) the server right after install'),
@@ -168,6 +168,11 @@ const installArgs = z.object({
 
 async function proposedPlan(rt: McpRuntime, a: z.infer<typeof installArgs>): Promise<InstallPlan> {
   if (a.server) {
+    if (a.env || a.headers) {
+      throw new ValidationError(
+        'env and headers apply only to a manual install; the user sets the secrets of a registry/npm/PyPI server in /discover',
+      );
+    }
     const server = a.name ? rt.app.servers.get(a.name) : null;
     return rt.app.marketplace.plan({
       source: a.source,
@@ -226,6 +231,9 @@ function planView(plan: InstallPlan): PlanView {
     });
   }
   for (const w of plan.warnings) facts.push({ label: 'Warning', level: 'warn', detail: w });
+  const loaderEnv = Object.entries(plan.input.env ?? {}).filter(
+    ([k, v]) => v !== '' && LOADER_ENV.test(k),
+  );
   return {
     name: plan.server,
     transport: plan.transport,
@@ -234,6 +242,7 @@ function planView(plan: InstallPlan): PlanView {
     ...(p.package ? { package: p.package.name } : {}),
     ...(p.repository ? { repository: p.repository } : {}),
     env_keys: plan.requirements.filter((r) => r.kind === 'env').map((r) => r.key),
+    ...(loaderEnv.length ? { loader_env: Object.fromEntries(loaderEnv) } : {}),
     header_keys: plan.requirements.filter((r) => r.kind === 'header').map((r) => r.key),
     provenance: facts,
   };
@@ -396,7 +405,22 @@ export const META_TOOLS = {
           status === 'consent_required',
         );
       };
-      if (rt.app.servers.get(plan.server)) return summary('already_installed');
+      const existing = rt.app.servers.get(plan.server);
+      if (existing) {
+        const same = plan.input.registry_name
+          ? existing.registry_name === plan.input.registry_name
+          : existing.package_name === (plan.input.package_name ?? null);
+        if (same) return summary('already_installed');
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `"${plan.server}" is already installed from ${existing.registry_name ?? existing.package_name ?? existing.source}; pass \`name\` to install this server under another local name`,
+            },
+          ],
+        };
+      }
       if (plan.blocked) {
         return {
           isError: true,
