@@ -80,7 +80,7 @@ You mostly ask the agent for what you want. The `find` skill (Claude Code plugin
 3. A hit on a disabled server: `enable_server`, then call it (or `call_tool` directly).
 4. No hit: `search_servers` for something installable, then `install_server`. You see the exact command, pinned version and provenance, and approve or decline.
 
-In Claude Code the `/discover [what you need]` command opens a pane with the same flow without involving the model: your servers (what needs a look first), each server's detail with Enable / Disable, Browse over the registries with the install plan, Logs and Audit ([section 7](#7-the-discover-pane-in-claude-code)). The status line shows `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need attention). A toast appears when a server becomes quarantined or unhealthy.
+In Claude Code the `/discover [what you need]` command opens a pane with the same flow without involving the model: your servers (what needs a look first), each server's detail with Enable / Disable, Browse over the registries with the install plan, Logs and Audit ([section 7](#7-the-discover-pane-in-claude-code)). The status line shows `MCP 2/6 enabled · 1 to review` (enabled of installed, and how many servers need attention). A toast appears when a server becomes quarantined or unhealthy.
 
 Prompts `discover`, `install` and `status` are exposed over MCP and show up as slash commands in hosts that surface MCP prompts.
 
@@ -214,7 +214,7 @@ agent-discover has no web dashboard since 3.0. Its management UI lives inside Cl
   - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
 - `/discover <what you need>` opens Browse with the results for that query.
 - The pane opens with the keyboard: 1-4 switch tabs and r refreshes (not while the ring is in a text field, which takes the keys), Tab and shift+Tab walk its buttons and fields, Enter presses, the arrows scroll, and Esc hands the keys back and leaves it open; ctrl+x tab takes them again. A hint line under the tabs says which applies. After every move the ring lands on the likely next step: the first server, Approve or Enable in a detail, the search field (or the first result once there are results), a missing install secret and then Install and enable, and the row a detail was opened from. Inline above the prompt it asks for 40 rows; a size you set wins. Times are local.
-- A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look).
+- A status line entry `MCP 2/6 enabled · 1 to review` (enabled of installed, and how many servers need a look).
 - A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
 - A band above the prompt, shown only while something needs you and the pane is closed, with Review (opens the server in the pane) and Dismiss.
 - A context block in each conversation's first message telling the model what is enabled and to search before giving up.

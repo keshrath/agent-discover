@@ -68,13 +68,13 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
       const s = await t.waitFor(/remote-api\s+installed/);
       expect(s).toMatch(/1: Servers\s+2: Browse\s+3: Logs\s+4: Audit\s+r: Refresh/);
       expect(s).toMatch(/Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt/);
-      expect(s).toMatch(/agent-discover · 4 MCP servers · 2 enabled · 1 to review/);
+      expect(s).toMatch(/4 MCP servers · 2 enabled · 1 to review/);
       expect(s).toMatch(/! drifty\s+quarantined/);
       expect(s).toMatch(/9 tools · its tools changed: review them/);
       expect(s).toMatch(/● fixture\s+enabled/);
       expect(s).toMatch(/9 tools · Test upstream with echo/);
       expect(s).toMatch(/17 tools · Remote MCP endpoint with a static bearer token/);
-      expect(s).toMatch(/agent-discover: MCP 2\/4 · 1 to review/); // the status entry
+      expect(s).toMatch(/agent-discover: MCP 2\/4 enabled · 1 to review/); // the status entry
       // The mod has no command hooks left, and the band stays out of the open pane's way.
       expect(s).not.toMatch(/SessionStart/);
       expect(s).not.toMatch(/needs a look/);
@@ -315,9 +315,12 @@ describe.skipIf(!E2E)('/discover pane in Claude Code', () => {
     it('says so instead of showing stale servers', async () => {
       await w.stopDaemon();
       await t.key('r');
-      const s = await t.waitFor(/The agent-discover daemon is not running\./);
+      const s = await t.waitFor(/The agent-discover daemon is not running/);
       expect(s).toMatch(/Nothing answers at http:\/\/127\.0\.0\.1:\d+/);
+      expect(s).toMatch(/agent-discover daemon/);
       expect(s).not.toMatch(/remote-api\s+installed/);
+      expect(s).not.toMatch(/2: Browse/);
+      await landsOn(t, 'Retry');
       t.shot('daemon-down');
     });
   });

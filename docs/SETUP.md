@@ -171,7 +171,7 @@ The plugin lives in `plugin/` and is what `claude plugin install` fetches. It ha
   - Questions upstream servers ask (elicitation) that no client could answer show on top, with a field per requested value and Accept, Decline, Cancel.
 - `/discover <what you need>` opens Browse with the results for that query.
 - Keys: 1-4 switch tabs and r refreshes while the pane holds the keyboard (a text field takes them while it has the focus); Tab moves, Enter presses, Esc hands the keys back, ctrl+x tab takes them again. After each move the focus lands on the next step.
-- A status line entry `MCP 2/6 · 1 to review` (enabled of installed, and how many servers need a look).
+- A status line entry `MCP 2/6 enabled · 1 to review` (enabled of installed, and how many servers need a look).
 - A toast when a server becomes quarantined or unhealthy, or an upstream server asks a question.
 - A band above the prompt, shown only while something needs you and the pane is closed, with Review (opens the server in the pane) and Dismiss.
 - A context block (`# agent-discover`) in each conversation's first message: which servers are enabled, and to call `search_tools` (or `search_servers`) before saying a capability is unavailable. Nothing is added while the daemon is down.

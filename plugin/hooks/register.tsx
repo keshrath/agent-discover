@@ -151,7 +151,7 @@ async function poll($: EngineInterface): Promise<AgentDiscoverSnapshot> {
 }
 
 const summary = (s: AgentDiscoverSnapshot) =>
-  `MCP ${s.servers.filter((x) => x.enabled).length}/${s.servers.length}${s.attention.length ? ` · ${s.attention.length} to review` : ''}`;
+  `MCP ${s.servers.filter((x) => x.enabled).length}/${s.servers.length} enabled${s.attention.length ? ` · ${s.attention.length} to review` : ''}`;
 
 /** The context block the model starts with: what is enabled and to search before giving up. */
 function contextText(s: AgentDiscoverSnapshot) {
@@ -171,6 +171,8 @@ async function refresh($: EngineInterface) {
   const prev = await read($, snapshot);
   await update($, snapshot, () => next);
   $.ui.status(next.isUp ? summary(next) : undefined);
+  // The daemon came or went: every control the ring could be on was redrawn.
+  if (prev && prev.isUp !== next.isUp) void land($);
   if (prev?.isUp) {
     for (const name of next.attention.filter((n) => !prev.attention.includes(n))) {
       const quarantined = next.servers.find((s) => s.name === name)?.quarantined;
@@ -375,8 +377,10 @@ async function loadView($: EngineInterface) {
 
 async function find($: EngineInterface, query: string): Promise<AgentDiscoverBrowse> {
   const snap = await read($, snapshot);
-  const installed = new Set(
-    snap?.servers.flatMap((s) => [s.name, s.registry_name, s.package_name]).filter(Boolean),
+  const installed = new Map(
+    snap?.servers.flatMap((s) =>
+      [s.name, s.registry_name, s.package_name].filter(Boolean).map((k) => [k, s.name] as const),
+    ),
   );
   const market = await api($, `/api/browse?query=${encodeURIComponent(query)}&limit=15`).catch(
     (err: Error): Json => ({ error: err.message }),
@@ -392,7 +396,7 @@ async function find($: EngineInterface, query: string): Promise<AgentDiscoverBro
       description: String(m.description ?? '').slice(0, 300),
       version: String(m.version ?? ''),
       status: String(m.status ?? 'active'),
-      isInstalled: installed.has(String(m.name)),
+      installed: installed.get(String(m.name)) ?? null,
     })),
     error: errors.length ? errors.join('; ') : null,
   };
@@ -462,6 +466,7 @@ async function act($: EngineInterface, label: string, fn: () => Promise<string>)
 
 /** Where the focus ring lands after a move: the control the person most likely wants next. */
 async function landing($: EngineInterface, from: string | null): Promise<string | null> {
+  if (!(await read($, snapshot))?.isUp) return 'retry';
   const r = await read($, route);
   if (r.tab === 'servers' && r.server) {
     const d = await read($, detail);
@@ -476,7 +481,7 @@ async function landing($: EngineInterface, from: string | null): Promise<string 
     const p = await read($, plan);
     if (!p) {
       // A field takes the digits: results already shown keep the tab keys working.
-      const hit = (await read($, browse))?.results.find((x) => !x.isInstalled);
+      const hit = (await read($, browse))?.results.find((x) => !x.installed);
       return hit ? `plan:${hit.source}:${hit.name}` : 'search';
     }
     const todo = p.requirements.find((q) => !q.present && !p.filled.includes(q.key));
@@ -672,6 +677,7 @@ function actions($: EngineInterface): Actions {
           filled: [],
         };
         await update($, plan, () => next);
+        void land($);
         return '';
       }),
     fill: (key, value) => void fillPlan($, key, value).then(() => land($)),

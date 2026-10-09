@@ -15,7 +15,7 @@ The pane is keyboard-first. Four keys get you everywhere:
 
 ## 1. Open it
 
-Type `/discover` and press Enter. The pane opens beside the conversation with the keyboard. The status line shows `MCP 2/4 · 1 to review`: two of four servers enabled, one needs a look.
+Type `/discover` and press Enter. The pane opens beside the conversation with the keyboard. The status line shows `MCP 2/4 enabled · 1 to review`: two of four servers enabled, one needs a look.
 
 ![/discover opens the pane](images/tutorial/02-open.png)
 

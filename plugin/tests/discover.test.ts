@@ -11,6 +11,7 @@ type Row = {
   tool_count: number;
   health_status: string;
   error_count: number;
+  registry_name?: string;
 };
 
 const server = (id: number, name: string, over: Partial<Row> = {}): Row => ({
@@ -49,6 +50,7 @@ type World = {
   elicitations?: unknown[];
   drift?: unknown;
   missing?: string[];
+  isDown?: boolean;
 };
 
 type Call = { method: string; path: string; body: Record<string, unknown> | undefined };
@@ -72,6 +74,7 @@ function daemon(on: On, world: World) {
     const reply = (data: unknown, code = 200) => ({
       value: { status: code, ok: code < 400, headers: {}, text: JSON.stringify(data) },
     });
+    if (world.isDown) return reply({ error: 'connection refused' }, 502);
     const p = url.pathname;
     const one = world.servers.find((s) => p.startsWith(`/api/servers/${s.id}`));
     if (p === '/api/token') return reply({ token: 't0k' });
@@ -209,8 +212,8 @@ test('/discover opens a plain sidebar pane that draws on every surface (pane-not
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
   const out = await $.command.run({ command: 'discover', args: '', ...RUN });
 
-  expect(out.text).toBe('MCP 4/4');
-  expect(d.status.at(-1)).toBe('MCP 4/4');
+  expect(out.text).toBe('MCP 4/4 enabled');
+  expect(d.status.at(-1)).toBe('MCP 4/4 enabled');
   // Dialog manners (closeOnEscape, holdToasts) closed the pane on the first Escape.
   expect(d.opens).toEqual([expect.objectContaining({ id: 'agent-discover', focus: true })]);
   expect(d.opens[0]).not.toHaveProperty('closeOnEscape');
@@ -445,7 +448,7 @@ test('the attention band appears only when something needs the user, and not ove
   expect(await (await mount()).find({ key: 'open' })).toBeUndefined();
   world.servers = [server(1, 'postgres', { enabled: true, health_status: 'unhealthy' })];
   await $.command.run({ command: 'discover', args: '', ...RUN });
-  expect(d.status.at(-1)).toBe('MCP 1/1 · 1 to review');
+  expect(d.status.at(-1)).toBe('MCP 1/1 enabled · 1 to review');
   expect(await (await mount()).find({ key: 'open' })).toBeUndefined(); // the pane shows it
   await d.clock.advance(5_000); // the pane was closed: the next tick finds no pane
   const band = await mount();
@@ -465,4 +468,40 @@ test('a toast names a server that newly gets quarantined', async ($, on) => {
   expect(d.toasts).toEqual(['agent-discover: postgres quarantined, review before use']);
   await d.clock.advance(30_000);
   expect(d.toasts).toHaveLength(1); // once per change
+});
+
+test('browse: an installed result opens that server instead of a plan', async ($, on) => {
+  daemon(on, { servers: [server(3, 'pg', { registry_name: 'io.example/pg' })] });
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  await $.command.run({ command: 'discover', args: 'postgres', ...RUN });
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'terminal',
+    component: 'Pane',
+    props: pane('dock'),
+    requestId: 'agent-discover',
+  });
+  expect(await ui.find({ key: 'plan:registry:io.example/pg' })).toBeUndefined();
+  await ui.press({ key: 'installed:pg' });
+  expect(await ui.find({ type: 'Text', text: /node srv\.js/ })).toBeDefined();
+});
+
+test('daemon down: no tabs, the command to start it and a Retry that polls again', async ($, on) => {
+  const world: World = { servers: REAL, isDown: true };
+  daemon(on, world);
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true });
+  const out = await $.command.run({ command: 'discover', args: '', ...RUN });
+  expect(out.text).toContain('daemon not reachable');
+  const ui = await $.ui.mount({
+    plugin: 'agent-discover',
+    surface: 'terminal',
+    component: 'Pane',
+    props: pane('dock'),
+    requestId: 'agent-discover',
+  });
+  expect(await ui.find({ key: 'tab:browse' })).toBeUndefined();
+  expect((await ui.find({ type: 'Code' }))?.text).toBe('agent-discover daemon');
+  world.isDown = false;
+  await ui.press({ key: 'retry' });
+  expect(await ui.find({ key: 'open:mobile-mcp' })).toBeDefined();
 });

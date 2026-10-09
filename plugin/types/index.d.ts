@@ -113,7 +113,8 @@ export type AgentDiscoverEntry = {
   description: string;
   version: string;
   status: string;
-  isInstalled: boolean;
+  /** The installed server this result is (matched by name, registry name or package). */
+  installed: string | null;
 };
 
 export type AgentDiscoverBrowse = {

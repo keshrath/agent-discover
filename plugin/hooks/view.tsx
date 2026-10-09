@@ -295,20 +295,27 @@ const MAX_COLUMNS = 100;
 const isFailure = (notice: string) => notice.startsWith('✗');
 
 export function Pane(p: PaneProps) {
-  const { Box, Text, Button } = p.el;
+  const { Box, Text, Button, Code } = p.el;
   const { snap, route, on } = p;
-  let body;
+  const width = Math.min(p.columns, MAX_COLUMNS);
+  // Every tab needs the daemon: no tabs then, just what to do about it.
   if (!snap.isUp)
-    body = (
-      <Box flexDirection="column">
-        <Text color={BAD}>The agent-discover daemon is not running.</Text>
-        <Text dimColor>
-          Nothing answers at {snap.origin}. The next MCP call starts it, or run: agent-discover
-          daemon
-        </Text>
+    return (
+      <Box flexDirection="column" gap={1} width={width}>
+        <Box flexDirection="column">
+          <Text color={BAD} bold>
+            The agent-discover daemon is not running
+          </Text>
+          <Text dimColor>
+            Nothing answers at {snap.origin}. The next MCP call starts it, or run:
+          </Text>
+        </Box>
+        <Code source="agent-discover daemon" language="shell" />
+        <Button key="retry" label="Retry" variant="primary" onPress={on.refresh} />
       </Box>
     );
-  else if (route.tab === 'servers' && route.server)
+  let body;
+  if (route.tab === 'servers' && route.server)
     body = p.detail ? (
       <Detail
         el={p.el}
@@ -329,7 +336,7 @@ export function Pane(p: PaneProps) {
   else body = <Audit el={p.el} on={on} audit={p.audit} />;
 
   return (
-    <Box flexDirection="column" gap={1} width={Math.min(p.columns, MAX_COLUMNS)}>
+    <Box flexDirection="column" gap={1} width={width}>
       <Box flexDirection="column">
         <Box flexWrap="wrap" columnGap={2}>
           {TABS.map(([tab, label, hotkey]) =>
@@ -353,19 +360,22 @@ export function Pane(p: PaneProps) {
           )}
           <Button key="refresh" label="Refresh" hotkey="r" plain dimColor onPress={on.refresh} />
         </Box>
-        <Text dimColor wrap="truncate">
-          {p.isFocused
-            ? 'Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt'
-            : 'ctrl+x tab to work this pane from the keyboard'}
-        </Text>
+        {/* One status line under the tabs: the action in flight, else its outcome, else the
+            keys. Nothing above the view grows or shrinks as actions come and go. */}
+        {p.busy ? (
+          <Text color={WARN} wrap="truncate">
+            {p.busy}…
+          </Text>
+        ) : p.notice ? (
+          <Text {...color(isFailure(p.notice) ? BAD : OK)}>{p.notice}</Text>
+        ) : (
+          <Text dimColor wrap="truncate">
+            {p.isFocused
+              ? 'Tab moves · Enter presses · ↑↓ scroll · Esc to the prompt'
+              : 'ctrl+x tab to work this pane from the keyboard'}
+          </Text>
+        )}
       </Box>
-      {p.busy ? (
-        <Text color={WARN} wrap="truncate">
-          {p.busy}…
-        </Text>
-      ) : (
-        p.notice && <Text {...color(isFailure(p.notice) ? BAD : OK)}>{p.notice}</Text>
-      )}
       {snap.elicitations.map((q) => (
         <Question key={`q:${q.id}`} el={p.el} on={on} q={q} />
       ))}
@@ -444,10 +454,7 @@ function Servers({ el, on, snap }: ViewProps & { snap: AgentDiscoverSnapshot }) 
   return (
     <Box flexDirection="column" gap={1}>
       <Text wrap="truncate">
-        <Text bold color={ACCENT}>
-          agent-discover
-        </Text>
-        <Text bold> · {plural(servers.length, 'MCP server')}</Text>
+        <Text bold>{plural(servers.length, 'MCP server')}</Text>
         <Text dimColor> · {enabled} enabled</Text>
         {snap.attention.length > 0 && (
           <Text color={WARN}> · {snap.attention.length} to review</Text>
@@ -844,6 +851,13 @@ function Browse({ el, on, browse, plan, masked }: BrowseProps) {
           </Text>
         )}
         {browse?.error && <Text color={BAD}>{browse.error}</Text>}
+        <Button
+          key="sync"
+          label="Sync the MCP Registry mirror"
+          plain
+          dimColor
+          onPress={on.syncRegistry}
+        />
       </Box>
       {browse && browse.results.length > 0 && (
         <Box flexDirection="column">
@@ -851,10 +865,13 @@ function Browse({ el, on, browse, plan, masked }: BrowseProps) {
             <Box key={`res:${r.source}:${r.name}`} flexDirection="column">
               <Box columnGap={1}>
                 <Box flexShrink={1}>
-                  {r.isInstalled ? (
-                    <Text color={OK} wrap="truncate">
-                      ✓ {r.name}
-                    </Text>
+                  {r.installed ? (
+                    <Button
+                      key={`installed:${r.installed}`}
+                      label={`✓ ${r.name}`}
+                      plain
+                      onPress={() => r.installed && on.open(r.installed)}
+                    />
                   ) : (
                     <Button
                       key={`plan:${r.source}:${r.name}`}
@@ -866,15 +883,11 @@ function Browse({ el, on, browse, plan, masked }: BrowseProps) {
                 </Box>
                 <Box flexShrink={0}>
                   <Text dimColor>
-                    {[
-                      r.version,
-                      r.source,
-                      r.status !== 'active' ? r.status : '',
-                      r.isInstalled ? 'installed' : '',
-                    ]
+                    {[r.version, r.source, r.status !== 'active' ? r.status : '']
                       .filter(Boolean)
                       .join(' · ')}
                   </Text>
+                  {r.installed && <Text color={OK}> · installed</Text>}
                 </Box>
               </Box>
               <Box paddingLeft={2}>
@@ -886,13 +899,6 @@ function Browse({ el, on, browse, plan, masked }: BrowseProps) {
           ))}
         </Box>
       )}
-      <Button
-        key="sync"
-        label="Sync the MCP Registry mirror"
-        plain
-        dimColor
-        onPress={on.syncRegistry}
-      />
     </Box>
   );
 }
